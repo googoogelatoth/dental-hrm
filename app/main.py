@@ -442,18 +442,32 @@ async def delete_employee(emp_id: int, db: Session = Depends(get_db)):
     return RedirectResponse(url="/dashboard?msg=deleted", status_code=status.HTTP_303_SEE_OTHER)
 
 @app.get("/employee/{emp_id}", response_class=HTMLResponse)
-async def employee_detail(emp_id: int, request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # ดึงข้อมูลพนักงานพร้อมเอกสาร (Relationship)
+async def employee_detail(
+    emp_id: int, 
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang), 
+    db: Session = Depends(get_db)
+):
+    # ดึงข้อมูลพนักงาน
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     
     if not employee:
-        # ถ้าหาไม่เจอจริงๆ ให้ส่งข้อความแจ้งเตือนไปที่ Modal
         return HTMLResponse(content="<p class='text-danger'>ไม่พบข้อมูลพนักงานท่านนี้ในระบบ</p>", status_code=404)
-        
+
+    # --- ✨ ส่วนที่เพิ่ม: ถอดรหัสข้อมูลก่อนแสดงผล ---
+    # เราจะสร้าง Dict ใหม่เพื่อไม่ให้กระทบข้อมูลใน Database
+    display_data = {
+        "phone_number": decrypt_data(employee.phone_number) if employee.phone_number else "",
+        "id_card_number": decrypt_data(employee.id_card_number) if employee.id_card_number else "",
+        "bank_account_number": decrypt_data(employee.bank_account_number) if employee.bank_account_number else ""
+    }
+
     return templates.TemplateResponse("employee_detail.html", {
         "request": request,
         "texts": texts, 
-        "employee": employee
+        "employee": employee,
+        "decrypted": display_data  # ส่งค่าที่ถอดรหัสแล้วแยกไป
     })
 
 # --- 🚩 ฟังก์ชันแจ้งลาออก ---

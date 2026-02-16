@@ -2,7 +2,7 @@
     <div class="row g-3">
         <div class="col-md-4 text-center">
             {% if employee.profile_picture %}
-                {# เช็คว่าเป็น URL จาก Cloudinary (http) หรือไฟล์ในเครื่อง #}
+                {# เช็คว่าเป็น URL จาก Cloudinary (http) หรือไฟล์ในเครื่อง (ไม่มี http) #}
                 {% if employee.profile_picture.startswith('http') %}
                     <img src="{{ employee.profile_picture }}" class="img-fluid rounded shadow-sm border" style="max-height: 220px; width: 100%; object-fit: cover;">
                 {% else %}
@@ -27,10 +27,10 @@
                         <tr><th class="text-secondary small">{{ texts.pro_pos }}</th><td class="small">{{ employee.position }}</td></tr>
                         <tr><th class="text-secondary small">{{ texts.pro_dept }}</th><td class="small">{{ employee.department }}</td></tr>
                         
-                        {# ใส่สไตล์ word-break เผื่อกรณีข้อมูลที่เข้ารหัสมันยาวเกินไป #}
-                        <tr><th class="text-secondary small">{{ texts.pro_phone }}</th><td class="small text-break">{{ employee.phone_number }}</td></tr>
-                        <tr><th class="text-secondary small">{{ texts.pro_id_card }}</th><td class="small text-break">{{ employee.id_card_number }}</td></tr>
-                        <tr><th class="text-secondary small">{{ texts.pro_bank }}</th><td class="small text-break">{{ employee.bank_account_number }}</td></tr>
+                        {# ใช้ decrypted เพื่อให้โชว์เบอร์โทรและเลขบัตรปกติ ไม่เป็นภาษาต่างดาว #}
+                        <tr><th class="text-secondary small">{{ texts.pro_phone }}</th><td class="small">{{ decrypted.phone_number }}</td></tr>
+                        <tr><th class="text-secondary small">{{ texts.pro_id_card }}</th><td class="small">{{ decrypted.id_card_number }}</td></tr>
+                        <tr><th class="text-secondary small">{{ texts.pro_bank }}</th><td class="small">{{ decrypted.bank_account_number }}</td></tr>
                         
                         <tr class="table-info">
                             <th class="small">{{ texts.pro_base_salary }}</th>
@@ -54,6 +54,7 @@
     <h6 class="fw-bold small mb-2">{{ texts.pro_doc_title }}</h6>
     <div class="list-group list-group-flush border rounded">
         {% for doc in employee.documents %}
+            {# แก้ลิงก์เอกสารให้รองรับ Cloudinary ด้วย #}
             <a href="{{ doc.file_path if doc.file_path.startswith('http') else '/' + doc.file_path }}" 
                target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 small">
                 <span>📄 {{ doc.file_name }}</span>
