@@ -39,6 +39,8 @@ from .security import encrypt_data
 from .security import decrypt_data
 from .languages import TRANSLATIONS
 from fastapi import status
+import cloudinary
+import cloudinary.uploader
 
 app = FastAPI()
 
@@ -79,6 +81,13 @@ app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
+
+# 1. ตั้งค่า Cloudinary (ดึงค่าจากชื่อตัวแปร Environment)
+cloudinary.config(
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key = os.getenv("CLOUDINARY_API_KEY"),
+    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+)
 
 # ตั้งค่าตำแหน่งของไฟล์ HTML
 templates = Jinja2Templates(directory="app/templates")
@@ -245,29 +254,34 @@ async def handle_add_employee(
     documents: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # --- 1. ตรวจสอบสิทธิ์ Admin (ใช้ user จาก Depends ได้เลย) ---
+    # --- 1. ตรวจสอบสิทธิ์ Admin ---
     if user.role != "Admin":
         raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์เข้าถึงหน้านี้")
 
     # --- 2. UNIQUE Check เลขบัตรประชาชน ---
-    # หมายเหตุ: เมื่อเข้ารหัสแล้ว เราต้องใช้วิธีดึงทุกคนมาเทียบ หรือ Encrypt ค่าที่รับมาไปหาใน DB
     if id_card_number:
         target_encrypted_id = encrypt_data(id_card_number)
         existing_emp = db.query(models.Employee).filter(models.Employee.id_card_number == target_encrypted_id).first()
         if existing_emp:
             return templates.TemplateResponse("add_employee.html", {
                 "request": request, 
-                "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว (หรือถูกใช้งานแล้ว)"
+                "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
             })
 
-    # --- 3. จัดการไฟล์รูปภาพ ---
-    profile_path = None
+    # --- 3. จัดการไฟล์รูปภาพ (ส่งไป Cloudinary) ---
+    profile_url = "/static/img/default-avatar.png" # ค่าเริ่มต้น
     if profile_picture and profile_picture.filename:
-        os.makedirs("uploads/profile_pics", exist_ok=True) # มั่นใจว่ามีโฟลเดอร์
-        file_ext = profile_picture.filename.split(".")[-1]
-        profile_path = f"uploads/profile_pics/{employee_code}.{file_ext}"
-        with open(profile_path, "wb") as buffer:
-            shutil.copyfileobj(profile_picture.file, buffer)
+        try:
+            # อัปโหลดไปที่โฟลเดอร์ hrm/profiles และตั้งชื่อไฟล์ตาม employee_code
+            upload_result = cloudinary.uploader.upload(
+                profile_picture.file, 
+                folder="hrm/profiles",
+                public_id=employee_code,
+                overwrite=True
+            )
+            profile_url = upload_result.get("secure_url")
+        except Exception as e:
+            print(f"Cloudinary Profile Upload Error: {e}")
 
     # --- 4. เข้ารหัสข้อมูลสำคัญ ---
     encrypted_phone = encrypt_data(phone_number)
@@ -281,38 +295,45 @@ async def handle_add_employee(
         first_name=first_name,
         last_name=last_name,
         nickname=nickname,
-        phone_number=encrypted_phone,       # ✅ Encrypted
-        id_card_number=encrypted_id_card,   # ✅ Encrypted
-        bank_account_number=encrypted_bank_acc, # ✅ Encrypted
+        phone_number=encrypted_phone,
+        id_card_number=encrypted_id_card,
+        bank_account_number=encrypted_bank_acc,
         address=address,
         position=position,
         role=role,
         base_salary=base_salary,
         position_allowance=position_allowance,
-        profile_picture=profile_path,
+        profile_picture=profile_url, # เซฟเป็น URL แทน path ในเครื่อง
         hashed_password=hashed_pw,
-        current_session_id=None # เริ่มต้นเป็นค่าว่าง
+        current_session_id=None
     )
     
     db.add(new_emp)
     db.commit()
     db.refresh(new_emp)
 
-    # --- 6. จัดการไฟล์เอกสาร PDF ---
+    # --- 6. จัดการไฟล์เอกสาร PDF (ส่งไป Cloudinary) ---
     if documents:
-        os.makedirs("uploads/documents", exist_ok=True)
         for doc in documents:
             if doc.filename:
-                doc_path = f"uploads/documents/{employee_code}_{doc.filename}"
-                with open(doc_path, "wb") as buffer:
-                    shutil.copyfileobj(doc.file, buffer)
-                
-                new_doc = models.EmployeeDocument(
-                    file_path=doc_path,
-                    file_name=doc.filename,
-                    employee_id=new_emp.id
-                )
-                db.add(new_doc)
+                try:
+                    # อัปโหลดไฟล์เอกสาร (resource_type="raw" สำหรับ PDF/Non-image)
+                    doc_upload = cloudinary.uploader.upload(
+                        doc.file,
+                        folder=f"hrm/docs/{employee_code}",
+                        resource_type="raw",
+                        public_id=doc.filename
+                    )
+                    doc_url = doc_upload.get("secure_url")
+                    
+                    new_doc = models.EmployeeDocument(
+                        file_path=doc_url, # เก็บ URL ไว้ดาวน์โหลด
+                        file_name=doc.filename,
+                        employee_id=new_emp.id
+                    )
+                    db.add(new_doc)
+                except Exception as e:
+                    print(f"Cloudinary Document Upload Error: {e}")
         db.commit()
 
     return RedirectResponse(url="/dashboard?msg=success", status_code=303)

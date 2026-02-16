@@ -19,3 +19,11 @@ else:
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# เพิ่มต่อท้ายไฟล์ database.py ได้เลยครับ
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
