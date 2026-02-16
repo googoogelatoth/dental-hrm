@@ -1,7 +1,17 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 shadow no-print">
     <div class="container">
-        <a class="navbar-brand fw-bold" href="/dashboard">
-            <i class="bi bi-hospital me-2"></i>Mini-HRM
+        <a class="navbar-brand d-flex align-items-center fw-bold" href="/dashboard">
+            {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก Cloudinary --- #}
+            {% if company_logo %}
+                <img src="{% if company_logo.startswith('http') %}{{ company_logo }}{% else %}/{{ company_logo }}{% endif %}" 
+                    alt="Logo" height="35" class="me-2" 
+                    onerror="this.src='/static/img/mini-hrm-logo.png'">
+            {% else %}
+                <i class="bi bi-hospital me-2"></i>
+            {% endif %}
+    
+            {# --- แสดงชื่อบริษัท ถ้าไม่มีให้ใช้ชื่อระบบ --- #}
+            {{ company_name or 'Mini-HRM' }}
         </a>
         
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

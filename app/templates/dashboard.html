@@ -41,7 +41,7 @@
 
 <div class="tab-content" id="employeeTabContent">
     <div class="tab-pane fade show active" id="active-content">
-        <div class="form-container shadow-sm border-0 bg-white rounded">
+        <div class="form-container shadow-sm border-0 bg-white rounded p-3">
             <div class="table-responsive">
                 <table class="table table-hover align-middle">
                     <thead class="table-light">
@@ -59,11 +59,15 @@
                         <tr>
                             <td>
                                 {% if emp.profile_picture %}
-                                <img src="/{{ emp.profile_picture }}" class="rounded-circle shadow-sm" style="width: 45px; height: 45px; object-fit: cover;">
+                                    {# --- จุดที่แก้ไข: เช็ค http เพื่อรองรับ Cloudinary --- #}
+                                    <img src="{% if emp.profile_picture.startswith('http') %}{{ emp.profile_picture }}{% else %}/{{ emp.profile_picture }}{% endif %}" 
+                                         class="rounded-circle shadow-sm border" 
+                                         style="width: 45px; height: 45px; object-fit: cover;"
+                                         onerror="this.src='/static/img/default-avatar.png'">
                                 {% else %}
-                                <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 45px; height: 45px;">
-                                    {{ emp.first_name[0] }}
-                                </div>
+                                    <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 45px; height: 45px;">
+                                        {{ emp.first_name[0] }}
+                                    </div>
                                 {% endif %}
                             </td>
                             <td><strong>{{ emp.employee_code }}</strong></td>
@@ -84,8 +88,8 @@
                                         </button>
                                     </form>
                                     <a href="/delete-employee/{{ emp.id }}" class="btn btn-sm btn-outline-danger" 
-                                        title="{{ texts.delete }}"
-                                        onclick="return confirm('{{ texts.confirm_delete }}')">
+                                       title="{{ texts.delete }}"
+                                       onclick="return confirm('{{ texts.confirm_delete }}')">
                                         <i class="bi bi-trash"></i>
                                     </a>
                                 </div>
@@ -99,7 +103,7 @@
     </div>
 
     <div class="tab-pane fade" id="resigned-content">
-        <div class="form-container shadow-sm border-0 bg-white rounded">
+        <div class="form-container shadow-sm border-0 bg-white rounded p-3">
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-dark">
@@ -152,7 +156,7 @@
 </div>
 
 <script>
-// --- ส่วน JavaScript เดิมของนายที่ผมปรับปรุงให้เล็กน้อย ---
+// --- JavaScript สำหรับ Notification และ Modal ---
 function urlBase64ToUint8Array(base64String) {
     if (!base64String) return new Uint8Array(0);
     const cleanString = base64String.replace(/['"\s]+/g, '').trim();
@@ -191,7 +195,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const userId = meta.getAttribute('data-user-id');
     const vapidKey = meta.getAttribute('data-vapid-key');
 
-    // จัดการ Modal
+    // จัดการ Modal แสดงผลข้อมูลพนักงาน
     const modalElement = document.getElementById('viewEmployeeModal');
     if (modalElement) {
         const myModal = new bootstrap.Modal(modalElement);

@@ -2659,19 +2659,20 @@ async def update_company_settings(
     company.company_name = company_name
     company.address = address
 
+    # --- ☁️ แก้ไขจุดนี้: ส่งโลโก้ไป Cloudinary แทนการเซฟลงเครื่อง ---
     if logo and logo.filename:
-        file_extension = os.path.splitext(logo.filename)[1]
-        new_filename = f"company_logo{file_extension}"
-        
-        # 🚩 แก้ตรงนี้: เปลี่ยนจาก UPLOAD_DIR เป็น LOGO_UPLOAD_DIR
-        # เพื่อให้รูปไปลงที่ app/static/uploads/ ตามที่เราเปิดประตู (Mount) ไว้
-        file_path = os.path.join(LOGO_UPLOAD_DIR, new_filename)
-
-        # บันทึกไฟล์ลง Disk
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(logo.file, buffer)
-        
-        company.logo_path = new_filename
+        try:
+            # อัปโหลดไปที่โฟลเดอร์ hrm/company และตั้งชื่อ public_id ว่า company_logo
+            upload_result = cloudinary.uploader.upload(
+                logo.file,
+                folder="hrm/company",
+                public_id="company_logo",
+                overwrite=True
+            )
+            # ✅ บันทึก URL เต็มจาก Cloudinary ลง Database
+            company.logo_path = upload_result.get("secure_url")
+        except Exception as e:
+            print(f"Cloudinary Logo Upload Error: {e}")
 
     db.commit()
     return RedirectResponse(url="/admin/settings?msg=success", status_code=303)
