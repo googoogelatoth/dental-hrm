@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 no-print">
+    <h2 class="text-primary"><i class="bi bi-file-earmark-bar-graph me-2"></i>{{ texts.rep_title }}</h2>
+</div>
+
+<div class="form-container shadow-sm p-4 bg-white rounded mb-4 no-print">
+    <form action="/attendance-report" method="get" class="row g-3 align-items-end">
+        <div class="col-md-2">
+            <label class="form-label fw-bold">{{ texts.rep_from }}</label>
+            <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold">{{ texts.rep_to }}</label>
+            <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+        </div>
+        <div class="col-md-4">
+            <label class="form-label fw-bold">{{ texts.rep_search_label }}</label>
+            <div class="input-group">
+                <span class="input-group-text bg-white"><i class="bi bi-person"></i></span>
+                <input type="text" name="search_query" class="form-control" 
+                       placeholder="{{ texts.rep_search_placeholder }}" 
+                       value="{{ search_query if search_query else '' }}">
+            </div>
+        </div>
+        <div class="col-md-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">
+                <i class="bi bi-search me-1"></i> {{ texts.rep_btn_search }}
+            </button>
+            <a href="/export-attendance?start_date={{ start_date }}&end_date={{ end_date }}&search_query={{ search_query if search_query else '' }}" 
+               class="btn btn-success flex-grow-1">
+                <i class="bi bi-file-earmark-excel me-1"></i> {{ texts.rep_btn_export }}
+            </a>
+        </div>
+    </form>
+</div>
+
+<div class="mb-3 text-end">
+    <h4 class="text-secondary">
+        {{ texts.rep_period_label }} {{ start_date.strftime('%d/%m/%Y') }} 
+        {% if start_date != end_date %} {{ texts.rep_to_label }} {{ end_date.strftime('%d/%m/%Y') }}{% endif %}
+    </h4>
+</div>
+
+<div class="form-container shadow-sm bg-white rounded border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-primary">
+                <tr>
+                    <th>{{ texts.rep_col_date }}</th>
+                    <th>{{ texts.rep_col_code }}</th>
+                    <th>{{ texts.rep_col_name }}</th>
+                    <th class="text-center">{{ texts.rep_col_in }}</th>
+                    <th class="text-center">{{ texts.rep_col_late }}</th>
+                    <th class="text-center">{{ texts.rep_col_out }}</th>
+                    <th class="text-center">{{ texts.rep_col_early }}</th>
+                    <th class="text-center">{{ texts.rep_col_status }}</th>
+                    <th class="text-center">{{ texts.rep_col_photo }}</th>
+                    <th class="text-center">{{ texts.rep_col_gps }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.date.strftime('%Y-%m-%d') if record.date is not string else record.date }}</td>
+                    <td><code>{{ record.employee.employee_code }}</code></td>
+                    <td><strong>{{ record.employee.first_name }} {{ record.employee.last_name }}</strong></td>
+                    
+                    <td class="text-center">
+                        {% if record.check_in and record.check_in is not string %}
+                            <span class="text-success fw-bold">{{ record.check_in.strftime('%H:%M:%S') }}</span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    
+                    <td class="text-center {{ 'text-danger fw-bold' if record.late_minutes > 0 else 'text-muted' }}">
+                        {{ record.late_minutes if record.late_minutes > 0 else 0 }}
+                    </td>
+                    
+                    <td class="text-center">
+                        {% if record.check_out and record.check_out is not string %}
+                            <span class="text-danger fw-bold">{{ record.check_out.strftime('%H:%M:%S') }}</span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="text-center {{ 'text-danger fw-bold' if record.early_minutes > 0 else 'text-muted' }}">
+                        {{ record.early_minutes if record.early_minutes > 0 else 0 }}
+                    </td>
+                    
+                    <td class="text-center">
+                        {% if record.status == 'ปกติ' or record.status == 'Normal' %}
+                            <span class="badge bg-success">{{ texts.rep_status_normal }}</span>
+                        {% elif 'วันหยุด' in record.status or 'Holiday' in record.status %}
+                            <span class="badge bg-secondary">{{ texts.rep_status_holiday }}</span>
+                        {% elif record.status == 'ขาดงาน' or record.status == 'Absent' %}
+                            <span class="badge bg-dark">{{ texts.rep_status_absent }}</span>
+                        {% elif record.status == 'Late' or record.status == 'สาย' %}
+                            <span class="badge bg-danger">{{ texts.rep_status_late }}</span>
+                        {% elif record.status == 'Abnormal' or record.status == 'ผิดปกติ' %}
+                            <span class="badge bg-warning text-dark">{{ texts.rep_status_abnormal }}</span>
+                        {% else %}
+                            <span class="badge bg-info text-dark">{{ record.status }}</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="text-center">
+                        <div class="btn-group">
+                            {% if record.image_in %}
+                            <button type="button" class="btn btn-sm btn-outline-info" 
+                                    onclick="showPhoto('/uploads/attendance_photos/{{ record.image_in }}', '{{ texts.rep_photo_title_in }} - {{ record.employee.first_name }}')">
+                                <i class="bi bi-camera"></i> {{ texts.rep_photo_in }}
+                            </button>
+                            {% endif %}
+                            {% if record.image_out %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                    onclick="showPhoto('/uploads/attendance_photos/{{ record.image_out }}', '{{ texts.rep_photo_title_out }} - {{ record.employee.first_name }}')">
+                                <i class="bi bi-camera"></i> {{ texts.rep_photo_out }}
+                            </button>
+                            {% endif %}
+                            {% if not record.image_in and not record.image_out %}
+                            <span class="text-muted small">-</span>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    <td class="text-center">
+                        {% if record.lat and record.lon %}
+                        <a href="http://maps.google.com/?q={{ record.lat }},{{ record.lon }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-geo-alt"></i> {{ texts.rep_map_btn }}
+                        </a>
+                        {% else %}
+                        <span class="text-muted small">{{ texts.rep_no_gps }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="10" class="text-center py-5 text-muted">
+                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                        {{ texts.rep_no_data }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="photoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="photoModalLabel">{{ texts.rep_modal_title }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center p-0">
+                <img src="" id="modalImage" class="img-fluid" alt="Attendance Photo" style="min-width: 100%;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showPhoto(src, title) {
+    document.getElementById('modalImage').src = src;
+    document.getElementById('photoModalLabel').innerText = title;
+    var myModal = new bootstrap.Modal(document.getElementById('photoModal'));
+    myModal.show();
+}
+</script>
+{% endblock %}

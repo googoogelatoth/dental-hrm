@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid mt-4"> 
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-file-earmark-spreadsheet text-success"></i> {{ texts.ps_title }}</h3>
+        <div>
+            <button onclick="exportTableToExcel('payroll-table', 'payroll_report_{{ current_month }}_{{ current_year }}')" class="btn btn-outline-success me-2">
+                <i class="bi bi-file-earmark-excel"></i> {{ texts.ps_btn_export }}
+            </button>
+            <a href="/admin/calculate-payroll" class="btn btn-primary btn-sm">
+                <i class="bi bi-calculator"></i> {{ texts.ps_btn_new_calc }}
+            </a>
+        </div>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-success">
+        <div class="card-body">
+            <form method="GET" action="/admin/payroll-summary" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">{{ texts.ps_label_month }}</label>
+                    <select name="month" class="form-select">
+                        {% for m in months_range %}
+                        <option value="{{ m }}" {% if m == current_month %}selected{% endif %}>
+                            {{ texts.months[m-1] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">{{ texts.ps_label_year }}</label>
+                    <select name="year" class="form-select">
+                        {% for y in years_range %}
+                        <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>
+                            {{ y + 543 if request.cookies.get('lang') == 'th' else y }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-success w-100">{{ texts.ps_btn_search }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table id="payroll-table" class="table table-bordered table-hover align-middle mb-0" style="font-size: 0.9rem;">
+                    <thead class="table-dark text-center">
+                        <tr>
+                            <th rowspan="2" class="align-middle">{{ texts.ps_col_name }}</th>
+                            <th colspan="4" class="bg-primary text-white">{{ texts.ps_header_income }}</th>
+                            <th colspan="4" class="bg-danger text-white">{{ texts.ps_header_deduct }}</th>
+                            <th rowspan="2" class="align-middle bg-dark">{{ texts.ps_col_net }}</th>
+                            <th rowspan="2" class="align-middle no-export">{{ texts.ps_col_slip }}</th>
+                        </tr>
+                        <tr>
+                            <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_salary }}</th>
+                            <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_ot }}</th>
+                            <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_extra_inc }}</th>
+                            <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_total_inc }}</th>
+                            <th class="bg-danger bg-opacity-75 text-white">{{ texts.ps_sub_absent }}</th>
+                            <th class="bg-danger bg-opacity-75 text-white">{{ texts.ps_sub_sso }}</th>
+                            <th class="bg-danger bg-opacity-75 text-white">{{ texts.ps_sub_tax }}</th>
+                            <th class="bg-danger bg-opacity-75 text-white">{{ texts.ps_sub_extra_ded }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payroll_data %}
+                        <tr>
+                            <td class="fw-bold text-nowrap">{{ p.employee.first_name }} {{ p.employee.last_name }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0)) }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format(p.ot_pay or 0) }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format(p.extra_income or 0) }}</td>
+                            <td class="text-end fw-bold">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.extra_income or 0)) }}</td>
+                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</td>
+                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.sso or 0) }}</td>
+                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.tax or 0) }}</td>
+                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.extra_deduction or 0) }}</td>
+                            <td class="text-end fw-bold text-primary bg-light">{{ "{:,.2f}".format(p.net_total or 0) }}</td>
+                            <td class="text-center no-export">
+                                <a href="/admin/payslip/{{ p.id }}" target="_blank" class="btn btn-outline-secondary btn-sm p-1">
+                                    <i class="bi bi-printer"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/table2excel@1.0.4/dist/table2excel.min.js"></script>
+<script>
+function exportTableToExcel(tableID, filename = ''){
+    var table2excel = new Table2Excel();
+    table2excel.export(document.getElementById(tableID), filename);
+}
+</script>
+{% endblock %}

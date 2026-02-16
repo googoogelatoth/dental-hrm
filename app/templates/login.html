@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Clinic HRM Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --glass-bg: rgba(255, 255, 255, 0.9);
+        }
+
+        body {
+            font-family: 'Inter', 'Sarabun', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 15px;
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: transparent;
+            border: none;
+            padding-top: 40px;
+            text-align: center;
+        }
+
+        .logo-icon {
+            font-size: 3rem;
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        .card-title {
+            font-weight: 700;
+            color: #333;
+            letter-spacing: -0.5px;
+        }
+
+        .form-floating > .form-control:focus ~ label,
+        .form-floating > .form-control:not(:placeholder-shown) ~ label {
+            color: var(--primary-color);
+        }
+
+        .form-control {
+            border-radius: 12px;
+            border: 1px solid #ddd;
+            padding: 12px;
+        }
+
+        .form-control:focus {
+            box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.15);
+            border-color: var(--primary-color);
+        }
+
+        .btn-login {
+            background: linear-gradient(to right, #0d6efd, #0b5ed7);
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(13, 110, 253, 0.3);
+        }
+
+        .error-banner {
+            background-color: #fee2e2;
+            color: #dc2626;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            border: 1px solid #fecaca;
+        }
+
+        .footer-text {
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-container">
+    <div class="card p-4">
+        <div class="card-header">
+            <div class="logo-icon">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h3 class="card-title">Mini-HRM</h3>
+            <p class="text-muted small">Please sign in to continue</p>
+        </div>
+
+        <div class="card-body">
+            {% if error %}
+            <div class="error-banner animate__animated animate__shakeX">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                {{ error }}
+            </div>
+            {% endif %}
+
+            {% if request.query_params.get('msg') == 'session_expired' %}
+            <div class="alert alert-warning py-2 small border-0 mb-4" style="border-radius: 10px;">
+                <i class="bi bi-info-circle me-1"></i> Your session has expired due to login from another device.
+            </div>
+            {% endif %}
+
+            <form action="/login" method="post">
+                <div class="form-floating mb-3">
+                    <input type="text" name="username" class="form-control" id="userInput" placeholder="Employee ID" required>
+                    <label for="userInput"><i class="bi bi-person me-1"></i> Employee ID</label>
+                </div>
+
+                <div class="form-floating mb-4">
+                    <input type="password" name="password" class="form-control" id="passInput" placeholder="Password" required>
+                    <label for="passInput"><i class="bi bi-key me-1"></i> Password</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-login w-100 mb-3">
+                    Sign In
+                </button>
+            </form>
+        </div>
+    </div>
+    <div class="footer-text">
+        &copy; 2026 HR Architech. All rights reserved.
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

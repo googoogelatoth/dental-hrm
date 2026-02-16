@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-primary"><i class="bi bi-calendar-check me-2"></i>{{ texts.ml_title }}</h2>
+    <a href="/leave-apply" class="btn btn-primary shadow-sm">
+        <i class="bi bi-plus-lg"></i> {{ texts.ml_btn_new }}
+    </a>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4 mb-3">
+        <div class="card border-0 shadow-sm bg-white">
+            <div class="card-body text-center">
+                <h6 class="text-muted fw-bold">{{ texts.ml_quota_sick }}</h6>
+                <h3 class="text-danger mb-0">{{ quotas.sick - used['ลาป่วย'] }} <small class="fs-6 text-muted">/ {{ quotas.sick }} {{ texts.ml_unit_day }}</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card border-0 shadow-sm bg-white">
+            <div class="card-body text-center">
+                <h6 class="text-muted fw-bold">{{ texts.ml_quota_personal }}</h6>
+                <h3 class="text-warning mb-0">{{ quotas.personal - used['ลากิจ'] }} <small class="fs-6 text-muted">/ {{ quotas.personal }} {{ texts.ml_unit_day }}</small></h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card border-0 shadow-sm bg-white">
+            <div class="card-body text-center">
+                <h6 class="text-muted fw-bold">{{ texts.ml_quota_vacation }}</h6>
+                <h3 class="text-success mb-0">{{ quotas.vacation - used['ลาพักร้อน'] }} <small class="fs-6 text-muted">/ {{ quotas.vacation }} {{ texts.ml_unit_day }}</small></h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="form-container shadow-sm bg-white rounded border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>{{ texts.ml_col_submit }}</th>
+                    <th>{{ texts.ml_col_type }}</th>
+                    <th>{{ texts.ml_col_date }}</th>
+                    <th>{{ texts.ml_col_reason }}</th>
+                    <th class="text-center">{{ texts.ml_col_status }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for leave in leaves %}
+                {% set type_map = {'ลาป่วย': texts.type_sick, 'ลากิจ': texts.type_personal, 'ลาพักร้อน': texts.type_vacation} %}
+                <tr>
+                    <td>{{ leave.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                    <td><span class="badge bg-info text-dark">{{ type_map.get(leave.leave_type, texts.type_other) }}</span></td>
+                    <td>{{ leave.start_date.strftime('%d/%m/%Y') }} - {{ leave.end_date.strftime('%d/%m/%Y') }}</td>
+                    <td>{{ leave.reason }}</td>
+                    <td class="text-center">
+                        {% if leave.status == 'Pending' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>{{ texts.ml_status_pending }}</span>
+                        {% elif leave.status == 'Approved' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>{{ texts.ml_status_approved }}</span>
+                        {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>{{ texts.ml_status_rejected }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-5 text-muted">
+                        <i class="bi bi-calendar-x fs-1 d-block mb-3"></i>
+                        {{ texts.ml_no_data }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

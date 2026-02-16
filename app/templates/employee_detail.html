@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="row">
+    <div class="col-md-4 text-center">
+        {% if employee.profile_picture %}
+            <img src="/{{ employee.profile_picture }}" class="img-fluid rounded shadow-sm mb-3 border" style="max-height: 200px; width: 100%; object-fit: cover;">
+        {% else %}
+            <div class="bg-light border rounded d-flex align-items-center justify-content-center mb-3" style="height: 180px;">
+                <span class="text-muted"><i class="bi bi-person-bounding-box fs-1 d-block"></i>{{ texts.pro_no_photo }}</span>
+            </div>
+        {% endif %}
+    </div>
+    <div class="col-md-8">
+        <h5 class="text-primary fw-bold">{{ employee.first_name }} {{ employee.last_name }} ({{ employee.nickname }})</h5>
+        <table class="table table-sm mt-3 align-middle">
+            <tr><th width="40%">{{ texts.pro_code }}</th><td>{{ employee.employee_code }}</td></tr>
+            <tr><th>{{ texts.pro_pos }}</th><td>{{ employee.position }}</td></tr>
+            <tr><th>{{ texts.pro_dept }}</th><td>{{ employee.department }}</td></tr>
+            <tr><th>{{ texts.pro_phone }}</th><td>{{ employee.phone_number }}</td></tr>
+            <tr><th>{{ texts.pro_id_card }}</th><td>{{ employee.id_card_number }}</td></tr>
+            <tr><th>{{ texts.pro_bank }}</th><td>{{ employee.bank_account_number }}</td></tr>
+            <tr class="table-info">
+                <th>{{ texts.pro_base_salary }}</th>
+                <td><strong>{{ "{:,.2f}".format(employee.base_salary | default(0)) }} {{ texts.pro_unit_baht }}</strong></td>
+            </tr>
+            <tr class="table-info">
+                <th>{{ texts.pro_pos_allowance }}</th>
+                <td><strong>{{ "{:,.2f}".format(employee.position_allowance | default(0)) }} {{ texts.pro_unit_baht }}</strong></td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<hr>
+<h6 class="fw-bold">{{ texts.pro_address_title }}</h6>
+<p class="small text-muted">{{ employee.address or texts.pro_no_address }}</p>
+<hr>
+<h6 class="fw-bold">{{ texts.pro_doc_title }}</h6>
+<div class="list-group">
+    {% for doc in employee.documents %}
+        <a href="/{{ doc.file_path }}" target="_blank" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
+            <span>📄 {{ doc.file_name }}</span>
+            <span class="badge bg-danger rounded-pill">PDF</span>
+        </a>
+    {% else %}
+        <p class="text-muted small">{{ texts.pro_no_doc }}</p>
+    {% endfor %}
+</div>
+
+<div class="card mt-4 border-0 shadow-sm bg-light">
+    <div class="card-body">
+        <h5 class="card-title fw-bold"><i class="bi bi-bell-fill me-2 text-warning"></i>{{ texts.pro_notif_title }}</h5>
+        <p class="card-text text-muted small">{{ texts.pro_notif_desc }}</p>
+        <button onclick="enableNotification()" class="btn btn-primary btn-sm px-3 shadow-sm">
+            <i class="bi bi-shield-check me-1"></i> {{ texts.pro_notif_btn }}
+        </button>
+    </div>
+</div>
+
+<script>
+// ข้อความแปลสำหรับ JavaScript
+const msgUnsupported = "{{ texts.pro_notif_unsupported }}";
+const msgDenied = "{{ texts.pro_notif_denied }}";
+const msgSuccess = "{{ texts.pro_notif_success }}";
+const msgError = "{{ texts.pro_notif_error }}";
+
+function urlBase64ToUint8Array(base64String) {
+    if (!base64String) return new Uint8Array(0);
+    let cleanString = base64String.replace(/['"]+/g, '').trim();
+    while (cleanString.length % 4 !== 0) { cleanString += '='; }
+    const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
+    try {
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+        return outputArray;
+    } catch (e) {
+        console.error("DEBUG - Final Base64 sent to atob:", base64);
+        throw e;
+    }
+}
+
+async function enableNotification() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert(msgUnsupported);
+        return;
+    }
+
+    try {
+        const oldRegs = await navigator.serviceWorker.getRegistrations();
+        for(let reg of oldRegs) {
+            if (reg.active && reg.active.scriptURL.includes('static')) { await reg.unregister(); }
+        }
+
+        const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            alert(msgDenied);
+            return;
+        }
+
+        const subscribeOptions = {
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array('{{ public_vapid_key }}')
+        };
+
+        const subscription = await registration.pushManager.subscribe(subscribeOptions);
+        
+        const response = await fetch('/api/save-subscription', {
+            method: 'POST',
+            body: JSON.stringify(subscription),
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            alert(msgSuccess);
+        } else {
+            throw new Error(msgError);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert(msgError + ": " + error.message);
+    }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-warning text-dark fw-bold">
+                    <i class="bi bi-pencil-square me-2"></i>{{ texts.man_title }}
+                </div>
+                <div class="card-body">
+                    <form action="/submit-attendance-request" method="post" id="requestForm">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">{{ texts.man_date_label }}</label>
+                            <input type="date" name="request_date" class="form-control" required>
+                            <div class="form-text text-muted">{{ texts.man_date_help }}</div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label class="form-label fw-bold">{{ texts.man_in_label }}</label>
+                                <input type="time" name="check_in" class="form-control">
+                            </div>
+                            <div class="col">
+                                <label class="form-label fw-bold">{{ texts.man_out_label }}</label>
+                                <input type="time" name="check_out" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">{{ texts.man_reason_label }}</label>
+                            <textarea name="reason" class="form-control" rows="3" placeholder="{{ texts.man_reason_placeholder }}" required></textarea>
+                        </div>
+
+                        <input type="hidden" name="lat" id="lat">
+                        <input type="hidden" name="lon" id="lon">
+
+                        <div class="d-grid gap-2 mt-4">
+                            <button type="submit" class="btn btn-primary" id="submitBtn">
+                                <i class="bi bi-send-fill me-2"></i>{{ texts.man_btn_submit }}
+                            </button>
+                            <a href="/attendance-report" class="btn btn-light text-muted">{{ texts.man_btn_cancel }}</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ดึงพิกัด GPS ทันทีที่เปิดหน้าจอ
+    window.onload = function() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(position) {
+                document.getElementById('lat').value = position.coords.latitude;
+                document.getElementById('lon').value = position.coords.longitude;
+                console.log("GPS Location Captured");
+            }, function(error) {
+                console.error("Error capturing GPS: " + error.message);
+            });
+        }
+    };
+
+    // ป้องกันการกด Submit ซ้ำ และใช้ข้อความจาก JS (หรือ Hardcode ตามภาษาหลัก)
+    document.getElementById('requestForm').onsubmit = function() {
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>{{ texts.man_btn_sending }}';
+    };
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-primary"><i class="bi bi-clock-history me-2"></i>{{ texts.my_att_title }}</h2>
+</div>
+
+<div class="form-container shadow-sm bg-white rounded border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>{{ texts.my_att_col_date }}</th>
+                    <th class="text-center">{{ texts.my_att_col_in }}</th>
+                    <th class="text-center">{{ texts.my_att_col_late }}</th>
+                    <th class="text-center">{{ texts.my_att_col_out }}</th>
+                    <th class="text-center">{{ texts.my_att_col_early }}</th>
+                    <th class="text-center">{{ texts.my_att_col_status }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>{{ record.date }}</td>
+                    <td class="text-center text-success fw-bold">
+                        {{ record.check_in.strftime('%H:%M:%S') if record.check_in else '-' }}
+                    </td>
+                    <td class="text-center {{ 'text-danger' if record.late_minutes > 0 }}">
+                        {{ record.late_minutes if record.late_minutes > 0 else 0 }}
+                    </td>
+                    <td class="text-center text-danger fw-bold">
+                        {{ record.check_out.strftime('%H:%M:%S') if record.check_out else '-' }}
+                    </td>
+                    <td class="text-center {{ 'text-danger' if record.early_minutes > 0 }}">
+                        {{ record.early_minutes if record.early_minutes > 0 else 0 }}
+                    </td>
+                    <td class="text-center">
+                        {% if record.status == 'Normal' or record.status == 'ปกติ' %}
+                            <span class="badge bg-success">{{ texts.my_att_status_normal }}</span>
+                        {% elif record.status == 'Late' or record.status == 'สาย' %}
+                            <span class="badge bg-danger">{{ texts.my_att_status_late }}</span>
+                        {% elif record.status == 'Absent' or record.status == 'ขาดงาน' %}
+                            <span class="badge bg-dark">{{ texts.my_att_status_absent }}</span>
+                        {% elif 'วันหยุด' in record.status or 'Holiday' in record.status %}
+                            <span class="badge bg-secondary">{{ texts.my_att_status_holiday }}</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">{{ record.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-4 text-muted">{{ texts.my_att_no_data }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

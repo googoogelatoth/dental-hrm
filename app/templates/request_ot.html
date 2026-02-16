@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4" style="max-width: 600px;">
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-primary text-white py-3">
+            <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>{{ texts.ot_title }}</h5>
+        </div>
+        <div class="card-body p-4">
+            <form action="/request-ot" method="POST">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">{{ texts.ot_work_date }}</label>
+                    <input type="date" name="request_date" class="form-control" required>
+                </div>
+                <div class="row mb-3">
+                    <div class="col">
+                        <label class="form-label fw-bold">{{ texts.ot_start_time }}</label>
+                        <input type="time" name="start_time" class="form-control" required>
+                    </div>
+                    <div class="col">
+                        <label class="form-label fw-bold">{{ texts.ot_end_time }}</label>
+                        <input type="time" name="end_time" class="form-control" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">{{ texts.ot_type_label }}</label>
+                    <select name="ot_type" class="form-select" required>
+                        <option value="ot_1_5">{{ texts.ot_type_1_5 }}</option>
+                        <option value="ot_1_0">{{ texts.ot_type_1_0 }}</option>
+                        <option value="ot_2_0">{{ texts.ot_type_2_0 }}</option>
+                        <option value="ot_3_0">{{ texts.ot_type_3_0 }}</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">{{ texts.ot_reason_label }}</label>
+                    <textarea name="reason" class="form-control" rows="3" placeholder="{{ texts.ot_reason_placeholder }}"></textarea>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm">
+                        {{ texts.ot_btn_submit }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

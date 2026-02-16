@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div id="page-metadata" 
+     data-user-id="{{ request.cookies.get('user_id') or '' }}" 
+     data-vapid-key="{{ public_vapid_key or '' }}" 
+     style="display: none;">
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-primary"><i class="bi bi-people-fill me-2"></i>{{ texts.employees_list }}</h2>
+    <a href="/add-employee" class="btn btn-success shadow-sm">
+        <i class="bi bi-person-plus-fill me-1"></i> + {{ texts.add_employee }}
+    </a>
+</div>
+
+{% if request.query_params.get('msg') == 'success' %}
+    <div class="alert alert-success alert-dismissible fade show border-0 shadow-sm" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i> {{ texts.save_success }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+{% elif request.query_params.get('msg') == 'resigned' %}
+    <div class="alert alert-danger alert-dismissible fade show border-0 shadow-sm" role="alert">
+        <i class="bi bi-person-x-fill me-2"></i> {{ texts.resign_success or 'แจ้งลาออกเรียบร้อยแล้ว' }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3 border-bottom-0" id="employeeTab" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active fw-bold" id="active-tab" data-bs-toggle="tab" data-bs-target="#active-content" type="button">
+            {{ texts.emp_status_active or 'พนักงานปัจจุบัน' }}
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link text-danger fw-bold" id="resigned-tab" data-bs-toggle="tab" data-bs-target="#resigned-content" type="button">
+            {{ texts.emp_status_resigned or 'พนักงานที่ลาออกแล้ว' }}
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="employeeTabContent">
+    <div class="tab-pane fade show active" id="active-content">
+        <div class="form-container shadow-sm border-0 bg-white rounded">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ texts.photo }}</th>
+                            <th>{{ texts.employee_code }}</th>
+                            <th>{{ texts.full_name }}</th>
+                            <th>{{ texts.position }}</th>
+                            <th>{{ texts.role }}</th>
+                            <th class="text-center">{{ texts.manage }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for emp in active_emps %}
+                        <tr>
+                            <td>
+                                {% if emp.profile_picture %}
+                                <img src="/{{ emp.profile_picture }}" class="rounded-circle shadow-sm" style="width: 45px; height: 45px; object-fit: cover;">
+                                {% else %}
+                                <div class="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center shadow-sm" style="width: 45px; height: 45px;">
+                                    {{ emp.first_name[0] }}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td><strong>{{ emp.employee_code }}</strong></td>
+                            <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                            <td><span class="badge bg-info text-dark fw-normal">{{ emp.position }}</span></td>
+                            <td><span class="badge {{ 'bg-danger' if emp.role == 'Admin' else 'bg-primary' }}">{{ emp.role }}</span></td>
+                            <td class="text-center">
+                                <div class="btn-group shadow-sm">
+                                    <button class="btn btn-sm btn-outline-info view-btn" data-emp-id="{{ emp.id }}">
+                                        <i class="bi bi-search"></i>
+                                    </button>
+                                    <a href="/edit-employee/{{ emp.id }}" class="btn btn-sm btn-outline-warning">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <form action="/admin/employee/resign/{{ emp.id }}" method="POST" class="d-inline">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ texts.emp_confirm_resign }}')">
+                                            <i class="bi bi-person-x"></i>
+                                        </button>
+                                    </form>
+                                    <a href="/delete-employee/{{ emp.id }}" class="btn btn-sm btn-outline-danger" 
+                                        title="{{ texts.delete }}"
+                                        onclick="return confirm('{{ texts.confirm_delete }}')">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="resigned-content">
+        <div class="form-container shadow-sm border-0 bg-white rounded">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>{{ texts.employee_code }}</th>
+                            <th>{{ texts.full_name }}</th>
+                            <th>{{ texts.position }}</th>
+                            <th class="text-center">{{ texts.manage }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for emp in resigned_emps %}
+                        <tr class="opacity-75">
+                            <td>{{ emp.employee_code }}</td>
+                            <td>{{ emp.first_name }} {{ emp.last_name }}</td>
+                            <td>{{ emp.position }}</td>
+                            <td class="text-center">
+                                <form action="/admin/employee/restore/{{ emp.id }}" method="POST" class="d-inline">
+                                    <button type="submit" class="btn btn-sm btn-success px-3 shadow-sm">
+                                        <i class="bi bi-arrow-counterclockwise me-1"></i> {{ texts.emp_btn_restore or 'คืนสถานะ' }}
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="viewEmployeeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-person-lines-fill me-2"></i>{{ texts.employee_details }}</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modal-content">
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.close }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- ส่วน JavaScript เดิมของนายที่ผมปรับปรุงให้เล็กน้อย ---
+function urlBase64ToUint8Array(base64String) {
+    if (!base64String) return new Uint8Array(0);
+    const cleanString = base64String.replace(/['"\s]+/g, '').trim();
+    let pad = (4 - (cleanString.length % 4)) % 4;
+    let base64 = cleanString + "=".repeat(pad);
+    base64 = base64.replace(/\-/g, '+').replace(/_/g, '/');
+    try {
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+        return outputArray;
+    } catch (e) { throw e; }
+}
+
+async function enableNotificationSilent(vapidKey) {
+    try {
+        if (!('serviceWorker' in navigator) || !vapidKey) return;
+        const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(vapidKey)
+            });
+            await fetch('/api/save-subscription', {
+                method: 'POST',
+                body: JSON.stringify(subscription),
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+    } catch (e) { console.log("Silent Notification Error:", e); }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const meta = document.getElementById('page-metadata');
+    const userId = meta.getAttribute('data-user-id');
+    const vapidKey = meta.getAttribute('data-vapid-key');
+
+    // จัดการ Modal
+    const modalElement = document.getElementById('viewEmployeeModal');
+    if (modalElement) {
+        const myModal = new bootstrap.Modal(modalElement);
+        const modalContent = document.getElementById('modal-content');
+        document.querySelectorAll('.view-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const empId = this.getAttribute('data-emp-id');
+                modalContent.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+                myModal.show();
+                fetch('/employee/' + empId)
+                    .then(res => res.text())
+                    .then(html => modalContent.innerHTML = html)
+                    .catch(() => modalContent.innerHTML = `<p class="text-danger p-3">{{ texts.loading_error }}</p>`);
+            });
+        });
+    }
+
+    if (userId && Notification.permission === 'granted') {
+        enableNotificationSilent(vapidKey);
+    }
+});
+</script>
+{% endblock %}

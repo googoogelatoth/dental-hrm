@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container text-center mt-5">
+    <div class="form-container py-5 shadow-sm bg-white rounded">
+        <h2 class="text-primary mb-3">{{ texts.att_page_title }}</h2>
+        <div id="date-display" class="text-muted mb-2"></div>
+        <h1 id="clock" class="display-1 fw-bold mb-4 text-dark">00:00:00</h1>
+        
+        <div class="mb-4 d-flex justify-content-center">
+            <div style="position: relative; width: 320px; height: 240px;">
+                <video id="webcam" autoplay playsinline width="320" height="240" class="border rounded bg-dark shadow-sm"></video>
+                <canvas id="canvas" width="320" height="240" style="display:none;"></canvas>
+                <div class="position-absolute bottom-0 start-50 translate-middle-x mb-2">
+                    <span class="badge bg-danger rounded-pill opacity-75"><i class="bi bi-record-fill me-1"></i>{{ texts.att_camera_live }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-3 col-md-6 mx-auto">
+            {% if not attendance %}
+            <form id="checkin-form" action="/attendance/check-in" method="post">
+                <input type="hidden" name="lat" id="lat">
+                <input type="hidden" name="lon" id="lon">
+                <input type="hidden" name="image_data" id="image_data">
+                <button type="button" onclick="getLocationAndSubmit('checkin-form', 'lat', 'lon', 'image_data')" class="btn btn-success btn-lg w-100 py-3 shadow">
+                    <i class="bi bi-camera me-2"></i> {{ texts.att_btn_checkin }}
+                </button>
+            </form>
+            {% elif not attendance.check_out %}
+            <div class="alert alert-info border-0 shadow-sm">
+                <strong>{{ texts.att_recorded_in }}</strong> {{ attendance.check_in.strftime('%H:%M:%S') }}
+            </div>
+            <form id="checkout-form" action="/attendance/check-out" method="post">
+                <input type="hidden" name="lat" id="out_lat">
+                <input type="hidden" name="lon" id="out_lon">
+                <input type="hidden" name="image_data" id="out_image_data">
+                <button type="button" onclick="getLocationAndSubmit('checkout-form', 'out_lat', 'out_lon', 'out_image_data')" class="btn btn-danger btn-lg w-100 py-3 shadow">
+                    <i class="bi bi-box-arrow-out-right me-1"></i> {{ texts.att_btn_checkout }}
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+// 📸 กล้อง
+const video = document.getElementById('webcam');
+const canvas = document.getElementById('canvas');
+const cameraErrorMsg = "{{ texts.att_camera_error }}";
+
+if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+        .then(function(stream) {
+            video.srcObject = stream;
+        })
+        .catch(function(error) {
+            console.error("Camera error: ", error);
+            alert(cameraErrorMsg);
+        });
+}
+
+function getLocationAndSubmit(formId, latId, lonId, imgId) {
+    const form = document.getElementById(formId);
+    const imgInput = document.getElementById(imgId);
+    
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, 320, 240);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    imgInput.value = dataUrl;
+
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                document.getElementById(latId).value = position.coords.latitude;
+                document.getElementById(lonId).value = position.coords.longitude;
+                form.submit(); 
+            },
+            (error) => {
+                console.warn("GPS Error: " + error.message);
+                form.submit(); 
+            },
+            { timeout: 5000, enableHighAccuracy: true }
+        );
+    } else {
+        form.submit();
+    }
+}
+
+// ⏰ นาฬิกา (ปรับตามภาษา)
+function updateClock() {
+    const now = new Date();
+    const langCode = "{{ texts.att_lang_code }}";
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    document.getElementById('date-display').innerText = now.toLocaleDateString(langCode, options);
+    document.getElementById('clock').innerText = now.toLocaleTimeString(langCode);
+}
+setInterval(updateClock, 1000);
+updateClock();
+</script>
+{% endblock %}

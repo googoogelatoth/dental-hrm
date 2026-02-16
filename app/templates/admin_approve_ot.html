@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h3 class="mb-4"><i class="bi bi-clipboard-check text-primary"></i> {{ texts.ot_approval_title }}</h3>
+    
+    <div class="card shadow">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>{{ texts.employee }}</th>
+                            <th>{{ texts.request_date }}</th>
+                            <th>{{ texts.time_range }}</th>
+                            <th>{{ texts.total_minutes }}</th>
+                            <th>{{ texts.ot_type }}</th>
+                            <th>{{ texts.reason }}</th>
+                            <th class="text-center">{{ texts.manage }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ot in pending_ot %}
+                        <tr>
+                            <td><strong>{{ texts.emp_id }}: {{ ot.employee_id }}</strong></td>
+                            <td>{{ ot.request_date.strftime('%d/%m/%Y') }}</td>
+                            <td>{{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</td>
+                            <td>{{ ot.total_minutes }} {{ texts.minute_unit }}</td>
+                            <td><span class="badge bg-info text-dark">{{ ot.ot_type }}</span></td>
+                            <td><small class="text-muted">{{ ot.reason or '-' }}</small></td>
+                            <td class="text-center">
+                                <form action="/admin/process-ot/{{ ot.id }}" method="POST">
+                                    <div class="d-flex flex-column gap-2">
+                                        <textarea name="admin_remark" 
+                                                  class="form-control form-control-sm" 
+                                                  rows="1" 
+                                                  placeholder="{{ texts.placeholder_remark }}"></textarea>
+
+                                        <div class="d-flex gap-1 justify-content-center">
+                                            <button type="submit" name="action" value="approve" class="btn btn-success btn-sm w-100">
+                                                <i class="bi bi-check-lg"></i> {{ texts.approve }}
+                                            </button>
+                                            <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm w-100" 
+                                                    onclick="return confirm('{{ texts.confirm_reject }}')">
+                                                <i class="bi bi-x-lg"></i> {{ texts.reject }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-4 text-muted">{{ texts.no_pending_ot }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

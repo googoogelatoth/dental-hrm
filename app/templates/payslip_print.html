@@ -1,0 +1,92 @@
+<div class="payslip-container" style="border: 1px solid #000; padding: 25px; width: 210mm; margin: 20px auto; background: #fff; font-family: 'Sarabun', sans-serif;">
+    
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;">
+        <tr>
+            <td style="width: 30%; text-align: left; vertical-align: middle;">
+                {% if company and company.logo_path %}
+                    <img src="/static/uploads/{{ company.logo_path }}" alt="Logo" style="max-height: 80px; max-width: 150px;">
+                {% else %}
+                    <div style="width: 80px; height: 80px; border: 1px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #999;">
+                        Logo
+                    </div>
+                {% endif %}
+            </td>
+            
+            <td style="width: 40%; text-align: center; vertical-align: middle;">
+                <h2 style="margin: 0; font-size: 22px;">ใบแจ้งเงินเดือน (Payslip)</h2>
+                <p style="margin: 5px 0 0 0;">งวดประจำเดือน {{ p.month }}/{{ p.year + 543 }}</p>
+            </td>
+
+            <td style="width: 30%; text-align: right; vertical-align: middle; font-size: 13px; line-height: 1.4;">
+                <strong style="font-size: 15px;">{{ company.company_name if company else 'Clinic HRM Center' }}</strong><br>
+                {{ company.address if company else '123/45 ถนนหลัก แขวง/ตำบล เขต/อำเภอ\nกรุงเทพมหานคร 10xxx\nโทร. 02-xxx-xxxx' | replace('\n', '<br>') | safe }}
+            </td>
+        </tr>
+    </table>
+
+    <hr style="border: 0; border-top: 1px solid #000; margin-bottom: 20px;">
+
+    <table style="width: 100%; margin-bottom: 15px;">
+        <tr>
+            <td style="width: 50%;"><strong>ชื่อ-นามสกุล:</strong> {{ p.employee.first_name }} {{ p.employee.last_name }}</td>
+            <td style="width: 50%; text-align: right;"><strong>แผนก:</strong> {{ p.employee.department or 'ทั่วไป' }}</td>
+        </tr>
+    </table>
+
+    <table border="1" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+        <thead style="background: #f2f2f2;">
+            <tr>
+                <th style="padding: 10px; width: 50%; text-align: left;">รายการรายได้ (Earnings)</th>
+                <th style="padding: 10px; width: 50%; text-align: left;">รายการหัก (Deductions)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="padding: 15px; vertical-align: top; line-height: 1.8;">
+                    เงินเดือน/ตำแหน่ง: <span style="float: right;">{{ "{:,.2f}".format(p.salary + p.position_allowance) }}</span><br>
+                    ค่าล่วงเวลา (OT): <span style="float: right;">{{ "{:,.2f}".format(p.ot_pay or 0) }}</span><br>
+                    เงินเพิ่มพิเศษ: <span style="float: right;">{{ "{:,.2f}".format(p.extra_income or 0) }}</span>
+                </td>
+                <td style="padding: 15px; vertical-align: top; line-height: 1.8;">
+                    ประกันสังคม (SSO): <span style="float: right;">{{ "{:,.2f}".format(p.sso or 0) }}</span><br>
+                    ภาษี (Tax): <span style="float: right;">{{ "{:,.2f}".format(p.tax or 0) }}</span><br>
+                    หักขาด/สาย: <span style="float: right;">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</span><br>
+                    เงินลดพิเศษ: <span style="float: right;">{{ "{:,.2f}".format(p.extra_deduction or 0) }}</span>
+                </td>
+            </tr>
+            <tr style="background: #eee; font-weight: bold; font-size: 18px;">
+                <td style="padding: 12px;">ยอดรับสุทธิ (Net Payable):</td>
+                <td style="padding: 12px; text-align: right; color: #0056b3;">{{ "{:,.2f}".format(p.net_total) }} บาท</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div style="display: flex; justify-content: space-between; margin-top: 30px;">
+        <div style="text-align: center; width: 200px;">
+            <br><br>
+            __________________________<br>
+            ( พนักงาน )
+        </div>
+        <div style="text-align: center; width: 200px;position: relative; left: -100px;">
+            <br><br>
+            __________________________<br>
+            ( ผู้อนุมัติ/บริษัท )
+        </div>
+    </div>
+
+    <p style="font-size: 0.75rem; margin-top: 40px; color: #666; font-style: italic;">* เอกสารนี้สร้างโดยระบบอัตโนมัติ Mini-HRM ไม่ต้องมีผู้ลงนามก็มีผลสมบูรณ์</p>
+</div>
+
+<div style="text-align: center; margin-bottom: 50px;">
+    <button onclick="window.print()" class="no-print" style="padding: 10px 30px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px;">
+        <i class="bi bi-printer"></i> พิมพ์เอกสาร / เซฟเป็น PDF
+    </button>
+</div>
+
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        body { background: #fff !important; margin: 0; padding: 0; }
+        .payslip-container { border: none !important; margin: 0 !important; width: 100% !important; }
+    }
+</style>

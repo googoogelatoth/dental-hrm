@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="no-print mt-4 mb-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+            <h3 class="text-primary fw-bold mb-0"><i class="bi bi-wallet2 me-2"></i>{{ texts.psl_title }}</h3>
+            <p class="text-muted small mb-0">{{ texts.psl_subtitle }}</p>
+        </div>
+        
+        <form action="/my-payslips" method="GET" class="d-flex gap-2 align-items-center bg-white p-2 rounded shadow-sm border">
+            <select name="month" class="form-select form-select-sm" style="width: 140px;">
+                {% for m in range(1, 13) %}
+                <option value="{{ m }}" {% if m == current_month %}selected{% endif %}>
+                    {{ texts.months_full[m-1] }}
+                </option>
+                {% endfor %}
+            </select>
+            <select name="year" class="form-select form-select-sm" style="width: 100px;">
+                {% for y in range(2024, 2027) %}
+                <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>
+                    {{ y + 543 if request.cookies.get('lang') == 'th' else y }}
+                </option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-sm btn-primary px-3">
+                <i class="bi bi-search me-1"></i> {{ texts.psl_filter_btn }}
+            </button>
+        </form>
+    </div>
+    <hr>
+</div>
+
+{% for p in payslips %}
+<div class="payslip-card mb-5">
+    <div class="payslip-container" style="border: 1px solid #ddd; padding: 30px; width: 210mm; margin: 0 auto; background: #fff; font-family: 'Sarabun', sans-serif; box-shadow: 0 10px 25px rgba(0,0,0,0.05); position: relative;">
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+            <tr>
+                <td style="width: 25%; text-align: left; vertical-align: middle;">
+                    {% if company and company.logo_path %}
+                        <img src="/static/uploads/{{ company.logo_path }}" alt="Logo" style="max-height: 70px; max-width: 140px;">
+                    {% else %}
+                        <div style="width: 70px; height: 70px; border: 1px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #999;">Company Logo</div>
+                    {% endif %}
+                </td>
+                <td style="width: 50%; text-align: center; vertical-align: middle;">
+                    <h2 style="margin: 0; font-size: 22px; color: #333; font-weight: bold;">{{ texts.psl_header_main }}</h2>
+                    <p style="margin: 5px 0 0 0; color: #0056b3; font-weight: bold; font-size: 15px;">
+                        {{ texts.psl_period }}: {{ texts.months_short[p.month-1] }} / {{ p.year + 543 if request.cookies.get('lang') == 'th' else p.year }}
+                    </p>
+                </td>
+                <td style="width: 25%; text-align: right; vertical-align: middle; font-size: 12px; line-height: 1.4;">
+                    <strong style="font-size: 13px; color: #000;">{{ company.company_name if company else 'Clinic HRM Center' }}</strong><br>
+                    {{ company.address if company else '' }}
+                </td>
+            </tr>
+        </table>
+
+        <div style="border-top: 2px solid #333; margin-bottom: 20px;"></div>
+
+        <table style="width: 100%; margin-bottom: 20px; font-size: 14px;">
+            <tr>
+                <td style="width: 50%;"><strong>{{ texts.psl_emp_id }}:</strong> {{ employee.employee_code }}</td>
+                <td style="width: 50%; text-align: right;"><strong>{{ texts.psl_full_name }}:</strong> {{ employee.first_name }} {{ employee.last_name }}</td>
+            </tr>
+        </table>
+
+        <table border="1" style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #000;">
+            <thead style="background: #f8f9fa;">
+                <tr>
+                    <th style="padding: 10px; width: 50%; text-align: left; border: 1px solid #000;">{{ texts.psl_earnings }}</th>
+                    <th style="padding: 10px; width: 50%; text-align: left; border: 1px solid #000;">{{ texts.psl_deductions }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr style="height: 160px;">
+                    <td style="padding: 12px; vertical-align: top; line-height: 1.8; border: 1px solid #000;">
+                        {{ texts.psl_salary_pos }}: <span style="float: right;">{{ "{:,.2f}".format(p.salary + (p.position_allowance or 0)) }}</span><br>
+                        {{ texts.psl_ot }}: <span style="float: right;">{{ "{:,.2f}".format(p.ot_pay or 0) }}</span><br>
+                        {{ texts.psl_extra_inc }}: <span style="float: right;">{{ "{:,.2f}".format(p.extra_income or 0) }}</span>
+                    </td>
+                    <td style="padding: 12px; vertical-align: top; line-height: 1.8; border: 1px solid #000;">
+                        {{ texts.psl_sso }}: <span style="float: right;">{{ "{:,.2f}".format(p.sso or 0) }}</span><br>
+                        {{ texts.psl_tax }}: <span style="float: right;">{{ "{:,.2f}".format(p.tax or 0) }}</span><br>
+                        {{ texts.psl_absence }}: <span style="float: right;">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</span><br>
+                        {{ texts.psl_extra_ded }}: <span style="float: right;">{{ "{:,.2f}".format(p.extra_deduction or 0) }}</span>
+                    </td>
+                </tr>
+                <tr style="background: #e9ecef; font-weight: bold; font-size: 16px;">
+                    <td style="padding: 12px; border: 1px solid #000;">{{ texts.psl_net_payable }}:</td>
+                    <td style="padding: 12px; text-align: right; color: #0056b3; border: 1px solid #000;">{{ "{:,.2f}".format(p.net_total) }} {{ texts.psl_baht }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px; font-size: 12px; display: flex; justify-content: space-between;">
+            <div style="text-align: center; width: 45%;">
+                <div style="border-bottom: 1px solid #000; height: 35px; width: 180px; margin: 0 auto;"></div>
+                <p style="margin-top: 5px;">{{ texts.psl_sig_emp }}</p>
+            </div>
+            <div style="text-align: center; width: 45%;">
+                <div style="border-bottom: 1px solid #000; height: 35px; width: 180px; margin: 0 auto;">
+                    <span style="font-family: 'Courier New', Courier, monospace; font-size: 10px; color: #ccc;">Secure Digital Signature</span>
+                </div>
+                <p style="margin-top: 5px;">{{ texts.psl_sig_auth }}</p>
+            </div>
+        </div>
+
+        <div class="text-end no-print" style="margin-top: 20px;">
+            <button onclick="printSinglePayslip(this)" class="btn btn-sm btn-outline-success">
+                <i class="bi bi-printer me-1"></i> {{ texts.psl_print_this }}
+            </button>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-5 bg-white shadow-sm rounded border">
+    <i class="bi bi-file-earmark-x text-muted" style="font-size: 3rem;"></i>
+    <h5 class="mt-3 text-dark">{{ texts.psl_no_data }}</h5>
+    <p class="small text-muted">{{ texts.psl_contact_hr }}</p>
+</div>
+{% endfor %}
+
+{% endblock %}

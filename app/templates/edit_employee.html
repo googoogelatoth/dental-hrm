@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="form-container">
+    <h3 class="mb-4 text-warning"><i class="bi bi-pencil-square me-2"></i>แก้ไขข้อมูลบุคลากร: {{ employee.first_name }}</h3>
+    
+    <form action="/edit-employee/{{ employee.id }}" method="post" enctype="multipart/form-data">
+        
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">รหัสพนักงาน</label>
+                <input type="text" name="employee_code" class="form-control bg-light" value="{{ employee.employee_code }}" readonly>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">ชื่อ</label>
+                <input type="text" name="first_name" class="form-control" value="{{ employee.first_name }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">นามสกุล</label>
+                <input type="text" name="last_name" class="form-control" value="{{ employee.last_name }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">ชื่อเล่น</label>
+                <input type="text" name="nickname" class="form-control" value="{{ employee.nickname }}">
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label">เลขบัตรประชาชน</label>
+                <input type="text" name="id_card_number" class="form-control" value="{{ employee.id_card_number }}" maxlength="13">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">เบอร์โทรศัพท์</label>
+                <input type="tel" name="phone_number" class="form-control" value="{{ employee.phone_number }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">ตำแหน่ง/แผนก</label>
+                <input type="text" name="position" class="form-control" value="{{ employee.position }}">
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">ที่อยู่ตามทะเบียนบ้าน</label>
+            <textarea name="address" class="form-control" rows="2">{{ employee.address }}</textarea>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <label class="form-label">ฐานเงินเดือน (Salary)</label>
+                <input type="number" name="base_salary" value="{{ employee.base_salary | default(0) }}" class="form-control" step="0.01">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">ค่าตำแหน่ง (Position Allowance)</label>
+                <input type="number" name="position_allowance" value="{{ employee.position_allowance | default(0) }}" class="form-control" step="0.01">
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">หมายเลขสมุดบัญชี</label>
+                <input type="text" name="bank_account_number" class="form-control" value="{{ employee.bank_account_number }}">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">สิทธิการใช้งานระบบ</label>
+                <select name="role" class="form-select">
+                    <option value="Staff" {{ 'selected' if employee.role == 'Staff' }}>Staff</option>
+                    <option value="Admin" {{ 'selected' if employee.role == 'Admin' }}>Admin</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row mb-4 border-bottom pb-4">
+            <div class="col-md-6">
+                <label class="form-label">เปลี่ยนรูปถ่ายพนักงาน (ถ้าต้องการ)</label>
+                <input type="file" name="profile_picture" class="form-control" accept="image/*">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">เพิ่มเอกสาร PDF (ถ้าต้องการ)</label>
+                <input type="file" name="documents" class="form-control" accept=".pdf" multiple>
+            </div>
+        </div>
+
+        <div class="card shadow-sm border-0 mb-4 bg-light">
+            <div class="card-body">
+                <h5 class="text-primary mb-3"><i class="bi bi-calendar-check me-2"></i>กำหนดสิทธิการลาต่อปี (จำนวนวัน)</h5>
+                <div class="row">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold text-danger">โควตาลาป่วย</label>
+                        <input type="number" name="sick_quota" class="form-control form-control-lg" value="{{ employee.sick_leave_quota }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold text-warning">โควตาลากิจ</label>
+                        <input type="number" name="personal_quota" class="form-control form-control-lg" value="{{ employee.personal_leave_quota }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold text-success">โควตาพักร้อน</label>
+                        <input type="number" name="vacation_quota" class="form-control form-control-lg" value="{{ employee.vacation_leave_quota }}" required>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2">
+            <a href="/dashboard" class="btn btn-light px-4">ยกเลิก</a>
+            <button type="submit" class="btn btn-warning px-5 fw-bold">บันทึกการแก้ไขทั้งหมด</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

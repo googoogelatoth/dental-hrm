@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-primary"><i class="bi bi-clock-history me-2"></i>{{ texts.att_mgmt_title }}</h2>
+    <div class="btn-group shadow-sm">
+        <form action="/admin/approve-all-requests" method="POST" style="display:inline;">
+            <button type="submit" class="btn btn-primary" onclick="return confirm('{{ texts.att_confirm_approve_all }}')">
+                <i class="bi bi-check-all me-1"></i> {{ texts.att_approve_all }}
+            </button>
+        </form>
+        <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#importModal">
+            <i class="bi bi-file-earmark-excel me-1"></i> {{ texts.att_import_excel }}
+        </button>
+    </div>
+</div>
+
+<div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <form action="/import-attendance-upload" method="post" enctype="multipart/form-data">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="bi bi-file-earmark-arrow-up me-2"></i>{{ texts.att_import_title }}</h5>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center p-4 mb-4 border rounded bg-light">
+                        <i class="bi bi-filetype-xlsx display-4 text-muted mb-2"></i>
+                        <p class="mb-2 small text-muted">{{ texts.att_import_template_msg }}</p>
+                        <a href="/admin/download-attendance-template" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-download me-1"></i> {{ texts.att_download_template }}
+                        </a>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">{{ texts.att_select_file }}</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx, .xls, .csv" required>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.cancel }}</button>
+                    <button type="submit" class="btn btn-success px-4">{{ texts.att_start_import }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="form-container shadow-sm bg-white rounded p-3 border-0">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th>{{ texts.att_col_req_date }}</th>
+                    <th>{{ texts.att_col_emp }}</th>
+                    <th>{{ texts.att_col_att_date }}</th>
+                    <th class="text-center">{{ texts.att_col_time }}</th>
+                    <th>{{ texts.att_col_reason }}</th>
+                    <th class="text-center">{{ texts.att_col_location }}</th>
+                    <th class="text-center">{{ texts.att_col_actions }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for req in pending_requests %}
+                <tr>
+                    <td>{{ req.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                    <td>
+                        <div class="fw-bold text-dark">{{ req.employee.first_name }} {{ req.employee.last_name }}</div>
+                        <small class="text-muted">ID: {{ req.employee.employee_code }}</small>
+                    </td>
+                    <td>{{ req.request_date.strftime('%d/%m/%Y') }}</td>
+                    <td class="text-center">
+                        <span class="text-success fw-bold">{{ req.check_in_time.strftime('%H:%M') if req.check_in_time else '-' }}</span>
+                        <span class="mx-1 text-muted">|</span>
+                        <span class="text-danger fw-bold">{{ req.check_out_time.strftime('%H:%M') if req.check_out_time else '-' }}</span>
+                    </td>
+                    <td>
+                        <div class="small p-1 bg-light rounded text-truncate" style="max-width: 200px;">
+                            {{ req.reason }}
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        {% if req.request_lat and req.request_lon %}
+                        <a href="https://www.google.com/maps?q={{ req.request_lat }},{{ req.request_lon }}" target="_blank" class="btn btn-sm btn-outline-secondary p-1 px-2">
+                            <i class="bi bi-geo-alt"></i>
+                        </a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="text-center">
+                        <div class="btn-group">
+                            <form action="/admin/approve-request/{{ req.id }}" method="POST" style="display:inline;">
+                                <input type="hidden" name="status" value="approved"> 
+                                <button type="submit" class="btn btn-sm btn-success me-1" onclick="return confirm('{{ texts.att_confirm_approve }}')">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                            </form>
+
+                            <form action="/admin/reject-request/{{ req.id }}" method="POST" style="display:inline;">
+                                <input type="hidden" name="status" value="rejected"> 
+                                <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ texts.att_confirm_reject }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center py-5 text-muted">
+                        <i class="bi bi-clipboard-check fs-1 d-block mb-3"></i>
+                        <p class="mb-0">{{ texts.att_no_pending }}</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

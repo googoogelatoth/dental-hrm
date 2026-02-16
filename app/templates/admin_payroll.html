@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h3><i class="bi bi-calculator text-primary"></i> {{ texts.pay_title }}</h3>
+    <div class="card shadow">
+        <div class="card-body">
+            <div class="card mb-4 shadow-sm border-primary">
+                <div class="card-body">
+                    <form method="GET" action="/admin/calculate-payroll" class="row g-3 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label fw-bold">{{ texts.pay_select_range }}</label>
+                            <div class="input-group">
+                                <span class="input-group-text">{{ texts.pay_start }}</span>
+                                <input type="date" name="start_date" class="form-control" value="{{ start_date }}" required>
+                                <span class="input-group-text">{{ texts.pay_end }}</span>
+                                <input type="date" name="end_date" class="form-control" value="{{ end_date }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-search"></i> {{ texts.pay_btn_fetch }}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <form action="/admin/process-payroll" method="POST">
+                <input type="hidden" name="start_date" value="{{ start_date }}">
+                <input type="hidden" name="end_date" value="{{ end_date }}">
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-dark text-nowrap">
+                            <tr>
+                                <th>{{ texts.pay_col_name }}</th>
+                                <th class="text-end">{{ texts.pay_col_base }}</th>
+                                <th class="text-center">{{ texts.pay_col_stats }}</th>
+                                <th class="text-end">{{ texts.pay_col_ot }}</th>
+                                <th>{{ texts.pay_col_late }}</th>
+                                <th>{{ texts.pay_col_early }}</th>
+                                <th>{{ texts.pay_col_absent }}</th>
+                                <th>{{ texts.pay_col_extra_inc }}</th>
+                                <th>{{ texts.pay_col_extra_ded }}</th>
+                                <th style="width: 100px;">{{ texts.pay_col_sso }}</th>
+                                <th style="width: 100px;">{{ texts.pay_col_tax }}</th>
+                                <th class="text-end">{{ texts.pay_col_net }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for emp in employees %}
+                            <tr>
+                                <td>
+                                    <strong>{{ emp.first_name }} {{ emp.last_name }}</strong>
+                                    <input type="hidden" name="emp_ids" value="{{ emp.id }}">
+                                </td>
+                                <td class="text-end salary-cell" data-val="{{ (emp.base_salary or 0) + (emp.position_allowance or 0) }}">
+                                    {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
+                                </td>
+                                <td class="text-center small">
+                                    <span class="text-warning">{{ texts.pay_stat_late }}: {{ emp.late_minutes }} {{ texts.pay_unit_min }}</span><br>
+                                    <span class="text-warning">{{ texts.pay_stat_early }}: {{ emp.early_minutes }} {{ texts.pay_unit_min }}</span><br>
+                                    <span class="text-danger">{{ texts.pay_stat_absent }}: {{ emp.absent_days }} {{ texts.pay_unit_day }}</span>
+                                </td>
+                                <td class="text-end ot-cell" data-val="{{ emp.approved_ot_pay or 0 }}">
+                                    {{ "{:,.2f}".format(emp.approved_ot_pay or 0) }}
+                                    <input type="hidden" name="ot_{{ emp.id }}" value="{{ emp.approved_ot_pay or 0 }}">
+                                </td>
+                                <td><input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)" style="width: 80px;"></td>
+                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)" style="width: 80px;"></td>
+                                <td><input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" value="{{ [((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0 }}" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="0" oninput="calculateRow(this)" step="0.01"></td>
+                                <td class="text-end fw-bold text-primary">
+                                    <span class="net-salary-cell">0.00</span>
+                                    <input type="hidden" name="net_{{ emp.id }}" class="net-hidden-input">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-end gap-3 mt-4 mb-5">
+                    <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg">
+                        <i class="bi bi-save"></i> {{ texts.pay_btn_save_draft }}
+                    </button>
+                    <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
+                        <i class="bi bi-check-all"></i> {{ texts.pay_btn_finalize }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// (ส่วน JavaScript คงเดิม แต่ระวังเรื่อง Locale การแสดงผล)
+function calculateRow(element) {
+    const row = element.closest('tr');
+    if (!row) return;
+
+    const salary = parseFloat(row.cells[1].innerText.replace(/,/g, '')) || 0;
+    const ot = parseFloat(row.cells[3].innerText.replace(/,/g, '')) || 0;
+    const extraIncome = parseFloat(row.querySelector('.extra-income-input')?.value) || 0;
+    const lateDeduction = parseFloat(row.querySelector('.late-deduct')?.value) || 0;
+    const earlyDeduction = parseFloat(row.querySelector('.early-deduct')?.value) || 0; 
+    const absentDeduction = parseFloat(row.querySelector('.absent-deduct')?.value) || 0;
+    const sso = parseFloat(row.querySelector('.sso-input')?.value) || 0;
+    const tax = parseFloat(row.querySelector('.tax-input')?.value) || 0;
+    const extraDeduction = parseFloat(row.querySelector('.extra-deduction-input')?.value) || 0;
+
+    const totalIncome = salary + ot + extraIncome;
+    const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + sso + tax + extraDeduction;
+    const netSalary = totalIncome - totalDeductions;
+    
+    const netSalaryCell = row.querySelector('.net-salary-cell');
+    if (netSalaryCell) {
+        // ใช้ 'en-US' เพื่อให้ Format ตัวเลขเป็น 1,000.00 เสมอในระบบบัญชี
+        netSalaryCell.innerText = netSalary.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+    
+    const hiddenInput = row.querySelector('.net-hidden-input');
+    if (hiddenInput) {
+        hiddenInput.value = netSalary.toFixed(2);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.late-deduct').forEach(input => calculateRow(input));
+});
+</script>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-file-earmark-check text-info"></i> {{ texts.tax_title }}</h3>
+    </div>
+
+    <div class="card mb-4 shadow-sm border-info">
+        <div class="card-body">
+            <form method="GET" action="/admin/payroll-tax-sso-report" class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">{{ texts.tax_select_cycle }}</label>
+                    <select name="month" class="form-select">
+                        {% for m in months_range %}
+                        <option value="{{ m }}" {% if m == current_month %}selected{% endif %}>
+                            {{ texts.months[m-1] }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">{{ texts.tax_label_year }}</label>
+                    <select name="year" class="form-select">
+                        {% for y in years_range %}
+                        <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>
+                            {{ y + 543 if request.cookies.get('lang') == 'th' else y }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-info text-white w-100">
+                        <i class="bi bi-search"></i> {{ texts.tax_btn_view }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card bg-primary text-white shadow-sm border-0">
+                <div class="card-body text-center">
+                    <h6 class="card-title opacity-75">{{ texts.tax_summary_sso }}</h6>
+                    <h3 class="mb-0">{{ "{:,.2f}".format(total_sso) }} ฿</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card bg-danger text-white shadow-sm border-0">
+                <div class="card-body text-center">
+                    <h6 class="card-title opacity-75">{{ texts.tax_summary_withholding }}</h6>
+                    <h3 class="mb-0">{{ "{:,.2f}".format(total_tax) }} ฿</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <table class="table table-hover table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 50px;" class="text-center">{{ texts.tax_col_no }}</th>
+                        <th>{{ texts.tax_col_name }}</th>
+                        <th class="text-end">{{ texts.tax_col_gross }}</th>
+                        <th class="text-end text-primary">{{ texts.tax_col_sso }}</th>
+                        <th class="text-end text-danger">{{ texts.tax_col_withholding }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in data %}
+                    <tr>
+                        <td class="text-center">{{ loop.index }}</td>
+                        <td><strong>{{ p.employee.first_name }} {{ p.employee.last_name }}</strong></td>
+                        <td class="text-end">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.extra_income or 0)) }}</td>
+                        <td class="text-end text-primary fw-bold">{{ "{:,.2f}".format(p.sso or 0) }}</td>
+                        <td class="text-end text-danger fw-bold">{{ "{:,.2f}".format(p.tax or 0) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not data %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-5">
+                            <i class="bi bi-file-earmark-x d-block fs-2 mb-2"></i>
+                            {{ texts.tax_no_data }}
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container text-center mt-5">
+    <div class="form-container py-5">
+        <h2 class="text-primary mb-4">ระบบลงเวลาเข้า-ออกงาน</h2>
+        <h4 id="clock" class="display-4 mb-4">00:00:00</h4>
+        
+        <div class="d-grid gap-3 col-md-6 mx-auto">
+            {% if not today_attendance %}
+            <form action="/attendance/check-in" method="post">
+                <button type="submit" class="btn btn-success btn-lg w-100 py-3">
+                    <i class="bi bi-geo-alt"></i> ลงเวลาเข้างาน (Check-in)
+                </button>
+            </form>
+            {% elif not today_attendance.check_out %}
+            <div class="alert alert-success">คุณเข้างานเมื่อเวลา: {{ today_attendance.check_in.strftime('%H:%M') }}</div>
+            <form action="/attendance/check-out" method="post">
+                <button type="submit" class="btn btn-danger btn-lg w-100 py-3">
+                    ลงเวลาออกงาน (Check-out)
+                </button>
+            </form>
+            {% else %}
+            <div class="alert alert-secondary">
+                วันนี้คุณลงเวลาครบถ้วนแล้ว<br>
+                เข้า: {{ today_attendance.check_in.strftime('%H:%M') }} | ออก: {{ today_attendance.check_out.strftime('%H:%M') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    function updateClock() {
+        const now = new Date();
+        document.getElementById('clock').innerText = now.toLocaleTimeString('th-TH');
+    }
+    setInterval(updateClock, 1000);
+</script>
+{% endblock %}

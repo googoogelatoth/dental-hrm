@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="form-container shadow-sm p-4 bg-white rounded">
+    <h3 class="text-primary mb-4"><i class="bi bi-calendar-check me-2"></i>{{ texts.hld_title }}</h3>
+    
+    <form action="/add-holiday" method="post" class="row g-3 mb-4 p-3 bg-light rounded border">
+        <div class="col-md-3">
+            <label class="form-label fw-bold">{{ texts.hld_label_date }}</label>
+            <input type="date" name="holiday_date" class="form-control" required>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold">{{ texts.hld_label_name }}</label>
+            <input type="text" name="holiday_name" class="form-control" placeholder="{{ texts.hld_placeholder_name }}" required>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100 shadow-sm">
+                <i class="bi bi-plus-circle me-1"></i> {{ texts.hld_btn_save }}
+            </button>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-primary">
+                <tr>
+                    <th style="width: 20%;">{{ texts.hld_col_date }}</th>
+                    <th>{{ texts.hld_col_name }}</th>
+                    <th class="text-center" style="width: 15%;">{{ texts.hld_col_manage }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for holiday in holidays %}
+                <tr>
+                    <td class="fw-bold">{{ holiday.holiday_date.strftime('%d/%m/%Y') }}</td>
+                    <td>{{ holiday.holiday_name }}</td>
+                    <td class="text-center">
+                        <a href="/delete-holiday/{{ holiday.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ texts.hld_confirm_delete }}')">
+                            <i class="bi bi-trash"></i> {{ texts.hld_btn_delete }}
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="text-center py-4 text-muted">
+                        <i class="bi bi-calendar-x d-block fs-2 mb-2"></i>
+                        {{ texts.hld_no_data }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

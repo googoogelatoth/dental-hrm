@@ -1,0 +1,23 @@
+<form action="/submit-attendance-request" method="post">
+    <label>วันที่ที่ลืมลงเวลา:</label>
+    <input type="date" name="request_date" required class="form-control">
+    
+    <div class="row">
+        <div class="col">
+            <label>เวลาเข้า:</label>
+            <input type="time" name="check_in" class="form-control">
+        </div>
+        <div class="col">
+            <label>เวลาออก:</label>
+            <input type="time" name="check_out" class="form-control">
+        </div>
+    </div>
+    
+    <label>เหตุผล:</label>
+    <textarea name="reason" class="form-control" placeholder="เช่น ลืมโทรศัพท์ไว้ที่รถ..."></textarea>
+    
+    <input type="hidden" name="lat" id="lat">
+    <input type="hidden" name="lon" id="lon">
+    
+    <button type="submit" class="btn btn-warning mt-3">ส่งคำร้องขอแก้ไขเวลา</button>
+</form>

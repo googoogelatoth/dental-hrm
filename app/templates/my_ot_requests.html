@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="text-primary fw-bold mb-0"><i class="bi bi-file-earmark-text me-2"></i>{{ texts.oth_title }}</h3>
+        <a href="/request-ot" class="btn btn-primary shadow-sm"><i class="bi bi-plus-lg"></i> {{ texts.oth_btn_new }}</a>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ texts.oth_col_date }}</th>
+                            <th>{{ texts.oth_col_time }}</th>
+                            <th class="text-center">{{ texts.oth_col_min }}</th>
+                            <th>{{ texts.oth_col_type }}</th>
+                            <th class="text-center">{{ texts.oth_col_status }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ot_type_map = {
+                            'ot_1_5': texts.ot_type_1_5,
+                            'ot_1_0': texts.ot_type_1_0,
+                            'ot_2_0': texts.ot_type_2_0,
+                            'ot_3_0': texts.ot_type_3_0
+                        } %}
+                        
+                        {% for ot in ots %}
+                        <tr>
+                            <td class="fw-bold">{{ ot.request_date.strftime('%d/%m/%Y') }}</td>
+                            <td><small class="text-muted">{{ ot.start_time }} - {{ ot.end_time }}</small></td>
+                            <td class="text-center">{{ ot.total_minutes }}</td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ ot_type_map.get(ot.ot_type, ot.ot_type) }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if ot.status == 'pending' %}
+                                    <span class="badge rounded-pill bg-warning text-dark px-3">{{ texts.oth_status_pending }}</span>
+                                {% elif ot.status == 'approved' %}
+                                    <span class="badge rounded-pill bg-success px-3">{{ texts.oth_status_approved }}</span>
+                                {% else %}
+                                    <span class="badge rounded-pill bg-danger px-3">{{ texts.oth_status_rejected }}</span>
+                                    {% if ot.admin_remark %}
+                                        <div class="mt-1">
+                                            <small class="text-danger" style="font-size: 0.75rem;">
+                                                <strong>{{ texts.oth_remark_label }}</strong> {{ ot.admin_remark }}
+                                            </small>
+                                        </div>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center py-5 text-muted">
+                                <i class="bi bi-clipboard-x fs-1 d-block mb-2"></i>
+                                {{ texts.oth_no_data }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

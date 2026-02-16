@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="form-container shadow-sm p-4 bg-white rounded">
+            <div class="d-flex align-items-center mb-4">
+                <a href="/check-in-page" class="btn btn-outline-secondary btn-sm me-3">
+                    <i class="bi bi-arrow-left"></i> {{ texts.lv_back }}
+                </a>
+                <h2 class="text-primary mb-0">{{ texts.lv_title }}</h2>
+            </div>
+
+            <form action="/leave/apply" method="POST" enctype="multipart/form-data">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label class="form-label fw-bold">{{ texts.lv_type_label }}</label>
+                        <select name="leave_type" class="form-select form-select-lg" required>
+                            <option value="" disabled selected>{{ texts.lv_type_select }}</option>
+                            <option value="ลาป่วย">{{ texts.lv_type_sick }} (Sick Leave)</option>
+                            <option value="ลากิจ">{{ texts.lv_type_personal }} (Business Leave)</option>
+                            <option value="ลาพักร้อน">{{ texts.lv_type_vacation }} (Annual Leave)</option>
+                            <option value="ลาอื่นๆ">{{ texts.lv_type_other }}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">{{ texts.lv_start_date }}</label>
+                        <input type="date" name="start_date" id="start_date" class="form-control" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">{{ texts.lv_end_date }}</label>
+                        <input type="date" name="end_date" id="end_date" class="form-control" required>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">{{ texts.lv_start_time }}</label>
+                        <input type="time" name="start_time" class="form-control" value="09:00">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">{{ texts.lv_end_time }}</label>
+                        <input type="time" name="end_time" class="form-control" value="18:00">
+                    </div>
+                </div>
+                <p class="text-muted small mt-2">{{ texts.lv_full_day_note }}</p>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">{{ texts.lv_reason_label }}</label>
+                    <textarea name="reason" class="form-control" rows="4" placeholder="{{ texts.lv_reason_placeholder }}" required></textarea>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold">{{ texts.lv_file_label }}</label>
+                    <input type="file" name="evidence" class="form-control" accept="image/*,.pdf">
+                    <div class="form-text">{{ texts.lv_file_help }}</div>
+                </div>
+
+                <hr>
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm">{{ texts.lv_btn_submit }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ป้องกันการเลือกวันที่ย้อนหลัง
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('start_date').setAttribute('min', today);
+    
+    document.getElementById('start_date').addEventListener('change', function() {
+        document.getElementById('end_date').setAttribute('min', this.value);
+    });
+</script>
+{% endblock %}

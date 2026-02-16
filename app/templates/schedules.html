@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="text-primary mb-4"><i class="bi bi-calendar-check me-2"></i>{{ texts.sch_title }}</h2>
+
+<div class="form-container shadow-sm bg-white rounded p-4">
+    <form action="/save-schedules" method="post">
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+                <thead class="table-primary text-center">
+                    <tr>
+                        <th rowspan="2" class="align-middle">{{ texts.sch_emp }}</th>
+                        <th colspan="2">{{ texts.sch_check_in }}</th>
+                        <th colspan="2">{{ texts.sch_check_out }}</th>
+                        <th rowspan="2" class="align-middle">{{ texts.sch_work_days }}</th>
+                    </tr>
+                    <tr>
+                        <th>{{ texts.sch_time }}</th>
+                        <th>{{ texts.sch_late_min }}</th>
+                        <th>{{ texts.sch_time }}</th>
+                        <th>{{ texts.sch_early_min }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr>
+                        <td>
+                            <strong>{{ emp.first_name }} {{ emp.last_name }}</strong><br>
+                            <small class="text-muted">ID: {{ emp.employee_code }}</small>
+                        </td>
+                        <td><input type="time" name="start_{{ emp.id }}" class="form-control" value="{{ emp.schedule.work_start_time if emp.schedule else '09:00' }}"></td>
+                        <td><input type="number" name="late_{{ emp.id }}" class="form-control" value="{{ emp.schedule.grace_period_late if emp.schedule else 0 }}"></td>
+                        <td><input type="time" name="end_{{ emp.id }}" class="form-control" value="{{ emp.schedule.work_end_time if emp.schedule else '18:00' }}"></td>
+                        <td><input type="number" name="early_{{ emp.id }}" class="form-control" value="{{ emp.schedule.grace_period_early_out if emp.schedule else 0 }}"></td>
+                        
+                        <td class="text-center bg-light">
+                            {% set day_map = [
+                                ('Mon', texts.day_mon), ('Tue', texts.day_tue), ('Wed', texts.day_wed), 
+                                ('Thu', texts.day_thu), ('Fri', texts.day_fri), ('Sat', texts.day_sat), ('Sun', texts.day_sun)
+                            ] %}
+                            {% for day_val, day_label in day_map %}
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="checkbox" name="days_{{ emp.id }}" value="{{ day_val }}" 
+                                    {% if emp.weekly_off and day_val in emp.weekly_off %} checked {% endif %}>
+                                <label class="form-check-label small">{{ day_label }}</label>
+                            </div>
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="row mt-4 align-items-center">
+            <div class="col-md-8">
+                <div class="alert alert-info shadow-sm mb-0" role="alert">
+                    <h5 class="alert-heading small fw-bold"><i class="bi bi-info-circle-fill me-2"></i>{{ texts.sch_guide_title }}</h5>
+                    <ul class="mb-0 x-small" style="font-size: 0.85rem;">
+                        <li>{{ texts.sch_guide_1 }}</li>
+                        <li>{{ texts.sch_guide_2 }}</li>
+                        <li>{{ texts.sch_guide_3 }}</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-4 text-end">
+                <button type="submit" class="btn btn-primary btn-lg px-5 shadow">
+                    <i class="bi bi-save me-2"></i>{{ texts.sch_save_btn }}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

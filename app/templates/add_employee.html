@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="form-container shadow-sm p-4 bg-white rounded">
+    <h3 class="mb-4 text-primary border-bottom pb-2">
+        <i class="bi bi-person-plus-fill me-2"></i>{{ texts.add_emp_title }}
+    </h3>
+    
+    <form action="/add-employee" method="post" enctype="multipart/form-data">
+        
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label fw-bold">{{ texts.emp_code }}</label>
+                <input type="text" name="employee_code" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">{{ texts.first_name }}</label>
+                <input type="text" name="first_name" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">{{ texts.last_name }}</label>
+                <input type="text" name="last_name" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">{{ texts.nickname }}</label>
+                <input type="text" name="nickname" class="form-control">
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.id_card }}</label>
+                <input type="text" name="id_card_number" class="form-control" maxlength="13">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.phone }}</label>
+                <input type="tel" name="phone_number" class="form-control">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.pos_dept }}</label>
+                <select name="position" class="form-select">
+                    <option value="Doctor">{{ texts.doctor }}</option>
+                    <option value="Nurse">{{ texts.nurse }}</option>
+                    <option value="Staff">{{ texts.staff }}</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label text-danger fw-bold">{{ texts.set_password }}</label>
+                <input type="password" name="password" class="form-control" required placeholder="{{ texts.pw_placeholder }}">
+            </div>
+            <div class="col-md-8">
+                <label class="form-label fw-bold">{{ texts.address }}</label>
+                <textarea name="address" class="form-control" rows="1"></textarea>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.base_salary }}</label>
+                <div class="input-group">
+                    <input type="number" name="base_salary" value="0.00" class="form-control" step="0.01">
+                    <span class="input-group-text">฿</span>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.pos_allowance }}</label>
+                <div class="input-group">
+                    <input type="number" name="position_allowance" value="0.00" class="form-control" step="0.01">
+                    <span class="input-group-text">฿</span>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.bank_acc }}</label>
+                <input type="text" name="bank_account_number" class="form-control">
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.system_role }}</label>
+                <select name="role" class="form-select">
+                    <option value="Staff">Staff</option>
+                    <option value="Admin">Admin</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.profile_pic }}</label>
+                <input type="file" name="profile_picture" class="form-control" accept="image/*">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">{{ texts.docs }}</label>
+                <input type="file" name="documents" class="form-control" accept=".pdf" multiple>
+            </div>
+        </div>
+
+        <div class="row mt-4 p-3 bg-light rounded">
+            <div class="col-12 mb-2">
+                <h6 class="text-secondary fw-bold"><i class="bi bi-calendar-range me-2"></i>กำหนดโควตาการลารายปี</h6>
+            </div>
+            <div class="col-md-4">
+                <label class="small">{{ texts.sick_quota }}</label>
+                <input type="number" name="sick_quota" class="form-control" value="30">
+            </div>
+            <div class="col-md-4">
+                <label class="small">{{ texts.personal_quota }}</label>
+                <input type="number" name="personal_quota" class="form-control" value="3">
+            </div>
+            <div class="col-md-4">
+                <label class="small">{{ texts.vacation_quota }}</label>
+                <input type="number" name="vacation_quota" class="form-control" value="6">
+            </div>
+        </div>
+
+        <hr class="my-4">
+
+        <div class="d-flex justify-content-end gap-2">
+            <a href="/dashboard" class="btn btn-outline-secondary px-4">
+                <i class="bi bi-x-circle me-1"></i>{{ texts.cancel }}
+            </a>
+            <button type="reset" class="btn btn-light border px-4">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>{{ texts.reset }}
+            </button>
+            <button type="submit" class="btn btn-success px-5 fw-bold">
+                <i class="bi bi-save me-1"></i>{{ texts.save_emp }}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

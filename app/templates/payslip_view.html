@@ -1,0 +1,43 @@
+<div class="container mt-4">
+    <div class="card shadow-sm border-primary">
+        <div class="card-body">
+            <h4 class="text-center text-primary">สลิปเงินเดือน - Mini HRM</h4>
+            <p class="text-center text-muted">ประจำเดือน {{ month }}/{{ year }}</p>
+            <hr>
+            <div class="row mb-3">
+                <div class="col-6"><strong>ชื่อพนักงาน:</strong> {{ emp_name }}</div>
+                <div class="col-6 text-end"><strong>รหัส:</strong> {{ emp_code }}</div>
+            </div>
+            
+            <table class="table table-sm table-bordered">
+                <thead class="table-light">
+                    <tr>
+                        <th>รายการรายได้ (Earnings)</th>
+                        <th class="text-end">จำนวนเงิน</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>เงินเดือน (Salary)</td><td class="text-end">{{ salary }}</td></tr>
+                    <tr><td>ค่าตำแหน่ง (Position Allowance)</td><td class="text-end">{{ position_allowance }}</td></tr>
+                    <tr><td>ค่าล่วงเวลา (OT Approved)</td><td class="text-end">{{ ot_pay }}</td></tr>
+                </tbody>
+                <thead class="table-light">
+                    <tr>
+                        <th>รายการหัก (Deductions)</th>
+                        <th class="text-end">จำนวนเงิน</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>ประกันสังคม (SSO)</td><td class="text-end text-danger">- {{ sso }}</td></tr>
+                    <tr><td>ภาษี (Tax)</td><td class="text-end text-danger">- {{ tax }}</td></tr>
+                    <tr><td>หักขาดงาน (Absence)</td><td class="text-end text-danger">- {{ absence }}</td></tr>
+                </tbody>
+            </table>
+            
+            <div class="alert alert-success d-flex justify-content-between">
+                <strong>เงินเดือนสุทธิ (Net Pay):</strong>
+                <strong>{{ net_total }} บาท</strong>
+            </div>
+        </div>
+    </div>
+</div>

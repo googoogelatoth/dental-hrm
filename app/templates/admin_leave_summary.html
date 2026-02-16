@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .progress-bar-custom {
+        width: var(--custom-width, 0%) !important;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4 no-print">
+    <h2 class="text-primary"><i class="bi bi-graph-up me-2"></i>{{ texts.ls_title }}</h2>
+    <button onclick="window.print()" class="btn btn-outline-secondary">
+        <i class="bi bi-printer"></i> {{ texts.ls_print_btn }}
+    </button>
+</div>
+
+<div class="card shadow border-0">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>{{ texts.ls_col_emp }}</th>
+                        <th class="text-center">{{ texts.ls_col_sick }}</th>
+                        <th class="text-center">{{ texts.ls_col_personal }}</th>
+                        <th class="text-center">{{ texts.ls_col_vacation }}</th>
+                        <th class="text-center">{{ texts.ls_col_status }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr>
+                        <td>
+                            <div class="fw-bold text-dark">{{ emp.first_name }} {{ emp.last_name }}</div>
+                            <small class="text-muted">{{ texts.ls_id_label }}: {{ emp.employee_code }}</small>
+                        </td>
+                        
+                        <td class="text-center" style="min-width: 160px;">
+                            {% set s_total = emp.sick_quota|default(30) %}
+                            <span class="badge {% if emp.sick_leave_quota <= 5 %}bg-danger{% else %}bg-info{% endif %} text-dark">
+                                {{ emp.sick_leave_quota }} / {{ s_total }} {{ texts.ls_unit_day }}
+                            </span>
+                            <div class="progress mt-1" style="height: 6px;">
+                                {% set s_p = (emp.sick_leave_quota / s_total * 100)|round|int if s_total > 0 else 0 %}
+                                <div class="progress-bar bg-success" role="progressbar" style="--custom-width: {{ s_p }}%; width: var(--custom-width);"></div>
+                            </div>
+                        </td>
+
+                        <td class="text-center" style="min-width: 160px;">
+                            {% set p_total = emp.personal_quota|default(3) %}
+                            <span class="badge bg-info text-dark">
+                                {{ emp.personal_leave_quota }} / {{ p_total }} {{ texts.ls_unit_day }}
+                            </span>
+                            <div class="progress mt-1" style="height: 6px;">
+                                {% set p_p = (emp.personal_leave_quota / p_total * 100)|round|int if p_total > 0 else 0 %}
+                                <div class="progress-bar bg-warning" role="progressbar" style="--custom-width: {{ p_p }}%; width: var(--custom-width);"></div>
+                            </div>
+                        </td>
+
+                        <td class="text-center" style="min-width: 160px;">
+                            {% set v_total = emp.vacation_quota|default(6) %}
+                            <span class="badge bg-info text-dark">
+                                {{ emp.vacation_leave_quota }} / {{ v_total }} {{ texts.ls_unit_day }}
+                            </span>
+                            <div class="progress mt-1" style="height: 6px;">
+                                {% set v_p = (emp.vacation_leave_quota / v_total * 100)|round|int if v_total > 0 else 0 %}
+                                <div class="progress-bar bg-primary" role="progressbar" style="--custom-width: {{ v_p }}%; width: var(--custom-width);"></div>
+                            </div>
+                        </td>
+
+                        <td class="text-center">
+                            {% if emp.is_active %}
+                                <span class="text-success small"><i class="bi bi-circle-fill" style="font-size: 8px;"></i> {{ texts.ls_status_active }}</span>
+                            {% else %}
+                                <span class="text-muted small">{{ texts.ls_status_inactive }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    @media print {
+        .no-print, .sidebar, .navbar, .mb-4, .btn { display: none !important; }
+        .card { border: none !important; box-shadow: none !important; }
+        .table-responsive { overflow: visible !important; }
+        body { padding: 0; background-color: white !important; font-size: 12pt; }
+        .container { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+    }
+</style>
+{% endblock %}

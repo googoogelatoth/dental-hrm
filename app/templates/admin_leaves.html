@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="text-primary"><i class="bi bi-file-earmark-check me-2"></i>{{ texts.leave_list_title }}</h2>
+</div>
+
+<div class="form-container shadow-sm border-0">
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead class="table-primary">
+                <tr>
+                    <th>{{ texts.leave_submit_date }}</th>
+                    <th>{{ texts.leave_emp_name }}</th>
+                    <th>{{ texts.leave_type_label }}</th>
+                    <th>{{ texts.leave_date_range }}</th>
+                    <th>{{ texts.leave_reason }}</th>
+                    <th>{{ texts.leave_evidence }}</th>
+                    <th>{{ texts.leave_status }}</th>
+                    <th>{{ texts.leave_manage }}</th> 
+                </tr>
+            </thead>
+            <tbody>
+                {% for leave in leaves %}
+                <tr class="align-middle">
+                    <td>{{ leave.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                    <td><strong>{{ leave.owner.first_name }} {{ leave.owner.last_name }}</strong></td>
+                    
+                    <td>
+                        {% set leave_type_map = {
+                            'ลาป่วย': 'Sick Leave',
+                            'ลากิจ': 'Personal Leave',
+                            'ลาพักร้อน': 'Vacation Leave'
+                        } %}
+                        <span class="badge bg-info text-dark">
+                            {% if request.cookies.get('lang') == 'en' %}
+                                {{ leave_type_map.get(leave.leave_type, leave.leave_type) }}
+                            {% else %}
+                                {{ leave.leave_type }}
+                            {% endif %}
+                        </span>
+                    </td>
+
+                    <td>{{ leave.start_date.strftime('%d/%m/%Y') }} - {{ leave.end_date.strftime('%d/%m/%Y') }}</td>
+                    <td>{{ leave.reason }}</td>
+                    <td>
+                        {% if leave.evidence_path %}
+                        <a href="/{{ leave.evidence_path }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-paperclip"></i> {{ texts.leave_view_file }}
+                        </a>
+                        {% else %}
+                        <span class="text-muted">{{ texts.leave_no_file }}</span>
+                        {% endif %}
+                    </td>
+                    
+                    <td>
+                        {% set status_map = {
+                            'Pending': texts.leave_pending,
+                            'Approved': texts.leave_approved,
+                            'Rejected': texts.leave_rejected
+                        } %}
+                        
+                        {% if leave.status == 'Pending' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split"></i> {{ texts.leave_pending }}</span>
+                        {% elif leave.status == 'Approved' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle"></i> {{ texts.leave_approved }}</span>
+                        {% else %}
+                            <span class="badge bg-danger"><i class="bi bi-x-circle"></i> {{ texts.leave_rejected }}</span>
+                            {% if leave.admin_remark %}
+                                <div class="small text-muted mt-1">{{ texts.leave_reason_header }}: {{ leave.admin_remark }}</div>
+                            {% endif %}
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if leave.status == 'Pending' %}
+                        <form action="/admin/leave/approve/{{ leave.id }}" method="POST">
+                            <div class="d-flex flex-column gap-2">
+                                <textarea name="admin_remark" class="form-control form-control-sm" placeholder="{{ texts.leave_remark_placeholder }}" rows="1"></textarea>
+                                <div class="d-flex gap-1">
+                                    <button type="submit" name="status" value="Approved" class="btn btn-sm btn-success w-100">{{ texts.leave_approve_btn }}</button>
+                                    <button type="submit" name="status" value="Rejected" class="btn btn-sm btn-danger w-100" onclick="return confirm('{{ texts.leave_confirm_reject }}')">{{ texts.leave_reject_btn }}</button>
+                                </div>
+                            </div>
+                        </form>
+                        {% else %}
+                        <small class="text-muted">{{ texts.leave_managed_at }}: {{ leave.updated_at.strftime('%d/%m/%Y') if leave.updated_at else '-' }}</small>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="text-center py-4 text-muted">{{ texts.leave_no_data }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

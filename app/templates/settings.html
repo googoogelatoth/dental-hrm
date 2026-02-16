@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-building-gear text-primary"></i> {{ texts.com_title }}</h3>
+        <span class="badge bg-info text-dark">{{ texts.com_badge }}</span>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-4">
+            <form action="/admin/settings/company/update" method="POST" enctype="multipart/form-data">
+                <div class="row">
+                    <div class="col-md-4 text-center border-end">
+                        <label class="form-label fw-bold d-block mb-3">{{ texts.com_logo_label }}</label>
+                        
+                        <div class="mb-3 position-relative d-inline-block">
+                            {% if company and company.logo_path %}
+                                <img src="/static/uploads/{{ company.logo_path }}" class="img-thumbnail shadow-sm" style="max-height: 180px; width: 180px; object-fit: contain;">
+                            {% else %}
+                                <div class="bg-light border rounded d-flex align-items-center justify-content-center shadow-sm" style="height: 180px; width: 180px;">
+                                    <div class="text-center">
+                                        <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
+                                        <p class="small text-muted mb-0">{{ texts.com_no_logo }}</p>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="px-3">
+                            <input type="file" name="logo" class="form-control form-control-sm mb-2" accept="image/*">
+                            <p class="text-muted" style="font-size: 0.75rem;">
+                                <i class="bi bi-info-circle"></i> {{ texts.com_logo_help }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="col-md-8 px-4">
+                        <div class="mb-4">
+                            <label class="form-label fw-bold"><i class="bi bi-tag-fill me-1 text-primary"></i> {{ texts.com_name_label }}</label>
+                            <input type="text" name="company_name" class="form-control form-control-lg" 
+                                   value="{{ company.company_name if company else '' }}" 
+                                   placeholder="{{ texts.com_name_placeholder }}" required>
+                            <div class="form-text">{{ texts.com_name_help }}</div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold"><i class="bi bi-geo-alt-fill me-1 text-primary"></i> {{ texts.com_address_label }}</label>
+                            <textarea name="address" class="form-control" rows="5" 
+                                      placeholder="{{ texts.com_address_placeholder }}">{{ company.address if company else '' }}</textarea>
+                            <div class="form-text">{{ texts.com_address_help }}</div>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary btn-lg shadow">
+                                <i class="bi bi-cloud-arrow-up-fill me-2"></i> {{ texts.com_btn_update }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if request.query_params.get('msg') == 'success' %}
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast show align-items-center text-white bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-check-circle-fill me-2"></i> {{ texts.com_msg_success }}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
