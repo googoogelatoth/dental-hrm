@@ -106,22 +106,28 @@ async def get_current_active_user(request: Request, db: Session = Depends(get_db
     user_id = request.cookies.get("user_id")
     cookie_session = request.cookies.get("session_id")
     
-    # 1. ถ้าไม่มีคุกกี้พื้นฐาน
+    # 1. ถ้าไม่มีคุกกี้พื้นฐาน (ไม่ได้ Login)
     if not user_id or not cookie_session:
-        return None 
+        # แทนที่จะ return None ให้เด้งไปหน้า Login เลย
+        raise HTTPException(status_code=401, detail="กรุณาเข้าสู่ระบบ")
 
     # 2. ดึงข้อมูล User จาก DB
-    user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
+    try:
+        user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
+    except:
+        raise HTTPException(status_code=401, detail="ข้อมูลผู้ใช้ไม่ถูกต้อง")
     
-    # 3. 🛡️ เช็คว่ามีตัวตน และ สถานะพนักงาน (is_active) ต้องเป็น True เท่านั้น
+    # 3. 🛡️ เช็คว่ามีตัวตน และ สถานะพนักงาน
     if not user or not user.is_active:
-        return "inactive" # เพิ่มสถานะนี้เพื่อแยกเคสคนลาออก/คนโดนแบน
+        # เด้ง Error แทนการ return string
+        raise HTTPException(status_code=403, detail="บัญชีนี้ถูกระงับการใช้งาน")
 
     # 4. 🔒 ตรวจสอบ Single Device Login
     if user.current_session_id != cookie_session:
-        return "expired"
+        # เด้ง Error เพื่อให้ Middleware หรือหน้าเว็บจัดการส่งไป Login ใหม่
+        raise HTTPException(status_code=401, detail="เซสชั่นหมดอายุหรือมีการเข้าสู่ระบบจากที่อื่น")
         
-    return user
+    return user # คืนค่าเป็นก้อน Object จริงๆ เท่านั้น
 
 async def get_lang(request: Request):
     # ดึงค่า lang จากคุกกี้ ถ้าไม่มีให้ใช้ 'th' เป็น Default
@@ -224,14 +230,20 @@ async def dashboard(
 
 @app.get("/add-employee", response_class=HTMLResponse)
 async def add_employee_page(
-    request: Request,texts: dict = Depends(get_lang),
-    user: models.Employee = Depends(get_current_active_user)
+    request: Request,
+    texts: dict = Depends(get_lang),
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db) # เพิ่ม db เข้ามาเผื่อใช้ตรวจสอบข้อมูล
 ):
-    # เช็คสิทธิ์ Admin
-    if user.role != "Admin":
+    # ตรวจสอบว่า user ที่ได้มามีตัวตนและมี attribute role จริงไหม
+    if not hasattr(user, 'role') or user.role != "Admin":
         return RedirectResponse(url="/dashboard?error=permission", status_code=303)
     
-    return templates.TemplateResponse("add_employee.html", {"texts": texts,"request": request})
+    return templates.TemplateResponse("add_employee.html", {
+        "request": request,
+        "texts": texts,
+        "user": user # ส่ง user ไปให้หน้า HTML ด้วย เผื่อต้องโชว์ชื่อคนทำรายการ
+    })
 
 @app.post("/add-employee")
 async def handle_add_employee(
@@ -254,86 +266,71 @@ async def handle_add_employee(
     documents: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # --- 1. ตรวจสอบสิทธิ์ Admin ---
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์เข้าถึงหน้านี้")
+    # 1. เช็คสิทธิ์ Admin
+    if not hasattr(user, 'role') or user.role != "Admin":
+        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์")
 
-    # --- 2. UNIQUE Check เลขบัตรประชาชน ---
+    # 2. เช็คเลขบัตรซ้ำ (เข้ารหัสก่อนเช็ค)
     if id_card_number:
-        target_encrypted_id = encrypt_data(id_card_number)
-        existing_emp = db.query(models.Employee).filter(models.Employee.id_card_number == target_encrypted_id).first()
-        if existing_emp:
-            return templates.TemplateResponse("add_employee.html", {
-                "request": request, 
-                "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
-            })
+        target_id = encrypt_data(id_card_number)
+        if db.query(models.Employee).filter(models.Employee.id_card_number == target_id).first():
+            return templates.TemplateResponse("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": get_lang()})
 
-    # --- 3. จัดการไฟล์รูปภาพ (ส่งไป Cloudinary) ---
-    profile_url = "/static/img/default-avatar.png" # ค่าเริ่มต้น
+    # 3. 📸 จัดการรูปโปรไฟล์ (ส่งไป Cloudinary)
+    profile_url = "/static/img/default-avatar.png"
     if profile_picture and profile_picture.filename:
         try:
-            # อัปโหลดไปที่โฟลเดอร์ hrm/profiles และตั้งชื่อไฟล์ตาม employee_code
             upload_result = cloudinary.uploader.upload(
-                profile_picture.file, 
+                profile_picture.file,
                 folder="hrm/profiles",
-                public_id=employee_code,
+                public_id=f"emp_{employee_code}",
                 overwrite=True
             )
             profile_url = upload_result.get("secure_url")
         except Exception as e:
-            print(f"Cloudinary Profile Upload Error: {e}")
+            print(f"Cloudinary Profile Error: {e}")
 
-    # --- 4. เข้ารหัสข้อมูลสำคัญ ---
-    encrypted_phone = encrypt_data(phone_number)
-    encrypted_id_card = encrypt_data(id_card_number)
-    encrypted_bank_acc = encrypt_data(bank_account_number)
-    hashed_pw = pwd_context.hash(password)
-
-    # --- 5. สร้าง Object และบันทึกข้อมูลหลัก ---
+    # 4. เข้ารหัสข้อมูลและ Hash Password
     new_emp = models.Employee(
         employee_code=employee_code,
         first_name=first_name,
         last_name=last_name,
         nickname=nickname,
-        phone_number=encrypted_phone,
-        id_card_number=encrypted_id_card,
-        bank_account_number=encrypted_bank_acc,
+        phone_number=encrypt_data(phone_number),
+        id_card_number=encrypt_data(id_card_number),
+        bank_account_number=encrypt_data(bank_account_number),
         address=address,
         position=position,
         role=role,
         base_salary=base_salary,
         position_allowance=position_allowance,
-        profile_picture=profile_url, # เซฟเป็น URL แทน path ในเครื่อง
-        hashed_password=hashed_pw,
-        current_session_id=None
+        profile_picture=profile_url, # ✅ ลิงก์ Cloudinary (ไม่หายแน่นอน)
+        hashed_password=pwd_context.hash(password)
     )
     
     db.add(new_emp)
     db.commit()
     db.refresh(new_emp)
 
-    # --- 6. จัดการไฟล์เอกสาร PDF (ส่งไป Cloudinary) ---
+    # 5. 📄 จัดการไฟล์เอกสาร PDF (ส่งไป Cloudinary)
     if documents:
         for doc in documents:
             if doc.filename:
                 try:
-                    # อัปโหลดไฟล์เอกสาร (resource_type="raw" สำหรับ PDF/Non-image)
                     doc_upload = cloudinary.uploader.upload(
                         doc.file,
                         folder=f"hrm/docs/{employee_code}",
-                        resource_type="raw",
+                        resource_type="raw", # สำคัญสำหรับ PDF
                         public_id=doc.filename
                     )
-                    doc_url = doc_upload.get("secure_url")
-                    
                     new_doc = models.EmployeeDocument(
-                        file_path=doc_url, # เก็บ URL ไว้ดาวน์โหลด
+                        file_path=doc_upload.get("secure_url"), # ✅ ลิงก์ Cloudinary
                         file_name=doc.filename,
                         employee_id=new_emp.id
                     )
                     db.add(new_doc)
                 except Exception as e:
-                    print(f"Cloudinary Document Upload Error: {e}")
+                    print(f"Cloudinary Doc Error: {e}")
         db.commit()
 
     return RedirectResponse(url="/dashboard?msg=success", status_code=303)
