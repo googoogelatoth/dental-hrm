@@ -2,13 +2,15 @@
     <div class="row g-3">
         <div class="col-md-4 text-center">
             {% if employee.profile_picture %}
-                {# เช็คว่าเป็น URL จาก Cloudinary (http) หรือไฟล์ในเครื่อง (ไม่มี http) #}
+                {# เช็คว่ามาจาก Cloudinary หรือไม่ #}
                 {% if employee.profile_picture.startswith('http') %}
                     <img src="{{ employee.profile_picture }}" class="img-fluid rounded shadow-sm border" style="max-height: 220px; width: 100%; object-fit: cover;">
                 {% else %}
+                    {# ถ้าเป็นรูปในเครื่อง ให้เติม / นำหน้า #}
                     <img src="/{{ employee.profile_picture }}" class="img-fluid rounded shadow-sm border" style="max-height: 220px; width: 100%; object-fit: cover;">
                 {% endif %}
             {% else %}
+                {# กรณีไม่มีรูปภาพ #}
                 <div class="bg-light border rounded d-flex align-items-center justify-content-center" style="height: 200px;">
                     <div class="text-center">
                         <i class="bi bi-person-bounding-box fs-1 d-block text-muted"></i>
