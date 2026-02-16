@@ -246,6 +246,7 @@ async def add_employee_page(
         "user": user # ส่ง user ไปให้หน้า HTML ด้วย เผื่อต้องโชว์ชื่อคนทำรายการ
     })
 
+# --- 1. ส่วนเพิ่มพนักงาน (ป้องกัน Error 500 จากการซ้ำ) ---
 @app.post("/add-employee")
 async def handle_add_employee(
     request: Request,
@@ -267,74 +268,83 @@ async def handle_add_employee(
     documents: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # 1. เช็คสิทธิ์ Admin
     if not hasattr(user, 'role') or user.role != "Admin":
         raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์")
 
-    # 2. เช็คเลขบัตรซ้ำ (เข้ารหัสก่อนเช็ค)
+    # 🛑 เช็คข้อมูลซ้ำ (ป้องกัน Error 500)
+    if db.query(models.Employee).filter(models.Employee.employee_code == employee_code).first():
+        return templates.TemplateResponse("add_employee.html", {"request": request, "error": f"รหัสพนักงาน {employee_code} มีในระบบแล้ว", "texts": get_lang()})
+
     if id_card_number:
         target_id = encrypt_data(id_card_number)
         if db.query(models.Employee).filter(models.Employee.id_card_number == target_id).first():
             return templates.TemplateResponse("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": get_lang()})
 
-    # 3. 📸 จัดการรูปโปรไฟล์ (ส่งไป Cloudinary)
+    # 📸 จัดการรูปโปรไฟล์ (Cloudinary)
     profile_url = "/static/img/default-avatar.png"
     if profile_picture and profile_picture.filename:
         try:
-            upload_result = cloudinary.uploader.upload(
-                profile_picture.file,
-                folder="hrm/profiles",
-                public_id=f"emp_{employee_code}",
-                overwrite=True
-            )
+            upload_result = cloudinary.uploader.upload(profile_picture.file, folder="hrm/profiles", public_id=f"emp_{employee_code}", overwrite=True)
             profile_url = upload_result.get("secure_url")
         except Exception as e:
-            print(f"Cloudinary Profile Error: {e}")
+            print(f"Cloudinary Error: {e}")
 
-    # 4. เข้ารหัสข้อมูลและ Hash Password
     new_emp = models.Employee(
         employee_code=employee_code,
         first_name=first_name,
         last_name=last_name,
         nickname=nickname,
-        phone_number=encrypt_data(phone_number),
-        id_card_number=encrypt_data(id_card_number),
-        bank_account_number=encrypt_data(bank_account_number),
-        address=address,
-        position=position,
-        role=role,
-        base_salary=base_salary,
-        position_allowance=position_allowance,
-        profile_picture=profile_url, # ✅ ลิงก์ Cloudinary (ไม่หายแน่นอน)
+        phone_number=encrypt_data(phone_number) if phone_number else None,
+        id_card_number=encrypt_data(id_card_number) if id_card_number else None,
+        bank_account_number=encrypt_data(bank_account_number) if bank_account_number else None,
+        address=address, position=position, role=role,
+        base_salary=base_salary, position_allowance=position_allowance,
+        profile_picture=profile_url,
         hashed_password=pwd_context.hash(password)
     )
     
     db.add(new_emp)
     db.commit()
     db.refresh(new_emp)
-
-    # 5. 📄 จัดการไฟล์เอกสาร PDF (ส่งไป Cloudinary)
+    
+    # 📄 จัดการไฟล์เอกสาร (Cloudinary)
     if documents:
         for doc in documents:
             if doc.filename:
                 try:
-                    doc_upload = cloudinary.uploader.upload(
-                        doc.file,
-                        folder=f"hrm/docs/{employee_code}",
-                        resource_type="raw", # สำคัญสำหรับ PDF
-                        public_id=doc.filename
-                    )
-                    new_doc = models.EmployeeDocument(
-                        file_path=doc_upload.get("secure_url"), # ✅ ลิงก์ Cloudinary
-                        file_name=doc.filename,
-                        employee_id=new_emp.id
-                    )
+                    doc_upload = cloudinary.uploader.upload(doc.file, folder=f"hrm/docs/{employee_code}", resource_type="raw", public_id=doc.filename)
+                    new_doc = models.EmployeeDocument(file_path=doc_upload.get("secure_url"), file_name=doc.filename, employee_id=new_emp.id)
                     db.add(new_doc)
-                except Exception as e:
-                    print(f"Cloudinary Doc Error: {e}")
+                except Exception as e: print(f"Doc Error: {e}")
         db.commit()
 
     return RedirectResponse(url="/dashboard?msg=success", status_code=303)
+
+
+# --- 2. ส่วนอัปเดตตั้งค่าองค์กร (Cloudinary) ---
+@app.post("/admin/settings/company/update")
+async def update_company_settings(
+    company_name: str = Form(...),
+    address: str = Form(...),
+    logo: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    company = db.query(models.CompanySetting).first()
+    if not company:
+        company = models.CompanySetting()
+        db.add(company)
+
+    company.company_name = company_name
+    company.address = address
+
+    if logo and logo.filename:
+        try:
+            upload_result = cloudinary.uploader.upload(logo.file, folder="hrm/company", public_id="company_logo", overwrite=True)
+            company.logo_path = upload_result.get("secure_url")
+        except Exception as e: print(f"Logo Error: {e}")
+
+    db.commit()
+    return RedirectResponse(url="/admin/settings?msg=success", status_code=303)
 
 # --- 1. แสดงหน้าฟอร์มแก้ไข ---
 @app.get("/edit-employee/{emp_id}", response_class=HTMLResponse)
