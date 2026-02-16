@@ -460,7 +460,7 @@ async def employee_detail(
         "bank_account_number": decrypt_data(employee.bank_account_number) if employee.bank_account_number else ""
     }
 
-    return templates.TemplateResponse("employee_detail.html", {
+    return templates.TemplateResponse("employee_detail_content.html", {
         "request": request,
         "texts": texts, 
         "employee": employee,
@@ -1000,24 +1000,24 @@ async def attendance_report(
 @app.get("/my-profile", response_class=HTMLResponse)
 async def my_profile_page(
     request: Request,
-    user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), # 🛡️ ตัวนี้เช็ค Login/Session ให้จบในตัวเดียวแล้ว
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang), 
     db: Session = Depends(get_db)
 ):
-    # ไม่ต้องเช็คคุกกี้ซ้ำแล้วครับ เพราะถ้าไม่ Login ตัว Depends จะดีดออกไปหน้า Login ให้เอง
-    
-    # 🔓 ถอดรหัสข้อมูลก่อนส่งไปโชว์ที่หน้า HTML
-    # เราใช้วิธี Copy ข้อมูลออกมาถอดรหัส เพื่อไม่ให้ไปกระทบค่าใน Database จริงๆ
-    display_employee = user
-    display_employee.phone_number = decrypt_data(user.phone_number)
-    display_employee.id_card_number = decrypt_data(user.id_card_number)
-    display_employee.bank_account_number = decrypt_data(user.bank_account_number)
+    # 🔓 เตรียมข้อมูลถอดรหัส
+    display_data = {
+        "phone_number": decrypt_data(user.phone_number) if user.phone_number else "",
+        "id_card_number": decrypt_data(user.id_card_number) if user.id_card_number else "",
+        "bank_account_number": decrypt_data(user.bank_account_number) if user.bank_account_number else ""
+    }
 
-    return templates.TemplateResponse("employee_detail.html", {
+    return templates.TemplateResponse("my_profile.html", {
         "request": request, 
-        "employee": display_employee,
+        "employee": user,
         "public_vapid_key": VAPID_PUBLIC_KEY,
         "texts": texts, 
-        "is_staff_view": True # เพื่อซ่อนปุ่ม Edit/Delete สำหรับพนักงานทั่วไป
+        "decrypted": display_data,  # ✅ นายต้องเพิ่มบรรทัดนี้ครับ! ปัญหาอยู่ตรงนี้เลย
+        "is_staff_view": True 
     })
     
 @app.post("/leave/apply")
