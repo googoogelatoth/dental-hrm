@@ -15,7 +15,11 @@
                         
                         <div class="mb-3 position-relative d-inline-block">
                             {% if company and company.logo_path %}
-                                <img src="/static/uploads/{{ company.logo_path }}" class="img-thumbnail shadow-sm" style="max-height: 180px; width: 180px; object-fit: contain;">
+                                {# --- ✨ จุดที่แก้ไข: เช็คว่าเป็น URL Cloudinary หรือไม่ --- #}
+                                <img src="{% if company.logo_path.startswith('http') %}{{ company.logo_path }}{% else %}/static/uploads/{{ company.logo_path }}{% endif %}" 
+                                     class="img-thumbnail shadow-sm" 
+                                     style="max-height: 180px; width: 180px; object-fit: contain;"
+                                     onerror="this.src='/static/img/mini-hrm-logo.png'">
                             {% else %}
                                 <div class="bg-light border rounded d-flex align-items-center justify-content-center shadow-sm" style="height: 180px; width: 180px;">
                                     <div class="text-center">

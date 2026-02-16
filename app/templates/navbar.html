@@ -3,7 +3,7 @@
         <a class="navbar-brand d-flex align-items-center fw-bold" href="/dashboard">
             {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก Cloudinary --- #}
             {% if company_logo %}
-                <img src="{% if company_logo.startswith('http') %}{{ company_logo }}{% else %}/{{ company_logo }}{% endif %}" 
+                <img src="{% if company_logo and company_logo.startswith('http') %}{{ company_logo }}{% else %}/static/img/mini-hrm-logo.png{% endif %}" 
                     alt="Logo" height="35" class="me-2" 
                     onerror="this.src='/static/img/mini-hrm-logo.png'">
             {% else %}
