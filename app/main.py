@@ -84,9 +84,10 @@ models.Base.metadata.create_all(bind=engine)
 
 # 1. ตั้งค่า Cloudinary (ดึงค่าจากชื่อตัวแปร Environment)
 cloudinary.config(
-    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key = os.getenv("CLOUDINARY_API_KEY"),
-    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+    cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME'),
+    api_key = os.getenv('CLOUDINARY_API_KEY'),
+    api_secret = os.getenv('CLOUDINARY_API_SECRET'),
+    secure = True
 )
 
 # ตั้งค่าตำแหน่งของไฟล์ HTML
