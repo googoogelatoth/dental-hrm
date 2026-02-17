@@ -1,5 +1,6 @@
 // static/sw.js
 // เพิ่มใน sw.js เพื่อ Debug บน Android
+// static/sw.js
 self.addEventListener('push', function(event) {
     console.log('[Service Worker] Push Received.');
     let data = { title: 'แจ้งเตือน', body: 'มีข้อความใหม่' };
@@ -12,9 +13,10 @@ self.addEventListener('push', function(event) {
 
     const options = {
         body: data.body,
-        icon: '/static/img/mini-hrm-logo.png',
-        badge: '/static/img/mini-hrm-logo.png',
-        vibrate: [100, 50, 100], // Android รองรับการสั่น
+        // ✨ แก้ตรงนี้: ใช้ลิงก์ Cloudinary ของโลโก้บริษัทนาย
+        icon: 'https://res.cloudinary.com/your_cloud_name/image/upload/v12345/hrm/company/company_logo.png',
+        badge: 'https://res.cloudinary.com/your_cloud_name/image/upload/v12345/hrm/company/company_logo.png',
+        vibrate: [100, 50, 100],
         data: {
             dateOfArrival: Date.now(),
             primaryKey: '1'
@@ -26,8 +28,4 @@ self.addEventListener('push', function(event) {
     );
 });
 
-// เมื่อกดที่แจ้งเตือน ให้เปิดหน้าเว็บรายงาน
-self.addEventListener('notificationclick', e => {
-    e.notification.close();
-    e.waitUntil(clients.openWindow('/attendance-report'));
-});
+
