@@ -9,37 +9,28 @@
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     
-    <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#007bff">
 
-    {# --- ส่วนจัดการ Icon สำหรับ iOS และ Android (ฉบับแก้ทาง Google Cloud Run) --- #}
-    {% if company and company.logo_path %}
-        {# 1. ใช้ URL เต็มจาก Cloudinary และเติม Version เพื่อล้างแคช #}
-        {% set icon_url = company.logo_path if company.logo_path.startswith('http') else '/' + company.logo_path %}
-        {% set final_icon = icon_url + "?v=" + (company.id | string) %}
+    {# --- ส่วนจัดการ Icon แบบ Hardcode (ยิงตรงจาก Cloudinary) --- #}
+    {# ใช้ลิงก์ Absolute ที่นายส่งมา ซึ่งเป็นพื้นหลังขาวทึบและจัตุรัสเป๊ะๆ #}
+    {% set hardcode_icon = "https://res.cloudinary.com/dpyofw3j4/image/upload/v1771311754/hrm/company/company_logo.png" %}
     
-        <link rel="apple-touch-icon" href="{{ final_icon }}">
-        <link rel="apple-touch-icon" sizes="152x152" href="{{ final_icon }}">
-        <link rel="apple-touch-icon" sizes="180x180" href="{{ final_icon }}">
-        <link rel="apple-touch-icon" sizes="167x167" href="{{ final_icon }}">
+    <link rel="apple-touch-icon" href="{{ hardcode_icon }}">
+    <link rel="apple-touch-icon" sizes="152x152" href="{{ hardcode_icon }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ hardcode_icon }}">
+    <link rel="apple-touch-icon" sizes="167x167" href="{{ hardcode_icon }}">
     
-        <link rel="icon" type="image/png" sizes="192x192" href="{{ final_icon }}">
-        <meta name="mobile-web-app-capable" content="yes">
-    {% else %}
-        {# กรณีไม่มีข้อมูลบริษัท ให้ถอยกลับไปใช้รูปพื้นฐาน #}
-        <link rel="apple-touch-icon" href="/static/img/mini-hrm-logo.png?v=1">
-        <link rel="icon" type="image/png" sizes="192x192" href="/static/img/mini-hrm-logo.png?v=1">
-    {% endif %}
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ hardcode_icon }}">
+    <link rel="shortcut icon" href="{{ hardcode_icon }}">
 
-    {# --- iOS Meta Tags (สำคัญมากเพื่อให้ Safari ยอมรับเป็น App) --- #}
-    <meta name="apple-mobile-web-app-title" content="{{ company.company_name if company else 'Mini HRM' }}">
+    {# --- iOS App Settings --- #}
+    <meta name="apple-mobile-web-app-title" content="HRM PRO"> {# ลองเปลี่ยนชื่อแอปตรงนี้ด้วย #}
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f8f9fa; }
         .form-container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        /* แก้ปัญหา Modal หน้าเทา */
         .modal-backdrop { display: none !important; }
         .modal-backdrop.show { display: block !important; opacity: 0.5 !important; }
         body { overflow: auto !important; padding-right: 0 !important; }
