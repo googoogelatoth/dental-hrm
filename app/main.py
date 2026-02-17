@@ -41,6 +41,7 @@ from .languages import TRANSLATIONS
 from fastapi import status
 import cloudinary
 import cloudinary.uploader
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 app = FastAPI()
 
@@ -225,6 +226,21 @@ async def get_manifest(db: Session = Depends(get_db)):
     }
     
     return Response(content=json.dumps(manifest_data), media_type="application/json")
+
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # กรณี 401: ไม่ได้ Login หรือ Session หมดอายุ
+    # กรณี 403: ไม่มีสิทธิ์เข้าถึง (บางทีเกิดจาก Session เพี้ยน)
+    if exc.status_code in [401, 403]:
+        return RedirectResponse(url="/login?msg=session_expired")
+    
+    # สำหรับ Error อื่นๆ เช่น 404 (หาหน้าไม่เจอ) หรือ 500 (ระบบพัง)
+    # ให้ส่งค่ากลับไปเป็นหน้าจอปกติที่ระบบควรจะเป็น (ไม่หน้าขาวแน่นอน)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"message": str(exc.detail)},
+    )
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
