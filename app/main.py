@@ -190,6 +190,42 @@ async def read_root(response: Response):
     # การล้าง Cookie จะช่วยให้ Browser Reset สถานะใหม่
     return res
 
+@app.get("/manifest.json")
+async def get_manifest(db: Session = Depends(get_db)):
+    # ดึงข้อมูลบริษัทล่าสุดจาก DB
+    company = db.query(models.CompanySetting).first()
+    
+    # ถ้ายังไม่ได้อัปโหลดโลโก้ ให้ใช้โลโก้ Default
+    logo_url = "/static/img/mini-hrm-logo.png"
+    if company and company.logo_path:
+        # ถ้า logo_path เป็น https (Cloudinary) ก็ใช้ได้เลย
+        logo_url = company.logo_path if company.logo_path.startswith('http') else f"/static/uploads/{company.logo_path}"
+
+    manifest_data = {
+        "name": "Mini HRM System",
+        "short_name": "MiniHRM",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#007bff",
+        "icons": [
+            {
+                "src": logo_url,
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any"
+            },
+            {
+                "src": logo_url,
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any"
+            }
+        ]
+    }
+    
+    return Response(content=json.dumps(manifest_data), media_type="application/json")
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
@@ -200,6 +236,7 @@ async def dashboard(
     # 1. เช็คพื้นฐานว่ามีการ Login ไหม
     user_id = request.cookies.get("user_id")
     cookie_session = request.cookies.get("session_id")
+    company = db.query(models.CompanySetting).first()
     
     if not user_id:
         return RedirectResponse(url="/login", status_code=303)
@@ -226,6 +263,8 @@ async def dashboard(
         "public_vapid_key": VAPID_PUBLIC_KEY,
         "user_role": user.role, 
         "user": user,
+        "company_name": company.company_name if company else None,
+        "company_logo": company.logo_path if company else None,
         "texts": texts
     })
 

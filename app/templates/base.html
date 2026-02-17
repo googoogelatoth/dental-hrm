@@ -12,12 +12,20 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#007bff">
 
-    <link rel="apple-touch-icon" href="/static/img/mini-hrm-logo.png">
-    <link rel="apple-touch-icon" sizes="152x152" href="/static/img/mini-hrm-logo.png">
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/img/mini-hrm-logo.png">
-    <link rel="apple-touch-icon" sizes="167x167" href="/static/img/mini-hrm-logo.png">
-    
-    <link rel="icon" type="image/png" sizes="192x192" href="/static/img/mini-hrm-logo.png">
+    {% if company and company.logo_path %}
+        {# เช็คว่าเป็น URL Cloudinary (http) หรือไม่ #}
+        {% set icon_url = company.logo_path if company.logo_path.startswith('http') else '/static/uploads/' + company.logo_path %}
+        
+        <link rel="apple-touch-icon" href="{{ icon_url }}">
+        <link rel="apple-touch-icon" sizes="152x152" href="{{ icon_url }}">
+        <link rel="apple-touch-icon" sizes="180x180" href="{{ icon_url }}">
+        <link rel="apple-touch-icon" sizes="167x167" href="{{ icon_url }}">
+        <link rel="icon" type="image/png" sizes="192x192" href="{{ icon_url }}">
+    {% else %}
+        {# กรณีไม่มีข้อมูลบริษัท ให้ใช้โลโก้ Default #}
+        <link rel="apple-touch-icon" href="/static/img/mini-hrm-logo.png">
+        <link rel="icon" type="image/png" sizes="192x192" href="/static/img/mini-hrm-logo.png">
+    {% endif %}
 
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -26,7 +34,6 @@
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f8f9fa; }
         .form-container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        /* แก้ปัญหาหน้าเทา */
         .modal-backdrop { display: none !important; }
         .modal-backdrop.show { display: block !important; opacity: 0.5 !important; }
         body { overflow: auto !important; padding-right: 0 !important; }
@@ -44,10 +51,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-    // 1. ดึง Public Key จาก Backend
     const publicVapidKey = "{{ vapid_public_key }}".replace(/['"]+/g, '');
 
-    // 2. ฟังก์ชันแปลง Key (Helper)
     function urlBase64ToUint8Array(base64String) {
         const cleanString = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
         const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
@@ -65,6 +70,6 @@
             throw e;
         }
     }
-</script>
+    </script>
 </body>
 </html>
