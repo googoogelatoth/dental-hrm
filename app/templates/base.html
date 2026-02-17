@@ -18,8 +18,6 @@
         {% set final_icon = icon_url + "?v=" + (company.id | string) %}
     
         <link rel="apple-touch-icon" href="{{ final_icon }}">
-        <link rel="apple-touch-icon" sizes="180x180" href="{{ final_icon }}">
-        <link rel="icon" type="image/png" sizes="192x192" href="{{ final_icon }}">
     {% else %}
         <link rel="apple-touch-icon" href="/static/img/mini-hrm-logo.png?v=99">
         <link rel="icon" type="image/png" sizes="192x192" href="/static/img/mini-hrm-logo.png?v=99">
