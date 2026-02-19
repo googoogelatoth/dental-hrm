@@ -51,6 +51,7 @@ class Employee(Base):
     ot_requests = relationship("OTRequest", back_populates="employee")
     payroll_details = relationship("PayrollDetail", back_populates="employee")
     current_session_id = Column(String, nullable=True)
+    pdpa_accepted = Column(Boolean, default=False)
 
 class EmployeeDocument(Base):
     __tablename__ = "employee_documents"
@@ -244,3 +245,14 @@ class UserSubscription(Base):
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, ForeignKey("employees.id"))
     subscription_info = Column(JSON)  # เก็บ Endpoint และ Keys จาก Browser
+    
+class ActivityLog(Base):
+    __tablename__ = "activity_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer)  # ใครเป็นคนทำ
+    user_name = Column(String) # ชื่อคนทำ (เก็บไว้เลยเผื่อ User นั้นโดนลบ)
+    action = Column(String)    # ทำอะไร (เช่น Login, Edit Employee, Delete Leave)
+    details = Column(String)   # รายละเอียด (เช่น แก้ไขข้อมูลพนักงาน ID: 5)
+    ip_address = Column(String) # เลข IP เครื่อง
+    timestamp = Column(DateTime, default=datetime.now)

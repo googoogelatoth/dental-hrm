@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold text-primary">
+                <i class="bi bi-journal-text me-2"></i> {{ texts.log_title }} ({{ texts.log_subtitle }})
+            </h5>
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> {{ texts.log_refresh }}
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table id="logsTable" class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>{{ texts.log_col_time }}</th>
+                            <th>{{ texts.log_col_user }}</th>
+                            <th>{{ texts.log_col_action }}</th>
+                            <th>{{ texts.log_col_details }}</th>
+                            <th>{{ texts.log_col_ip }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td class="small text-nowrap">
+                                {{ log.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}
+                            </td>
+                            <td>
+                                <span class="fw-bold">{{ log.user_name }}</span>
+                                <div class="text-muted x-small">ID: {{ log.user_id }}</div>
+                            </td>
+                            <td>
+                                {% if 'ลบ' in log.action or 'Delete' in log.action or 'Resign' in log.action or 'ลาออก' in log.action %}
+                                    <span class="badge bg-danger text-uppercase">{{ log.action }}</span>
+                                {% elif 'เพิ่ม' in log.action or 'Add' in log.action or 'Calculate' in log.action or 'คำนวณ' in log.action %}
+                                    <span class="badge bg-success text-uppercase">{{ log.action }}</span>
+                                {% elif 'แก้ไข' in log.action or 'Edit' in log.action or 'Update' in log.action %}
+                                    <span class="badge bg-warning text-dark text-uppercase">{{ log.action }}</span>
+                                {% else %}
+                                    <span class="badge bg-info text-dark text-uppercase">{{ log.action }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="small">{{ log.details }}</td>
+                            <td><code class="text-muted">{{ log.ip_address }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+
+
+<script>
+    $(document).ready(function() {
+        $('#logsTable').DataTable({
+            "order": [[ 0, "desc" ]],
+            "pageLength": 25,
+            "language": {
+                "search": "{{ texts.log_search }}",
+                "info": "{{ texts.log_info_show }}",
+                "paginate": {
+                    "next": ">",
+                    "previous": "<"
+                }
+            }
+        });
+    });
+</script>
+
+<style>
+    .x-small { font-size: 0.75rem; }
+    .table td { vertical-align: top; }
+    .badge { font-size: 0.75rem; letter-spacing: 0.5px; }
+</style>
+{% endblock %}

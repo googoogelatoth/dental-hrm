@@ -42,6 +42,7 @@ from fastapi import status
 import cloudinary
 import cloudinary.uploader
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from dateutil.relativedelta import relativedelta
 
 app = FastAPI()
 
@@ -183,13 +184,30 @@ def send_push_to_user(employee_id: int, title: str, body: str, db: Session):
         except WebPushException as ex:
             print(f"Push failed: {ex}")
 
+def log_activity(db, user, action, details, request):
+    new_log = models.ActivityLog(
+        user_id=user.id,
+        user_name=user.full_name, # หรือ username
+        action=action,
+        details=details,
+        ip_address=request.client.host,
+        timestamp=datetime.now()
+    )
+    db.add(new_log)
+    db.commit()
+
 # แก้ไขจากของเดิม ให้เป็นแบบนี้ครับ
 @app.get("/", response_class=HTMLResponse)
-async def read_root(response: Response):
-    # สร้าง Redirect และสั่งล้าง Cookie เก่าที่อาจจะค้างจนทำให้หน้าจอเทา
-    res = RedirectResponse(url="/login", status_code=303)
-    # การล้าง Cookie จะช่วยให้ Browser Reset สถานะใหม่
-    return res
+async def read_root(request: Request):
+    # 1. เช็คก่อนว่าล็อกอินค้างไว้ไหม
+    is_logged_in = request.cookies.get("is_logged_in") == "true"
+    
+    if is_logged_in:
+        # ถ้าล็อกอินแล้ว ให้เด้งไปหน้ากราฟ (Monitor) ทันที
+        return RedirectResponse(url="/monitor", status_code=303)
+    else:
+        # ถ้ายังไม่ได้ล็อกอิน ให้ไปหน้า Login
+        return RedirectResponse(url="/login", status_code=303)
 
 @app.get("/manifest.json")
 async def get_manifest(db: Session = Depends(get_db)):
@@ -226,6 +244,114 @@ async def get_manifest(db: Session = Depends(get_db)):
     }
     
     return Response(content=json.dumps(manifest_data), media_type="application/json")
+
+@app.get("/admin/audit-logs")
+async def view_audit_logs(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang)
+):
+    # 1. ตรวจสอบสิทธิ์ Admin เท่านั้น
+    if user.role != "Admin":
+        return RedirectResponse(url="/dashboard?error=permission", status_code=303)
+
+    # 2. ดึงข้อมูล Logs 200 รายการล่าสุด
+    logs = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.desc()).limit(200).all()
+
+    return templates.TemplateResponse("admin_logs.html", {
+        "request": request,
+        "logs": logs,
+        "texts": texts,
+        "user": user
+    })
+
+@app.get("/monitor", response_class=HTMLResponse)
+async def monitor_page(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db)
+):
+    # 1. ดึงข้อมูลบริษัท
+    company = db.query(models.CompanySetting).first()
+
+    # 2. คำนวณตัวเลขสถิติ (ข้อมูลจริง)
+    stat_total = db.query(models.Employee).filter(models.Employee.is_active == True).count()
+    stat_pending = 0 # ถ้านายยังไม่มี table ลา ให้ใส่ 0 ไว้ก่อนครับ
+
+    # 1. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - แยกตามประเภทการลา
+    # นับจำนวนคนลาป่วย ลากิจ และลาพักร้อน จากฐานข้อมูล
+    sick_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาป่วย").count()
+    personal_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลากิจ").count()
+    vacation_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาพักร้อน").count()
+
+    leave_pie_data = [sick_leave, personal_leave, vacation_leave]
+
+    # 2. ข้อมูลสำหรับกราฟแท่ง (Bar Chart) - สถิติ 6 เดือนล่าสุด
+    # ตัวอย่างแบบง่าย: เราจะสร้าง List เก็บยอดรวมการลาของแต่ละเดือน
+    current_month = datetime.now().month
+    leave_bar_data = []
+    # วนลูปนับย้อนหลัง 6 เดือน (นายอาจจะต้องปรับ Query ตามโครงสร้าง Table ของนาย)
+    for i in range(5, -1, -1):
+        count = db.query(models.LeaveRequest).filter(
+            func.extract('month', models.LeaveRequest.start_date) == (current_month - i)
+        ).count()
+        leave_bar_data.append(count)
+
+    # 1. สร้างชื่อเดือนภาษาไทย 
+    thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+    # 2. คำนวณชื่อเดือนย้อนหลัง 6 เดือนจากปัจจุบัน
+    leave_bar_labels = []
+    now = datetime.now()
+
+    for i in range(5, -1, -1):
+        month_date = now - relativedelta(months=i)
+        leave_bar_labels.append(thai_months[month_date.month])
+
+    return templates.TemplateResponse("monitor.html", {
+        "request": request,
+        "texts": texts,
+        "user": user,
+        "stat_total": stat_total,
+        "stat_present": stat_total, # สมมติว่ามาครบไปก่อน
+        "stat_onleave": 0,
+        "stat_pending": stat_pending,
+        "leave_bar_labels": leave_bar_labels, # ✅ ต้องส่งชื่อนี้ไป
+        "leave_bar_data": leave_bar_data,     # ✅ ต้องส่งชื่อนี้ไป
+        "leave_pie_data": leave_pie_data,     # ✅ ต้องส่งชื่อนี้ไป
+        "company_name": company.company_name if company else "Mini HRM",
+        "company_logo": company.logo_path if company else None,
+    })
+
+@app.post("/api/accept-pdpa")
+async def accept_pdpa(
+    data: dict, 
+    request: Request,  # 🚩 เพิ่มตรงนี้เพื่อให้เรียกใช้ใน log_activity ได้
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user)
+):
+    if data.get("accepted"):
+        # 1. อัปเดตสถานะใน DB
+        db_user = db.query(models.Employee).filter(models.Employee.id == user.id).first()
+        if db_user:
+            db_user.pdpa_accepted = True
+            
+            # 2. บันทึก Log (🚩 เปลี่ยน Action และ Details ให้ตรงกับงาน)
+            log_activity(
+                db, 
+                user, 
+                "PDPA Consent", 
+                "กดยอมรับเงื่อนไขการคุ้มครองข้อมูลส่วนบุคคล (PDPA)", 
+                request
+            )
+            
+            # 3. ยืนยันการบันทึก
+            db.commit()
+            return {"status": "success"}
+            
+    return {"status": "error"}
 
 @app.exception_handler(StarletteHTTPException)
 async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -323,10 +449,11 @@ async def handle_add_employee(
     documents: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
+    # --- 1. ตรวจสอบสิทธิ์ Admin ---
     if not hasattr(user, 'role') or user.role != "Admin":
         raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์")
 
-    # 🛑 เช็คข้อมูลซ้ำ (ป้องกัน Error 500)
+    # --- 2. เช็คข้อมูลซ้ำ (Employee Code & ID Card) ---
     if db.query(models.Employee).filter(models.Employee.employee_code == employee_code).first():
         return templates.TemplateResponse("add_employee.html", {"request": request, "error": f"รหัสพนักงาน {employee_code} มีในระบบแล้ว", "texts": get_lang()})
 
@@ -335,7 +462,7 @@ async def handle_add_employee(
         if db.query(models.Employee).filter(models.Employee.id_card_number == target_id).first():
             return templates.TemplateResponse("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": get_lang()})
 
-    # 📸 จัดการรูปโปรไฟล์ (Cloudinary)
+    # --- 3. จัดการรูปโปรไฟล์ ---
     profile_url = "/static/img/default-avatar.png"
     if profile_picture and profile_picture.filename:
         try:
@@ -344,6 +471,7 @@ async def handle_add_employee(
         except Exception as e:
             print(f"Cloudinary Error: {e}")
 
+    # --- 4. สร้าง Object พนักงานใหม่ ---
     new_emp = models.Employee(
         employee_code=employee_code,
         first_name=first_name,
@@ -362,7 +490,7 @@ async def handle_add_employee(
     db.commit()
     db.refresh(new_emp)
     
-    # 📄 จัดการไฟล์เอกสาร (Cloudinary)
+    # --- 5. จัดการไฟล์เอกสาร ---
     if documents:
         for doc in documents:
             if doc.filename:
@@ -370,8 +498,18 @@ async def handle_add_employee(
                     doc_upload = cloudinary.uploader.upload(doc.file, folder=f"hrm/docs/{employee_code}", resource_type="raw", public_id=doc.filename)
                     new_doc = models.EmployeeDocument(file_path=doc_upload.get("secure_url"), file_name=doc.filename, employee_id=new_emp.id)
                     db.add(new_doc)
-                except Exception as e: print(f"Doc Error: {e}")
+                except Exception as e: 
+                    print(f"Doc Error: {e}")
         db.commit()
+
+    # --- 6. 🚩 บันทึก Log การเพิ่มพนักงาน ---
+    log_activity(
+        db, 
+        user, 
+        "เพิ่มพนักงาน", 
+        f"เพิ่มพนักงานใหม่: {first_name} {last_name} (รหัส: {employee_code})", 
+        request
+    )
 
     return RedirectResponse(url="/dashboard?msg=success", status_code=303)
 
@@ -379,24 +517,48 @@ async def handle_add_employee(
 # --- 2. ส่วนอัปเดตตั้งค่าองค์กร (Cloudinary) ---
 @app.post("/admin/settings/company/update")
 async def update_company_settings(
+    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
     company_name: str = Form(...),
     address: str = Form(...),
     logo: UploadFile = File(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มเพื่อเช็คคนทำ
 ):
+    # --- 1. ตรวจสอบสิทธิ์ (ควรให้เฉพาะ Admin เปลี่ยนค่าบริษัทได้) ---
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # --- 2. ค้นหาหรือสร้างข้อมูลบริษัท ---
     company = db.query(models.CompanySetting).first()
     if not company:
         company = models.CompanySetting()
         db.add(company)
 
+    # --- 3. อัปเดตข้อมูล ---
     company.company_name = company_name
     company.address = address
 
+    # --- 4. จัดการโลโก้บริษัท ---
     if logo and logo.filename:
         try:
-            upload_result = cloudinary.uploader.upload(logo.file, folder="hrm/company", public_id="company_logo", overwrite=True)
+            upload_result = cloudinary.uploader.upload(
+                logo.file, 
+                folder="hrm/company", 
+                public_id="company_logo", 
+                overwrite=True
+            )
             company.logo_path = upload_result.get("secure_url")
-        except Exception as e: print(f"Logo Error: {e}")
+        except Exception as e: 
+            print(f"Logo Error: {e}")
+
+    # --- 5. 🚩 บันทึก Log ก่อน Commit ---
+    log_activity(
+        db, 
+        user, 
+        "ตั้งค่าระบบ", 
+        f"อัปเดตข้อมูลบริษัท: {company_name}", 
+        request
+    )
 
     db.commit()
     return RedirectResponse(url="/admin/settings?msg=success", status_code=303)
@@ -438,7 +600,10 @@ async def handle_edit_employee(
     if not employee:
         return RedirectResponse(url="/employees", status_code=status.HTTP_303_SEE_OTHER)
 
-    # --- 2. UNIQUE Check (Encryption Version) ---
+    # เก็บข้อมูลเดิมไว้ก่อนแก้ไขเพื่อทำ Log เปรียบเทียบ (Optional แต่แนะนำ)
+    old_data = f"เดิม: {employee.first_name} {employee.last_name}, ตำแหน่ง: {employee.position}, Role: {employee.role}"
+
+    # --- 2. UNIQUE Check ---
     if id_card_number:
         encrypted_id_input = encrypt_data(id_card_number)
         existing_emp = db.query(models.Employee).filter(
@@ -459,11 +624,17 @@ async def handle_edit_employee(
     employee.address = address
     employee.position = position
     employee.role = role
-    employee.id_card_number = encrypt_data(id_card_number) if id_card_number else employee.id_card_number
-    employee.phone_number = encrypt_data(phone_number) if phone_number else employee.phone_number
-    employee.bank_account_number = encrypt_data(bank_account_number) if bank_account_number else employee.bank_account_number
+    
+    # อัปเดตข้อมูลที่ต้องเข้ารหัส
+    if id_card_number:
+        employee.id_card_number = encrypt_data(id_card_number)
+    if phone_number:
+        employee.phone_number = encrypt_data(phone_number)
+    if bank_account_number:
+        employee.bank_account_number = encrypt_data(bank_account_number)
 
-    # --- 4. ✨ จัดการรูปโปรไฟล์ (ส่งไป Cloudinary) ---
+    # --- 4. จัดการรูปโปรไฟล์ ---
+    log_details_extra = ""
     if profile_picture and profile_picture.filename:
         try:
             upload_result = cloudinary.uploader.upload(
@@ -472,12 +643,12 @@ async def handle_edit_employee(
                 public_id=f"emp_{employee.employee_code}",
                 overwrite=True
             )
-            # บันทึกเป็น URL ถาวร (https://res.cloudinary.com/...)
             employee.profile_picture = upload_result.get("secure_url")
+            log_details_extra += " [อัปเดตรูปโปรไฟล์]"
         except Exception as e:
             print(f"Cloudinary Profile Upload Error: {e}")
 
-    # --- 5. ✨ จัดการเอกสาร PDF (ส่งไป Cloudinary) ---
+    # --- 5. จัดการเอกสาร PDF ---
     if documents:
         for doc in documents:
             if doc.filename:
@@ -485,19 +656,31 @@ async def handle_edit_employee(
                     doc_upload = cloudinary.uploader.upload(
                         doc.file,
                         folder=f"hrm/docs/{employee.employee_code}",
-                        resource_type="raw", # สำคัญมากสำหรับไฟล์ที่ไม่ใช่รูปภาพ
+                        resource_type="raw",
                         public_id=doc.filename
                     )
                     new_doc = models.EmployeeDocument(
-                        file_path=doc_upload.get("secure_url"), # บันทึกเป็น URL
+                        file_path=doc_upload.get("secure_url"),
                         file_name=doc.filename,
                         employee_id=employee.id
                     )
                     db.add(new_doc)
+                    log_details_extra += f" [เพิ่มเอกสาร: {doc.filename}]"
                 except Exception as e:
                     print(f"Cloudinary Document Upload Error: {e}")
     
+    # --- 6. บันทึก Log และ Commit ---
+    # สร้างข้อความ Log ให้ละเอียด
+    new_data = f"ใหม่: {first_name} {last_name}, ตำแหน่ง: {position}, Role: {role}"
+    log_msg = f"แก้ไขข้อมูลพนักงาน ID: {emp_id} | {old_data} -> {new_data}{log_details_extra}"
+    
+    # 🚩 เรียกใช้ฟังก์ชันเก็บ Log (ที่นายสร้างไว้)
+    log_activity(db, user, "แก้ไขข้อมูลพนักงาน", log_msg, request)
+    
+    # 🚩 ยืนยันการเปลี่ยนแปลงลงฐานข้อมูล
     db.commit()
+
+    # 🚩 ส่งกลับหน้าเดิมพร้อมแจ้งสถานะ
     return RedirectResponse(url="/dashboard?msg=updated", status_code=status.HTTP_303_SEE_OTHER)
 
 # --- 3. ฟังก์ชันลบข้อมูล ---
@@ -541,17 +724,36 @@ async def employee_detail(
 # --- 🚩 ฟังก์ชันแจ้งลาออก ---
 @app.post("/admin/employee/resign/{emp_id}")
 async def resign_employee(
+    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
     emp_id: int, 
     db: Session = Depends(get_db),
     user: models.Employee = Depends(get_current_active_user)
 ):
-    # เช็คสิทธิ์ก่อน (ต้องเป็น Admin เท่านั้น)
+    # 1. เช็คสิทธิ์ก่อน (ต้องเป็น Admin เท่านั้น)
     if not user or user.role != "Admin":
         return RedirectResponse(url="/dashboard?error=permission", status_code=303)
 
+    # 2. ค้นหาพนักงานที่ต้องการเปลี่ยนสถานะ
     target_user = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    
     if target_user:
-        target_user.is_active = False  # 🔴 เปลี่ยนสถานะเป็นลาออก
+        # เก็บชื่อพนักงานไว้ใส่ใน Log ก่อนจะเปลี่ยนสถานะ
+        emp_name = f"{target_user.first_name} {target_user.last_name}"
+        emp_code = target_user.employee_code
+
+        # 3. 🔴 เปลี่ยนสถานะเป็นลาออก (Disable Account)
+        target_user.is_active = False 
+        
+        # 4. 🚩 บันทึก Log การลาออก
+        log_activity(
+            db, 
+            user, 
+            "แจ้งพนักงานลาออก", 
+            f"เปลี่ยนสถานะพนักงานเป็นลาออก: {emp_name} (รหัส: {emp_code})", 
+            request
+        )
+
+        # 5. ยืนยันการเปลี่ยนแปลง
         db.commit()
     
     return RedirectResponse(url="/dashboard?msg=resigned", status_code=303)
@@ -559,19 +761,40 @@ async def resign_employee(
 # --- 🟢 ฟังก์ชันดึงกลับเป็นพนักงาน (เผื่อกดผิด) ---
 @app.post("/admin/employee/restore/{emp_id}")
 async def restore_employee(
+    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
     emp_id: int, 
     db: Session = Depends(get_db),
     user: models.Employee = Depends(get_current_active_user)
 ):
+    # 1. เช็คสิทธิ์ Admin
     if not user or user.role != "Admin":
         return RedirectResponse(url="/dashboard?error=permission", status_code=303)
 
+    # 2. ค้นหาพนักงานที่ต้องการดึงกลับมา
     target_user = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    
     if target_user:
-        target_user.is_active = True  # 🟢 ดึงกลับมาทำงานปกติ
+        # เก็บชื่อพนักงานไว้ใส่ใน Log
+        emp_name = f"{target_user.first_name} {target_user.last_name}"
+        emp_code = target_user.employee_code
+
+        # 3. 🟢 เปลี่ยนสถานะกลับมาเป็น Active (คืนสิทธิ์การใช้งาน)
+        target_user.is_active = True 
+        
+        # 4. 🚩 บันทึก Log การคืนสถานะ
+        log_activity(
+            db, 
+            user, 
+            "คืนสถานะพนักงาน", 
+            f"กู้คืนสถานะพนักงานให้กลับมาทำงานปกติ: {emp_name} (รหัส: {emp_code})", 
+            request
+        )
+
+        # 5. ยืนยันการเปลี่ยนแปลง
         db.commit()
     
-    return RedirectResponse(url="/dashboard?msg=resigned", status_code=303)
+    # แก้ msg ใน URL ให้เป็น restored เพื่อให้นายเอาไปดึงแจ้งเตือนหน้าบ้านได้ถูกตัวครับ
+    return RedirectResponse(url="/dashboard?msg=restored", status_code=303)
 
 # 1. หน้าแสดงฟอร์ม Login
 @app.get("/login", response_class=HTMLResponse)
@@ -588,7 +811,8 @@ async def login_page(request: Request):
 
 @app.post("/login")
 async def handle_login(
-    request: Request,texts: dict = Depends(get_lang),
+    request: Request,
+    texts: dict = Depends(get_lang),
     username: str = Form(...),
     password: str = Form(...),
     db: Session = Depends(get_db)
@@ -600,24 +824,27 @@ async def handle_login(
     if user and pwd_context.verify(password.encode('utf-8')[:72], user.hashed_password):
         
         # --- [ส่วนที่เพิ่มใหม่: Single Device Login] ---
-        # เจน Session ID ใหม่ (ใคร Login ล่าสุด คนนั้นได้เลขนี้ไป)
         new_session_id = str(uuid.uuid4())
-        
-        # อัปเดตลง Database
         user.current_session_id = new_session_id
+        
+        # 🚩 บันทึก Log: Login สำเร็จ
+        log_activity(
+            db, 
+            user, 
+            "เข้าสู่ระบบ", 
+            f"พนักงาน {user.first_name} เข้าสู่ระบบสำเร็จ (Session: {new_session_id[:8]}...)", 
+            request
+        )
+        
         db.commit()
         # --------------------------------------------
 
         # กำหนดหน้าปลายทาง
-        res = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+        res = RedirectResponse(url="/monitor", status_code=status.HTTP_303_SEE_OTHER)
         
         # 3. ตั้งค่า Cookie สำคัญ
         max_age = 60 * 60 * 24 * 30  # 30 วัน
-
-        # ฝังเลข Session ล่าสุดลงในเครื่องนี้
         res.set_cookie(key="session_id", value=new_session_id, max_age=max_age, httponly=True)
-        
-        # Cookie อื่นๆ ของเดิม
         res.set_cookie(key="is_logged_in", value="true", max_age=max_age)
         res.set_cookie(key="user_name", value=user.employee_code, max_age=max_age) 
         res.set_cookie(key="user_role", value=user.role, max_age=max_age)
@@ -625,6 +852,21 @@ async def handle_login(
         
         return res
     
+    # --- 🚩 บันทึก Log: Login ล้มเหลว (Security Alert) ---
+    # สร้าง Dummy User ชั่วคราวเพื่อบันทึก Log กรณีหา User ไม่เจอ
+    log_user_id = user.id if user else 0
+    log_user_name = user.employee_code if user else f"Unknown ({username})"
+    
+    log_activity(
+        db, 
+        # สร้าง object หลอกๆ ให้ฟังก์ชัน log_activity ใช้งานได้
+        type('obj', (object,), {'id': log_user_id, 'full_name': log_user_name}), 
+        "ล็อกอินล้มเหลว", 
+        f"มีการพยายามเข้าสู่ระบบด้วยรหัสพนักงาน: {username} แต่รหัสผ่านผิด", 
+        request
+    )
+    db.commit()
+
     # กรณี Login ไม่สำเร็จ
     return templates.TemplateResponse("login.html", {
         "request": request,
@@ -651,7 +893,9 @@ async def change_password_page(request: Request,user: models.Employee = Depends(
 # --- จัดการการเปลี่ยนรหัสผ่านใน Database ---
 @app.post("/change-password")
 async def handle_change_password(
-    request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang),
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
     old_password: str = Form(...),
     new_password: str = Form(...),
     confirm_password: str = Form(...),
@@ -661,24 +905,42 @@ async def handle_change_password(
     if new_password != confirm_password:
         return templates.TemplateResponse("change_password.html", {
             "request": request, 
+            "texts": texts,
             "error": "รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน"
         })
 
-    # 2. ค้นหา User จากรหัสพนักงานที่เก็บไว้ใน Cookie
-    emp_code = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
-
+    # 2. ค้นหา User (ใช้ object 'user' จาก Depends ได้เลยครับนาย ไม่ต้องดึงจาก cookie ซ้ำ)
     if user:
-        # 3. แก้ไข: ตรวจสอบรหัสผ่านเดิมด้วย pwd_context.verify (แทนการ Hard-code "1234")
+        # 3. ตรวจสอบรหัสผ่านเดิม
         if pwd_context.verify(old_password, user.hashed_password):
             
-            # 4. แก้ไข: เข้ารหัสผ่านใหม่ (Hash) ก่อนบันทึกลง Database
+            # 4. เข้ารหัสผ่านใหม่ (Hash) และบันทึก
             user.hashed_password = pwd_context.hash(new_password)
+            
+            # 🚩 บันทึก Log: เปลี่ยนรหัสผ่านสำเร็จ
+            log_activity(
+                db, 
+                user, 
+                "เปลี่ยนรหัสผ่าน", 
+                "ดำเนินการเปลี่ยนรหัสผ่านใหม่สำเร็จด้วยตนเอง", 
+                request
+            )
+            
             db.commit()
             
-            # 5. ปรับ URL ให้ Redirect ไปที่หน้า dashboard หรือหน้าที่ต้องการ
+            # 5. Redirect ไปหน้า dashboard
             return RedirectResponse(url="/dashboard?msg=pw_changed", status_code=status.HTTP_303_SEE_OTHER)
-    
+        
+        # --- 🚩 บันทึก Log: เปลี่ยนรหัสผ่านล้มเหลว (รหัสเดิมผิด) ---
+        log_activity(
+            db, 
+            user, 
+            "เปลี่ยนรหัสผ่านล้มเหลว", 
+            "พยายามเปลี่ยนรหัสผ่านแต่ระบุรหัสผ่านเดิมไม่ถูกต้อง", 
+            request
+        )
+        db.commit() # ต้อง commit log ลงไปครับ
+
     # กรณีรหัสผ่านเดิมไม่ถูกต้อง
     return templates.TemplateResponse("change_password.html", {
         "request": request,
@@ -1313,17 +1575,40 @@ async def edit_employee_page(emp_id: int, request: Request,user: models.Employee
 
 @app.post("/admin/edit-employee/{emp_id}")
 async def handle_edit_employee(
-    emp_id: int,user: models.Employee = Depends(get_current_active_user),
+    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
+    emp_id: int,
+    user: models.Employee = Depends(get_current_active_user),
     sick_quota: int = Form(...),
     personal_quota: int = Form(...),
     vacation_quota: int = Form(...),
     db: Session = Depends(get_db)
 ):
+    # 1. เช็คสิทธิ์ Admin
+    if not user or user.role != "Admin":
+        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
+
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+    
     if employee:
+        # 2. เก็บข้อมูลเก่าไว้ทำ Log (เปรียบเทียบค่าเดิม)
+        old_data = f"ป่วย:{employee.sick_leave_quota}, กิจ:{employee.personal_leave_quota}, พักร้อน:{employee.vacation_leave_quota}"
+        
+        # 3. อัปเดตข้อมูลใหม่
         employee.sick_leave_quota = sick_quota
         employee.personal_leave_quota = personal_quota
         employee.vacation_leave_quota = vacation_quota
+        
+        # 4. 🚩 บันทึก Log: การปรับปรุงโควตาวันลา
+        new_data = f"ป่วย:{sick_quota}, กิจ:{personal_quota}, พักร้อน:{vacation_quota}"
+        log_activity(
+            db, 
+            user, 
+            "แก้ไขโควตาวันลา", 
+            f"แก้ไขโควตาวันลาของ {employee.first_name} {employee.last_name} (ID: {emp_id}) | [{old_data}] -> [{new_data}]", 
+            request
+        )
+
+        # 5. ยืนยันการเปลี่ยนแปลง
         db.commit()
     
     return RedirectResponse(url="/dashboard?msg=updated", status_code=303)
@@ -1728,10 +2013,19 @@ async def get_manual_count(db: Session = Depends(get_db)):
     return {"count": count}
 
 @app.post("/import-attendance-upload")
-async def import_attendance_upload(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def import_attendance_upload(
+    request: Request, 
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มเพื่อเก็บ Log คนทำ
+):
+    # --- ตรวจสอบสิทธิ์ Admin ---
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     try:
         contents = await file.read()
-        # รองรับทั้ง Excel และ CSV ตามที่คุณเคยเขียนไว้
+        # รองรับทั้ง Excel และ CSV
         if file.filename.endswith('.csv'):
             df = pd.read_csv(io.BytesIO(contents))
         else:
@@ -1757,12 +2051,11 @@ async def import_attendance_upload(request: Request, file: UploadFile = File(...
                         except: continue
                     return None
 
-                # 3. ดึงเวลาเข้า-ออก (ตำแหน่งที่ 3 และ 5)
+                # 3. ดึงเวลาเข้า-ออก
                 in_time = parse_time_flexible(row.iloc[3])
                 out_time = parse_time_flexible(row.iloc[5])
 
-                # 🚀 เปลี่ยนมาบันทึกใน ManualAttendanceRequest (คำร้องขอลงเวลา)
-                # เช็คก่อนว่ามีคำร้องที่ "รอดำเนินการ" ในวันเดียวกันนี้อยู่แล้วหรือไม่ เพื่อไม่ให้ข้อมูลซ้ำ
+                # 🚀 บันทึกใน ManualAttendanceRequest (คำร้องขอลงเวลา)
                 existing_req = db.query(models.ManualAttendanceRequest).filter_by(
                     employee_id=emp.id,
                     request_date=target_date,
@@ -1775,18 +2068,29 @@ async def import_attendance_upload(request: Request, file: UploadFile = File(...
                         request_date=target_date,
                         check_in_time=in_time,
                         check_out_time=out_time,
-                        reason="Imported from Excel", # ระบุที่มาเพื่อให้ HR ตรวจสอบได้
+                        reason=f"Imported from {file.filename}", # ระบุชื่อไฟล์ที่มา
                         status="Pending"
                     )
                     db.add(new_req)
                     count_success += 1
         
+        # 🚩 บันทึก Log: การ Import ข้อมูล
+        log_activity(
+            db, 
+            user, 
+            "Import ข้อมูลเข้างาน", 
+            f"นำเข้าไฟล์: {file.filename} สำเร็จ {count_success} รายการ (รอ Admin อนุมัติ)", 
+            request
+        )
+
         db.commit()
-        # ส่งกลับไปหน้า "จัดการคำร้อง" เพื่อให้คุณกดอนุมัติทีเดียว
         return RedirectResponse(url="/admin/attendance-requests?msg=import_success", status_code=303)
         
     except Exception as e:
         print(f"🚩 Import Error: {e}")
+        # บันทึก Log กรณีล้มเหลวด้วยเพื่อตรวจสอบปัญหา
+        log_activity(db, user, "Import ล้มเหลว", f"เกิดข้อผิดพลาดขณะนำเข้าไฟล์ {file.filename}: {str(e)}", request)
+        db.commit()
         return {"error": f"เกิดข้อผิดพลาดในการนำเข้า: {str(e)}"}
 
 # 🚀 เพิ่มฟังก์ชันนี้เพื่อให้ปุ่มในหน้า Report ทำงานได้
@@ -2144,39 +2448,43 @@ def get_payroll_settings(db: Session):
 
 @app.post("/admin/calculate-payroll")
 async def process_payroll(
-    emp_id: int = Form(...), # รับค่าจากฟอร์มในหน้าคำนวณ
+    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
+    emp_id: int = Form(...),
     month: int = Form(...),
     year: int = Form(...),
     sso_custom: float = Form(None), 
     tax_custom: float = Form(None), 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มคนทำรายการ
 ):
-    # 1. ดึงข้อมูลพนักงานเพื่อเอาฐานเงินเดือนที่ตั้งไว้ในหน้าจัดการพนักงาน
+    # --- 1. ตรวจสอบสิทธิ์ Admin ---
+    if current_user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # 2. ค้นหาพนักงาน
     user = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if not user:
         return {"error": "Employee not found"}
 
-    # ดึงค่าฐานเงินเดือนและค่าตำแหน่งอัตโนมัติ
+    # ดึงค่าฐานเงินเดือนและค่าตำแหน่ง
     salary = user.base_salary if hasattr(user, 'base_salary') else 0.0
     position_allowance = user.position_allowance if hasattr(user, 'position_allowance') else 0.0
     
-    # 2. ดึงค่า OT จากคำขอที่ได้รับการอนุมัติแล้ว
+    # 3. คำนวณ OT และรายได้รวม
     ot = calculate_ot_pay(emp_id, month, year, db) 
-    
-    # 3. คำนวณรายได้รวม
     total_earnings = salary + position_allowance + ot
 
-    # 4. จัดการค่า SSO และ Tax ตามที่คุณต้องการให้กรอกทับได้
+    # 4. จัดการค่า SSO และ Tax (กรณีมีการกรอกทับ)
     final_sso = sso_custom if sso_custom is not None else min(salary * 0.05, 750)
     final_tax = tax_custom if tax_custom is not None else 0.0
     
-    # หักเงินขาดงานอัตโนมัติจากหน้าลงเวลา
+    # หักเงินขาดงาน
     other_deductions = calculate_absence_deduction(emp_id, month, year, db)
 
     # 5. คำนวณยอดสุทธิ
     net_salary = total_earnings - (final_sso + final_tax + other_deductions)
 
-    # 6. บันทึกลงฐานข้อมูล PayrollDetail เพื่อออกสลิปและรายงานสรุป
+    # 6. บันทึกลงฐานข้อมูล PayrollDetail
     new_payroll = models.PayrollDetail(
         employee_id=emp_id,
         month=month,
@@ -2191,9 +2499,28 @@ async def process_payroll(
     )
     
     db.add(new_payroll)
-    db.commit() # บันทึกข้อมูลถาวร
 
-    # 7. Redirect กลับไปหน้ารายงานสรุปเพื่อดูผลลัพธ์
+    # --- 🚩 บันทึก Log: การคำนวณเงินเดือน ---
+    custom_tag = ""
+    if sso_custom is not None or tax_custom is not None:
+        custom_tag = " (มีการปรับแก้ SSO/Tax ด้วยตนเอง)"
+    
+    log_msg = (
+        f"คำนวณเงินเดือนพนักงาน: {user.first_name} {user.last_name} (ID: {emp_id}) "
+        f"ประจำงวด {month}/{year} | ยอดสุทธิ: {net_salary:,.2f} บาท{custom_tag}"
+    )
+    
+    log_activity(
+        db, 
+        current_user, 
+        "คำนวณเงินเดือน", 
+        log_msg, 
+        request
+    )
+
+    db.commit() # บันทึกข้อมูลทั้งหมดและ Log พร้อมกัน
+
+    # 7. Redirect กลับไปหน้ารายงาน
     return RedirectResponse(url=f"/admin/payroll-summary?month={month}&year={year}", status_code=303)
 
 @app.post("/admin/save-payroll-settings")
@@ -2243,46 +2570,41 @@ async def process_payroll(
     action: str = Form(...),
     start_date: str = Form(...),
     end_date: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มเพื่อเก็บ Log คนทำ
 ):
+    # --- 1. ตรวจสอบสิทธิ์ Admin ---
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     form_data = await request.form()
-    # ดึงพนักงานทุกคนมาวนลูปบันทึกตาม ID ที่ส่งมาจากหน้าจอ
     employees = db.query(models.Employee).all()
     dt_end = datetime.strptime(end_date, '%Y-%m-%d')
 
     for emp in employees:
-        # ฟังก์ชันช่วยดึงค่าเพื่อป้องกัน Error จากค่าว่างหรือตัวอักษรแปลกปลอม
         def parse_to_float(field_name):
             val = form_data.get(field_name, "0")
-            # ลบคอมม่าออกและจัดการช่องว่าง
             if val and str(val).strip() != "":
                 return float(str(val).replace(',', ''))
             return 0.0
         
-        # 🚩 ดึงค่าเงินเพิ่ม/ลดพิเศษ (ใช้ emp.id ให้ตรงกับ HTML)
+        # ดึงค่าต่างๆ จากฟอร์ม
         e_income = parse_to_float(f"extra_income_{emp.id}")
         e_deduction = parse_to_float(f"extra_deduction_{emp.id}")
-        
-        # ดึงค่าคำนวณอื่นๆ
         sso_val = parse_to_float(f"sso_{emp.id}")
         tax_val = parse_to_float(f"tax_{emp.id}")
         ot_pay_val = parse_to_float(f"ot_{emp.id}")
         net_val = parse_to_float(f"net_{emp.id}")
-        
-        # รายการหัก
         absent_deduct = parse_to_float(f"absent_deduct_{emp.id}")
-        late_deduct = parse_to_float(f"late_deduct_{emp.id}")
-        early_deduct = parse_to_float(f"early_deduct_{emp.id}")
 
-        # 🛡️ 1. ลบข้อมูลเก่าของเดือน/ปีนี้ออกก่อน (ไม่ว่าจะ Draft หรือ Finalize)
-        # เพื่อป้องกันปัญหา "พนักงานเกิน" ในหน้ารายงานสรุป
+        # 🛡️ 1. ลบข้อมูลเก่าของเดือน/ปีนี้ออกก่อน (เพื่อป้องกันข้อมูลซ้ำซ้อน)
         db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == emp.id,
             models.PayrollDetail.month == dt_end.month,
             models.PayrollDetail.year == dt_end.year
         ).delete()
 
-        # 🛡️ 2. สร้าง Record ใหม่บันทึกลงฐานข้อมูล (ค่า extra_income/extra_deduction จะถูกเซฟที่นี่)
+        # 🛡️ 2. สร้าง Record ใหม่
         new_record = models.PayrollDetail(
             employee_id=emp.id,
             month=dt_end.month,
@@ -2293,25 +2615,33 @@ async def process_payroll(
             sso=sso_val,
             tax=tax_val,
             absence_deduction=absent_deduct,
-            # late_deduction=late_deduct,   # เปิดใช้ถ้าใน Model มี Column นี้
-            # early_deduction=early_deduct, # เปิดใช้ถ้าใน Model มี Column นี้
             extra_income=e_income,
             extra_deduction=e_deduction,
             net_total=net_val,
         )
         db.add(new_record)
-            
+
+    # --- 🚩 3. บันทึก Log การประมวลผลเงินเดือน ---
+    log_action_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันการประมวลผลเงินเดือน (Finalize)"
+    log_details = f"รันระบบเงินเดือนพนักงาน {len(employees)} ท่าน ประจำงวด {dt_end.month}/{dt_end.year} (ช่วง {start_date} ถึง {end_date})"
+    
+    log_activity(
+        db, 
+        user, 
+        log_action_name, 
+        log_details, 
+        request
+    )
+
     db.commit()
 
-    # 🚩 3. จัดการการเปลี่ยนหน้าหลังกดปุ่ม
+    # 4. จัดการการเปลี่ยนหน้า
     if action == "save_draft":
-        # ถ้าบันทึกร่าง ให้กลับไปหน้าคำนวณเหมือนเดิม พร้อมส่งค่าวันที่กลับไปด้วย
         return RedirectResponse(
             url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", 
             status_code=303
         )
     
-    # ถ้าประมวลผลเสร็จสิ้น ให้ไปหน้าสรุปรายงาน (Payroll Summary)
     return RedirectResponse(
         url=f"/admin/payroll-summary?month={dt_end.month}&year={dt_end.year}&msg=finalize", 
         status_code=303

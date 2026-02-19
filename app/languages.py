@@ -478,6 +478,56 @@ TRANSLATIONS = {
         "emp_btn_resign": "แจ้งลาออก",
         "emp_btn_restore": "ดึงกลับเป็นพนักงาน",
         "emp_confirm_resign": "ยืนยันการเปลี่ยนสถานะเป็นลาออก? (พนักงานจะเข้าระบบไม่ได้และไม่แสดงในงวดเงินเดือน)",
+        # Navbar & Sidebar
+        "nav_home": "แดชบอร์ด",
+        "nav_monitor": "ระบบมอนิเตอร์",
+        "nav_emp": "รายชื่อบุคลากร",
+        "nav_leave": "ระบบลาพักผ่อน",
+        "nav_settings": "ตั้งค่า",
+        "nav_logout": "ออกจากระบบ",
+        "nav_audit_log": "ประวัติการใช้งาน",
+
+        # Monitor Page (Statistics)
+        "mon_title": "ระบบ Monitor สถิติพนักงาน",
+        "mon_last_update": "ข้อมูลล่าสุด",
+        "mon_total_emp": "พนักงานทั้งหมด",
+        "mon_present": "เข้างานปกติ",
+        "mon_on_leave": "ลางานวันนี้",
+        "mon_pending": "รออนุมัติการลา",
+        "mon_chart_monthly": "สถิติการลางาน 6 เดือนล่าสุด",
+        "mon_chart_pie": "สัดส่วนประเภทการลา",
+        "mon_chart_unit": "ครั้ง",
+    
+        # Leave Types
+        "leave_sick": "ลาป่วย",
+        "leave_personal": "ลากิจ",
+        "leave_vacation": "ลาพักร้อน",
+
+        # PDPA Consent Modal
+        "pdpa_title": "การคุ้มครองข้อมูลส่วนบุคคล (PDPA)",
+        "pdpa_description": "เราให้ความสำคัญกับการคุ้มครองข้อมูลส่วนบุคคลของคุณ เพื่อให้คุณมั่นใจว่าข้อมูลจะถูกจัดเก็บและใช้งานอย่างปลอดภัยตามนโยบายของบริษัท",
+        "pdpa_purpose_title": "วัตถุประสงค์การใช้ข้อมูล:",
+        "pdpa_purpose_1": "เพื่อใช้ในการบริหารจัดการงานบุคคลภายใน",
+        "pdpa_purpose_2": "เพื่อบันทึกประวัติการมาทำงานและการลางาน",
+        "pdpa_purpose_3": "เพื่อใช้ในการคำนวณสวัสดิการและค่าตอบแทน",
+        "pdpa_dont_show": "รับทราบและไม่ต้องแสดงข้อความนี้อีก",
+        "pdpa_btn_accept": "ยินยอมและเข้าใช้งาน",
+
+        # Login / Common
+        "login_welcome": "ยินดีต้อนรับสู่ระบบ HRM",
+        "login_btn": "เข้าสู่ระบบ",
+        "msg_inactive": "บัญชีของคุณถูกระงับ กรุณาติดต่อแอดมิน",
+        "msg_expired": "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",# เพิ่มในก้อนภาษาไทย (texts_th)
+        "log_title": "ระบบ Audit Log",
+        "log_subtitle": "ประวัติการใช้งานระบบ",
+        "log_refresh": "รีเฟรชข้อมูล",
+        "log_col_time": "วัน-เวลา",
+        "log_col_user": "ผู้ดำเนินการ",
+        "log_col_action": "ประเภทกิจกรรม",
+        "log_col_details": "รายละเอียด",
+        "log_col_ip": "IP Address",
+        "log_search": "ค้นหาใน Log:",
+        "log_info_show": "แสดงรายการที่ _START_ ถึง _END_ จากทั้งหมด _TOTAL_ รายการ"
     },
     "en": {
         # --- Navbar ---
@@ -959,5 +1009,54 @@ TRANSLATIONS = {
         "emp_btn_resign": "Mark as Resigned",
         "emp_btn_restore": "Restore to Active",
         "emp_confirm_resign": "Confirm resignation? (Employee will lose access and won't appear in payroll)",
+        # Navbar & Sidebar
+        "nav_home": "Dashboard",
+        "nav_monitor": "Monitor",
+        "nav_emp": "Employees",
+        "nav_leave": "Leave System",
+        "nav_settings": "Settings",
+        "nav_logout": "Logout",
+        "nav_audit_log": "Audit Logs",
+
+        # Monitor Page (Statistics)
+        "mon_title": "Employee Statistics Monitor",
+        "mon_last_update": "Last Update",
+        "mon_total_emp": "Total Employees",
+        "mon_present": "Present Today",
+        "mon_on_leave": "On Leave Today",
+        "mon_pending": "Pending Requests",
+        "mon_chart_monthly": "Leave Statistics (Last 6 Months)",
+        "mon_chart_pie": "Leave Type Proportion",
+        "mon_chart_unit": "times",
+    
+        # Leave Types
+        "leave_sick": "Sick Leave",
+        "leave_personal": "Personal Leave",
+        "leave_vacation": "Vacation Leave",
+
+        # PDPA Consent Modal
+        "pdpa_title": "Personal Data Protection (PDPA)",
+        "pdpa_description": "We prioritize your privacy. Please ensure your data is stored and managed securely in accordance with company policy.",
+        "pdpa_purpose_title": "Data Usage Purpose:",
+        "pdpa_purpose_1": "Internal human resource management.",
+        "pdpa_purpose_2": "Recording attendance and leave history.",
+        "pdpa_purpose_3": "Calculating benefits and compensation.",
+        "pdpa_dont_show": "I acknowledge and do not show this message again.",
+        "pdpa_btn_accept": "Accept and Enter System",
+
+        # Login / Common
+        "login_welcome": "Welcome to HRM System",
+        "login_btn": "Login",
+        "msg_inactive": "Account is inactive. Please contact admin.",
+        "msg_expired": "Session expired. Please login again.",
+        # ภาษาอังกฤษ (texts_en)
+        "log_title": "Audit Log System",
+        "log_subtitle": "Activity History",
+        "log_col_time": "Date-Time",
+        "log_col_user": "Performer",
+        "log_col_action": "Action Type",
+        "log_col_details": "Details",
+        "log_col_ip": "IP Address",
+        "log_no_data": "No data available in table",
     }
 }

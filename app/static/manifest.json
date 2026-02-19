@@ -15,7 +15,7 @@
       "purpose": "any"
     }
   ],
-  "start_url": "/",
+  "start_url": "/monitor",
   "display": "standalone",
   "theme_color": "#007bff",
   "background_color": "#ffffff"

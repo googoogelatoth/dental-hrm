@@ -1,6 +1,6 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 shadow no-print">
     <div class="container">
-        <a class="navbar-brand d-flex align-items-center fw-bold" href="/dashboard">
+        <a class="navbar-brand d-flex align-items-center fw-bold" href="/monitor">
             {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก Cloudinary --- #}
             {% if company_logo %}
                 <img src="{% if company_logo and company_logo.startswith('http') %}{{ company_logo }}{% else %}/static/img/mini-hrm-logo.png{% endif %}" 
@@ -106,16 +106,18 @@
                     <ul class="dropdown-menu dropdown-menu-end shadow border-0">
                         <li><a class="dropdown-item" href="/my-profile"><i class="bi bi-person-vcard me-2"></i> {{ texts.nav_my_profile }}</a></li>
                         <li><a class="dropdown-item" href="/change-password"><i class="bi bi-key me-2"></i> {{ texts.nav_change_pw }}</a></li>
-                        
+            
                         {% if request.cookies.get("user_role") == "Admin" %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><h6 class="dropdown-header text-primary">{{ texts.nav_header_sys_settings }}</h6></li>
-                        <li><a class="dropdown-item" href="/admin/payroll-settings"><i class="bi bi-sliders me-2"></i>{{ texts.nav_payroll_formula }}</a></li>
-                        <li><a class="dropdown-item text-primary fw-bold" href="/admin/settings"><i class="bi bi-gear-fill me-2"></i>{{ texts.nav_org_settings }}</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><h6 class="dropdown-header text-primary">{{ texts.nav_header_sys_settings }}</h6></li>
+                            <li><a class="dropdown-item" href="/admin/payroll-settings"><i class="bi bi-sliders me-2"></i>{{ texts.nav_payroll_formula }}</a></li>
+                            <li><a class="dropdown-item text-primary fw-bold" href="/admin/settings"><i class="bi bi-gear-fill me-2"></i>{{ texts.nav_org_settings }}</a></li>
+                            {# --- 🚩 เพิ่มเมนู Audit Log ตรงนี้เพื่อให้หาซื้อง่าย --- #}
+                            <li><a class="dropdown-item" href="/admin/audit-logs"><i class="bi bi-shield-lock-fill me-2"></i>{{ texts.nav_audit_log }}</a></li>
                         {% endif %}
 
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right me-2"></i> {{ texts.nav_logout }}</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right me-2"></i> {{ texts.nav_logout }}</a></li>
                     </ul>
                 </div>
             </div>

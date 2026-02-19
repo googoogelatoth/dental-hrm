@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="fw-bold"><i class="bi bi-speedometer2 me-2"></i> {{ texts.mon_title }}</h4>
+        <span class="badge bg-primary px-3 py-2">{{ texts.mon_last_update }}: <span id="lastUpdate">...</span></span>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #0d6efd !important;">
+                <div class="text-muted small">{{ texts.mon_total_emp }}</div>
+                <div class="h3 fw-bold" id="stat-total">{{ stat_total if stat_total is not none else 0 }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #198754 !important;">
+                <div class="text-muted small">{{ texts.mon_present }}</div>
+                <div class="h3 fw-bold text-success" id="stat-present">{{ stat_present if stat_present is not none else 0 }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #dc3545 !important;">
+                <div class="text-muted small">{{ texts.mon_on_leave }}</div>
+                <div class="h3 fw-bold text-danger" id="stat-onleave">{{ stat_onleave if stat_onleave is not none else 0 }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #ffc107 !important;">
+                <div class="text-muted small">{{ texts.mon_pending }}</div>
+                <div class="h3 fw-bold text-warning" id="stat-pending">{{ stat_pending if stat_pending is not none else 0 }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8 mb-4">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold mb-4">{{ texts.mon_chart_monthly }}</h6>
+                <div style="height: 300px;">
+                    <canvas id="leaveBarChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4 mb-4">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold mb-4">{{ texts.mon_chart_pie }}</h6>
+                <div style="height: 300px;">
+                    <canvas id="leavePieChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="pdpaModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>{{ texts.pdpa_title }}</h5>
+            </div>
+            <div class="modal-body">
+                <p>{{ texts.pdpa_description }}</p>
+                <div class="bg-light p-3 rounded small mb-3" style="max-height: 200px; overflow-y: auto;">
+                    <strong>{{ texts.pdpa_purpose_title }}</strong>
+                    <ul>
+                        <li>{{ texts.pdpa_purpose_1 }}</li>
+                        <li>{{ texts.pdpa_purpose_2 }}</li>
+                        <li>{{ texts.pdpa_purpose_3 }}</li>
+                    </ul>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="dontShowAgain">
+                    <label class="form-check-label small" for="dontShowAgain">
+                        {{ texts.pdpa_dont_show }}
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary w-100" onclick="acceptPDPA()">{{ texts.pdpa_btn_accept }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // อัปเดตเวลาล่าสุด
+        document.getElementById('lastUpdate').innerText = new Date().toLocaleTimeString();
+
+        // --- ส่วนที่ 1: PDPA Logic ---
+        const isAccepted = "{{ user.pdpa_accepted }}"; 
+        if (isAccepted === "False") {
+            var myModal = new bootstrap.Modal(document.getElementById('pdpaModal'));
+            myModal.show();
+        }
+
+        // --- ส่วนที่ 2: Charts Logic (ข้อมูลจริง) ---
+        
+        // กราฟแท่ง
+        const ctxBar = document.getElementById('leaveBarChart').getContext('2d');
+        new Chart(ctxBar, {
+            type: 'bar',
+            data: {
+                labels: JSON.parse('{{ leave_bar_labels | tojson | safe }}'),
+                datasets: [{
+                    label: '{{ texts.mon_chart_unit }}',
+                    data: JSON.parse('{{ leave_bar_data | tojson | safe }}'), 
+                    backgroundColor: 'rgba(13, 110, 253, 0.8)',
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // กราฟวงกลม
+        const ctxPie = document.getElementById('leavePieChart').getContext('2d');
+        new Chart(ctxPie, {
+            type: 'doughnut',
+            data: {
+                labels: [
+                    '{{ texts.leave_sick }}', 
+                    '{{ texts.leave_personal }}', 
+                    '{{ texts.leave_vacation }}'
+                ],
+                datasets: [{
+                    data: JSON.parse('{{ leave_pie_data | tojson | safe }}'),
+                    backgroundColor: ['#dc3545', '#ffc107', '#198754'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%'
+            }
+        });
+    });
+
+    // ฟังก์ชันยิง API บันทึก PDPA
+    function acceptPDPA() {
+        const dontShow = document.getElementById('dontShowAgain').checked;
+        fetch('/api/accept-pdpa', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ "accepted": true, "dont_show": dontShow })
+        }).then(response => {
+            if (response.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('pdpaModal')).hide();
+            }
+        });
+    }
+</script>
+{% endblock %}
