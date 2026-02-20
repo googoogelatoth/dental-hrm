@@ -184,17 +184,26 @@ def send_push_to_user(employee_id: int, title: str, body: str, db: Session):
         except WebPushException as ex:
             print(f"Push failed: {ex}")
 
+# ในไฟล์ app/main.py ฟังก์ชัน log_activity
 def log_activity(db, user, action, details, request):
+    # ตรวจสอบว่า user มี attribute first_name ไหม ถ้าไม่มีให้ใช้ชื่อที่ส่งมาหรือ 'System'
+    u_name = "Unknown"
+    if hasattr(user, 'first_name') and hasattr(user, 'last_name'):
+        u_name = f"{user.first_name} {user.last_name}"
+    elif hasattr(user, 'full_name'): # เผื่อกรณีใช้ object หลอกตัวเดิม
+        u_name = user.full_name
+    elif hasattr(user, 'employee_code'):
+        u_name = user.employee_code
+
     new_log = models.ActivityLog(
-        user_id=user.id,
-        user_name=user.full_name, # หรือ username
+        user_id=user.id if hasattr(user, 'id') else 0,
+        user_name=u_name, # ใช้ตัวแปรที่เราเช็คมาแล้ว
         action=action,
         details=details,
         ip_address=request.client.host,
         timestamp=datetime.now()
     )
     db.add(new_log)
-    db.commit()
 
 # แก้ไขจากของเดิม ให้เป็นแบบนี้ครับ
 @app.get("/", response_class=HTMLResponse)
@@ -827,7 +836,7 @@ async def handle_login(
         new_session_id = str(uuid.uuid4())
         user.current_session_id = new_session_id
         
-        # 🚩 บันทึก Log: Login สำเร็จ
+        # 🚩 บันทึก Log: Login สำเร็จ (ใช้ตัวแปร user จริงจาก DB)
         log_activity(
             db, 
             user, 
@@ -842,7 +851,7 @@ async def handle_login(
         # กำหนดหน้าปลายทาง
         res = RedirectResponse(url="/monitor", status_code=status.HTTP_303_SEE_OTHER)
         
-        # 3. ตั้งค่า Cookie สำคัญ
+        # 3. ตั้งค่า Cookie
         max_age = 60 * 60 * 24 * 30  # 30 วัน
         res.set_cookie(key="session_id", value=new_session_id, max_age=max_age, httponly=True)
         res.set_cookie(key="is_logged_in", value="true", max_age=max_age)
@@ -852,17 +861,20 @@ async def handle_login(
         
         return res
     
-    # --- 🚩 บันทึก Log: Login ล้มเหลว (Security Alert) ---
-    # สร้าง Dummy User ชั่วคราวเพื่อบันทึก Log กรณีหา User ไม่เจอ
+    # --- 🚩 บันทึก Log: Login ล้มเหลว (สร้าง Dummy Object ที่มี Attribute ตรงกับ log_activity) ---
     log_user_id = user.id if user else 0
-    log_user_name = user.employee_code if user else f"Unknown ({username})"
+    dummy_user = type('obj', (object,), {
+        'id': log_user_id, 
+        'first_name': 'Unknown', 
+        'last_name': f'({username})',
+        'employee_code': username
+    })
     
     log_activity(
         db, 
-        # สร้าง object หลอกๆ ให้ฟังก์ชัน log_activity ใช้งานได้
-        type('obj', (object,), {'id': log_user_id, 'full_name': log_user_name}), 
+        dummy_user, 
         "ล็อกอินล้มเหลว", 
-        f"มีการพยายามเข้าสู่ระบบด้วยรหัสพนักงาน: {username} แต่รหัสผ่านผิด", 
+        f"พยายามเข้าสู่ระบบด้วยรหัส: {username} แต่รหัสผ่านไม่ถูกต้อง", 
         request
     )
     db.commit()
