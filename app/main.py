@@ -82,7 +82,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
-models.Base.metadata.create_all(bind=engine)
+# models.Base.metadata.create_all(bind=engine)
 
 # 1. ตั้งค่า Cloudinary (ดึงค่าจากชื่อตัวแปร Environment)
 cloudinary.config(
