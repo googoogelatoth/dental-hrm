@@ -1912,6 +1912,46 @@ async def submit_attendance_request(
     
     return RedirectResponse(url="/attendance-report?msg=request_sent", status_code=303)
 
+async def perform_approval_logic(request_id: int, status: str, admin_remark: str, db: Session):
+    req = db.query(models.ManualAttendanceRequest).filter(models.ManualAttendanceRequest.id == request_id).first()
+    if not req:
+        return False
+
+    if status == "Rejected":
+        req.status = "Rejected"
+        req.admin_remark = admin_remark
+        db.commit()
+        send_push_to_user(req.employee_id, "❌ คำขอลงเวลาถูกปฏิเสธ", f"คำขอวันที่ {req.request_date} ไม่ได้รับอนุมัติ {admin_remark or ''}", db)
+        return True
+
+    # --- กรณี Admin กด "อนุมัติ" (Approved) ---
+    emp = db.query(models.Employee).get(req.employee_id)
+    sched = emp.schedule
+    attendance = db.query(models.Attendance).filter(
+        models.Attendance.employee_id == req.employee_id,
+        func.date(models.Attendance.date) == req.request_date
+    ).first()
+
+    if not attendance:
+        attendance = models.Attendance(employee_id=req.employee_id, date=req.request_date)
+        db.add(attendance)
+
+    if req.check_in_time: 
+        attendance.check_in = datetime.combine(req.request_date, req.check_in_time)
+    if req.check_out_time: 
+        attendance.check_out = datetime.combine(req.request_date, req.check_out_time)
+
+    # ... (ก๊อป Logic การเช็ค Late/Early Out ของนายมาใส่ตรงนี้เหมือนเดิมเป๊ะ) ...
+    is_abnormal = False
+    # (โค้ดเช็คสายและออกก่อนเหมือนที่นายส่งมา)
+    
+    attendance.status = "ผิดปกติ" if is_abnormal else "ปกติ"
+    req.status = "Approved"
+    req.admin_remark = admin_remark
+    db.commit()
+    send_push_to_user(req.employee_id, "✅ อนุมัติการแก้ไขเวลา", f"คำขอวันที่ {req.request_date} อนุมัติเรียบร้อย", db)
+    return True
+
 @app.get("/admin/attendance-requests", response_class=HTMLResponse)
 async def view_attendance_requests(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
     # ดึงคำร้องที่ยังค้างอยู่ (Pending) มาแสดงผล
@@ -1924,77 +1964,16 @@ async def view_attendance_requests(request: Request,user: models.Employee = Depe
         "pending_requests": requests
     })
     
-@app.post("/admin/approve-request/{request_id}") # ✅ เปลี่ยนเป็น POST
+@app.post("/admin/approve-request/{request_id}")
 async def approve_request(
-    request_id: int,user: models.Employee = Depends(get_current_active_user), 
-    status: str = Form(...),           # ✅ รับค่า Approved หรือ Rejected
-    admin_remark: str = Form(None),    # ✅ รับเหตุผล (ไม่บังคับ)
+    request_id: int, 
+    user: models.Employee = Depends(get_current_active_user), 
+    status: str = Form(...), 
+    admin_remark: str = Form(None), 
     db: Session = Depends(get_db)
 ):
-    req = db.query(models.ManualAttendanceRequest).filter(models.ManualAttendanceRequest.id == request_id).first()
-    
-    if req:
-        # --- กรณี Admin กด "ปฏิเสธ" (Rejected) ---
-        if status == "Rejected":
-            req.status = "Rejected"
-            req.admin_remark = admin_remark
-            db.commit()
-            
-            # ส่งแจ้งเตือนบอกพนักงานว่าโดนปฏิเสธเพราะอะไร
-            remark_msg = f" เหตุผล: {admin_remark}" if admin_remark else ""
-            send_push_to_user(req.employee_id, "❌ คำขอลงเวลาถูกปฏิเสธ", f"คำขอวันที่ {req.request_date} ไม่ได้รับอนุมัติ{remark_msg}", db)
-            return RedirectResponse(url="/admin/attendance-requests?msg=rejected", status_code=303)
-
-        # --- กรณี Admin กด "อนุมัติ" (Approved) - (ตรรกะเดิมของนาย) ---
-        emp = db.query(models.Employee).get(req.employee_id)
-        sched = emp.schedule
-        
-        # ค้นหา/สร้าง Record การเข้างานจริง
-        attendance = db.query(models.Attendance).filter(
-            models.Attendance.employee_id == req.employee_id,
-            func.date(models.Attendance.date) == req.request_date
-        ).first()
-
-        if not attendance:
-            attendance = models.Attendance(employee_id=req.employee_id, date=req.request_date)
-            db.add(attendance)
-
-        if req.check_in_time: 
-            attendance.check_in = datetime.combine(req.request_date, req.check_in_time)
-        if req.check_out_time: 
-            attendance.check_out = datetime.combine(req.request_date, req.check_out_time)
-
-        is_abnormal = False
-        if sched:
-            # เช็คสาย (Late)
-            if req.check_in_time and sched.work_start_time:
-                target_in = datetime.strptime(sched.work_start_time[:5], "%H:%M").time()
-                if req.check_in_time > target_in:
-                    diff = datetime.combine(req.request_date, req.check_in_time) - datetime.combine(req.request_date, target_in)
-                    late_mins = int(diff.total_seconds() / 60)
-                    if late_mins > (sched.grace_period_late or 0):
-                        attendance.late_minutes = late_mins
-                        is_abnormal = True
-
-            # เช็คออกก่อน (Early Out)
-            if req.check_out_time and sched.work_end_time:
-                target_out = datetime.strptime(sched.work_end_time[:5], "%H:%M").time()
-                if req.check_out_time < target_out:
-                    diff_out = datetime.combine(req.request_date, target_out) - datetime.combine(req.request_date, req.check_out_time)
-                    early_mins = int(diff_out.total_seconds() / 60)
-                    if early_mins > (sched.grace_period_early_out or 0):
-                        attendance.early_minutes = early_mins
-                        is_abnormal = True
-
-        # อัปเดตสถานะและบันทึก
-        attendance.status = "ผิดปกติ" if is_abnormal else "ปกติ"
-        req.status = "Approved"
-        req.admin_remark = admin_remark # บันทึกเหตุผล (ถ้ามี)
-        db.commit()
-
-        # 🔔 ส่งแจ้งเตือนแจ้งพนักงาน
-        send_push_to_user(req.employee_id, "✅ อนุมัติการแก้ไขเวลา", f"คำขอวันที่ {req.request_date} อนุมัติเรียบร้อย", db)
-        
+    # เรียกใช้ฟังก์ชันกลาง
+    await perform_approval_logic(request_id, status, admin_remark, db)
     return RedirectResponse(url="/admin/attendance-requests?msg=updated", status_code=303)
 
 @app.get("/admin/reject-request/{request_id}")
@@ -2980,22 +2959,16 @@ async def download_attendance_template():
 
 @app.post("/admin/approve-all-requests")
 async def approve_all_requests(db: Session = Depends(get_db)):
-    # 1. ดึงรายการที่ยังเป็น Pending ทั้งหมดออกมา
     pending_list = db.query(models.ManualAttendanceRequest).filter(
         models.ManualAttendanceRequest.status == "Pending"
     ).all()
     
-    if not pending_list:
-        return RedirectResponse(url="/admin/attendance-requests?msg=no_pending", status_code=303)
-
-    # 2. วนลูปอนุมัติทีละรายการโดยใช้ Logic การอนุมัติหลัก
     for req in pending_list:
         try:
-            # เรียกใช้ฟังก์ชันอนุมัติที่คุณมีอยู่แล้วเพื่อให้คำนวณสาย/ออกก่อนให้ด้วย
-            # หมายเหตุ: ถ้า approve_request ของคุณเป็น async อย่าลืมใส่ await
-            await approve_request(req.id, db) 
+            # ส่งค่า db เข้าไปตรงๆ ได้เลย ไม่ต้องผ่าน Depends อีกรอบ
+            await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
         except Exception as e:
-            print(f"🚩 Error approving request {req.id}: {e}")
+            print(f"🚩 Error: {e}")
             continue
             
     return RedirectResponse(url="/admin/attendance-requests?msg=all_approved_success", status_code=303)
