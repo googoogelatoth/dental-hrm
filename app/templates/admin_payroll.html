@@ -1,49 +1,54 @@
 {% extends "base.html" %}
+
 {% block content %}
 <div class="container mt-4">
-    <h3><i class="bi bi-calculator text-primary"></i> {{ texts.pay_title }}</h3>
-    <div class="card shadow">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3><i class="bi bi-calculator text-primary me-2"></i> {{ texts.pay_title }}</h3>
+        <span class="badge bg-info text-dark">{{ texts.pay_subtitle }} (ICT Timezone)</span>
+    </div>
+
+    <div class="card shadow-sm border-0">
         <div class="card-body">
-            <div class="card mb-4 shadow-sm border-primary">
+            <div class="card mb-4 border-primary bg-light bg-opacity-10">
                 <div class="card-body">
                     <form method="GET" action="/admin/calculate-payroll" class="row g-3 align-items-end">
-                        <div class="col-md-5">
+                        <div class="col-md-6">
                             <label class="form-label fw-bold">{{ texts.pay_select_range }}</label>
                             <div class="input-group">
-                                <span class="input-group-text">{{ texts.pay_start }}</span>
+                                <span class="input-group-text bg-white">{{ texts.pay_start }}</span>
                                 <input type="date" name="start_date" class="form-control" value="{{ start_date }}" required>
-                                <span class="input-group-text">{{ texts.pay_end }}</span>
+                                <span class="input-group-text bg-white">{{ texts.pay_end }}</span>
                                 <input type="date" name="end_date" class="form-control" value="{{ end_date }}" required>
                             </div>
                         </div>
                         <div class="col-md-2">
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="bi bi-search"></i> {{ texts.pay_btn_fetch }}
+                            <button type="submit" class="btn btn-primary w-100 shadow-sm">
+                                <i class="bi bi-search me-1"></i> {{ texts.pay_btn_fetch }}
                             </button>
                         </div>
                     </form>
                 </div>
             </div>
 
-            <form action="/admin/process-payroll" method="POST">
+            <form action="/admin/process-payroll" method="POST" id="payrollForm">
                 <input type="hidden" name="start_date" value="{{ start_date }}">
                 <input type="hidden" name="end_date" value="{{ end_date }}">
 
                 <div class="table-responsive">
-                    <table class="table table-hover align-middle">
+                    <table class="table table-hover align-middle border">
                         <thead class="table-dark text-nowrap">
                             <tr>
                                 <th>{{ texts.pay_col_name }}</th>
                                 <th class="text-end">{{ texts.pay_col_base }}</th>
                                 <th class="text-center">{{ texts.pay_col_stats }}</th>
                                 <th class="text-end">{{ texts.pay_col_ot }}</th>
-                                <th>{{ texts.pay_col_late }}</th>
-                                <th>{{ texts.pay_col_early }}</th>
-                                <th>{{ texts.pay_col_absent }}</th>
-                                <th>{{ texts.pay_col_extra_inc }}</th>
-                                <th>{{ texts.pay_col_extra_ded }}</th>
-                                <th style="width: 100px;">{{ texts.pay_col_sso }}</th>
-                                <th style="width: 100px;">{{ texts.pay_col_tax }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_col_late }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_col_early }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_col_absent }}</th>
+                                <th style="min-width: 90px;">{{ texts.pay_col_extra_inc }}</th>
+                                <th style="min-width: 90px;">{{ texts.pay_col_extra_ded }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_col_sso }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_col_tax }}</th>
                                 <th class="text-end">{{ texts.pay_col_net }}</th>
                             </tr>
                         </thead>
@@ -51,30 +56,32 @@
                             {% for emp in employees %}
                             <tr>
                                 <td>
-                                    <strong>{{ emp.first_name }} {{ emp.last_name }}</strong>
+                                    <div class="fw-bold">{{ emp.first_name }} {{ emp.last_name }}</div>
+                                    <div class="text-muted small">ID: {{ emp.employee_code or emp.id }}</div>
                                     <input type="hidden" name="emp_ids" value="{{ emp.id }}">
                                 </td>
-                                <td class="text-end salary-cell" data-val="{{ (emp.base_salary or 0) + (emp.position_allowance or 0) }}">
+                                <td class="text-end salary-cell fw-semibold" data-val="{{ (emp.base_salary or 0) + (emp.position_allowance or 0) }}">
                                     {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
                                 </td>
-                                <td class="text-center small">
-                                    <span class="text-warning">{{ texts.pay_stat_late }}: {{ emp.late_minutes }} {{ texts.pay_unit_min }}</span><br>
-                                    <span class="text-warning">{{ texts.pay_stat_early }}: {{ emp.early_minutes }} {{ texts.pay_unit_min }}</span><br>
-                                    <span class="text-danger">{{ texts.pay_stat_absent }}: {{ emp.absent_days }} {{ texts.pay_unit_day }}</span>
+                                <td class="text-center small text-nowrap">
+                                    <div class="text-warning">{{ texts.pay_stat_late }}: <strong>{{ emp.late_minutes }}</strong> {{ texts.pay_unit_min }}</div>
+                                    <div class="text-warning">{{ texts.pay_stat_early }}: <strong>{{ emp.early_minutes }}</strong> {{ texts.pay_unit_min }}</div>
+                                    <div class="text-danger">{{ texts.pay_stat_absent }}: <strong>{{ emp.absent_days }}</strong> {{ texts.pay_unit_day }}</div>
                                 </td>
-                                <td class="text-end ot-cell" data-val="{{ emp.approved_ot_pay or 0 }}">
+                                <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
                                     {{ "{:,.2f}".format(emp.approved_ot_pay or 0) }}
                                     <input type="hidden" name="ot_{{ emp.id }}" value="{{ emp.approved_ot_pay or 0 }}">
                                 </td>
                                 <td><input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
-                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)" style="width: 80px;"></td>
-                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)" style="width: 80px;"></td>
+                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)"></td>
+                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)"></td>
                                 <td><input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" value="{{ [((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0 }}" oninput="calculateRow(this)" step="0.01"></td>
-                                <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="0" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01"></td>
+                                
                                 <td class="text-end fw-bold text-primary">
-                                    <span class="net-salary-cell">0.00</span>
+                                    <span class="net-salary-cell fs-6">0.00</span>
                                     <input type="hidden" name="net_{{ emp.id }}" class="net-hidden-input">
                                 </td>
                             </tr>
@@ -85,10 +92,10 @@
 
                 <div class="d-flex justify-content-end gap-3 mt-4 mb-5">
                     <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg">
-                        <i class="bi bi-save"></i> {{ texts.pay_btn_save_draft }}
+                        <i class="bi bi-save me-1"></i> {{ texts.pay_btn_save_draft }}
                     </button>
                     <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
-                        <i class="bi bi-check-all"></i> {{ texts.pay_btn_finalize }}
+                        <i class="bi bi-check-all me-1"></i> {{ texts.pay_btn_finalize }}
                     </button>
                 </div>
             </form>
@@ -96,43 +103,60 @@
     </div>
 </div>
 
+
+
 <script>
-// (ส่วน JavaScript คงเดิม แต่ระวังเรื่อง Locale การแสดงผล)
+/**
+ * ฟังก์ชันคำนวณเงินเดือนสุทธิในแต่ละแถว
+ */
 function calculateRow(element) {
     const row = element.closest('tr');
     if (!row) return;
 
-    const salary = parseFloat(row.cells[1].innerText.replace(/,/g, '')) || 0;
-    const ot = parseFloat(row.cells[3].innerText.replace(/,/g, '')) || 0;
+    // ดึงค่าพื้นฐานจาก Attribute data-val
+    const salary = parseFloat(row.querySelector('.salary-cell').getAttribute('data-val')) || 0;
+    const ot = parseFloat(row.querySelector('.ot-cell').getAttribute('data-val')) || 0;
+    
+    // ดึงค่าจาก Input ต่างๆ
     const extraIncome = parseFloat(row.querySelector('.extra-income-input')?.value) || 0;
     const lateDeduction = parseFloat(row.querySelector('.late-deduct')?.value) || 0;
     const earlyDeduction = parseFloat(row.querySelector('.early-deduct')?.value) || 0; 
     const absentDeduction = parseFloat(row.querySelector('.absent-deduct')?.value) || 0;
+    const extraDeduction = parseFloat(row.querySelector('.extra-deduction-input')?.value) || 0;
     const sso = parseFloat(row.querySelector('.sso-input')?.value) || 0;
     const tax = parseFloat(row.querySelector('.tax-input')?.value) || 0;
-    const extraDeduction = parseFloat(row.querySelector('.extra-deduction-input')?.value) || 0;
 
+    // สูตร: รายรับ - รายจ่าย
     const totalIncome = salary + ot + extraIncome;
-    const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + sso + tax + extraDeduction;
+    const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + extraDeduction + sso + tax;
     const netSalary = totalIncome - totalDeductions;
     
+    // แสดงผลในหน้าเว็บ
     const netSalaryCell = row.querySelector('.net-salary-cell');
     if (netSalaryCell) {
-        // ใช้ 'en-US' เพื่อให้ Format ตัวเลขเป็น 1,000.00 เสมอในระบบบัญชี
         netSalaryCell.innerText = netSalary.toLocaleString('en-US', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         });
     }
     
+    // ใส่ค่าลง Hidden Input เพื่อส่งกลับไปยัง Server
     const hiddenInput = row.querySelector('.net-hidden-input');
     if (hiddenInput) {
         hiddenInput.value = netSalary.toFixed(2);
     }
 }
 
+// สั่งคำนวณทุกแถวทันทีเมื่อโหลดหน้าเว็บเสร็จ
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.late-deduct').forEach(input => calculateRow(input));
 });
 </script>
+
+<style>
+    .salary-cell, .ot-cell { background-color: #f8f9fa; }
+    .net-salary-cell { color: #0d6efd; }
+    .table th { font-size: 0.85rem; font-weight: 600; }
+    .form-control-sm { font-size: 0.8rem; text-align: right; }
+</style>
 {% endblock %}

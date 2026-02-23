@@ -2337,25 +2337,24 @@ async def calculate_payroll_page(
 ):
     # 1. จัดการวันที่ Default
     if not start_date or not end_date:
-        today = datetime.now()
-        start_date = today.replace(day=1).strftime('%Y-%m-%d')
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        end_date = today.replace(day=last_day).strftime('%Y-%m-%d')
+        now_th = get_now_th() # ใช้เวลาไทยที่นายทำไว้
+        start_date = now_th.replace(day=1).strftime('%Y-%m-%d')
+        last_day = calendar.monthrange(now_th.year, now_th.month)[1]
+        end_date = now_th.replace(day=last_day).strftime('%Y-%m-%d')
 
     s_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
     e_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
 
-    # 2. ดึงการตั้งค่า และ พนักงาน
     settings = get_payroll_settings(db)
     default_set = {"days": 30, "hours": 8}
     employees = db.query(models.Employee).all()
 
-    # ดึงรายชื่อวันหยุดนักขัตฤกษ์
+    # ดึงวันหยุด
     holidays = db.query(models.Holiday).filter(
         models.Holiday.holiday_date >= s_dt,
         models.Holiday.holiday_date <= e_dt
     ).all()
-    holiday_dates = {h.holiday_date: h.holiday_name for h in holidays}
+    holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
         absent_count = 0
@@ -2363,29 +2362,21 @@ async def calculate_payroll_page(
         total_early_mins = 0
         curr = s_dt
         
-        # --- 🚩 3. วนลูปเช็คสถิติการมาทำงาน (ฉบับแก้ไขความแม่นยำสูงสุด) ---
         while curr <= e_dt:
             day_name = curr.strftime('%a')
             is_holiday = curr in holiday_dates
             
+            # ✅ แก้ไข: Query วันที่ตรงๆ ไม่ต้องใช้ func.date() เพื่อความชัวร์ใน PostgreSQL
             att = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
-                func.date(models.Attendance.date) == curr
+                models.Attendance.date == curr
             ).first()
             
             if att:
-                # ✅ ปรับใหม่: ถ้ามีเลขนาทีสาย หรือ ออกก่อน ให้บวกทันทีโดยไม่สน Status
-                # (แต่ต้องไม่ใช่กรณีที่ Admin แก้ไขเป็น 'ปกติ' ไปแล้ว)
-                if att.status != "ปกติ":
-                    # บวกนาทีสายถ้ามี
-                    if (att.late_minutes or 0) > 0:
-                        total_late_mins += att.late_minutes
-                    
-                    # ✅ บรรทัดนี้สำคัญ: บวกนาทีออกก่อนถ้ามี (เดิมอาจจะเช็ค status ซ้อนกันเกินไป)
-                    if (att.early_minutes or 0) > 0:
-                        total_early_mins += att.early_minutes
+                # ✅ แก้ไข: ดึงนาทีบวกสะสมทันที (ถ้ามีเลขนาที ให้ถือว่าสาย/ออกก่อนทันที)
+                total_late_mins += (att.late_minutes or 0)
+                total_early_mins += (att.early_minutes or 0)
             else:
-                # ✅ กรณีไม่มาทำงาน: เช็ควันหยุด/ลา/หยุดประจำสัปดาห์
                 is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
                 leave = db.query(models.LeaveRequest).filter(
                     models.LeaveRequest.employee_id == emp.id,
@@ -2396,42 +2387,42 @@ async def calculate_payroll_page(
                 
                 if not (is_holiday or is_weekly_off or leave):
                     absent_count += 1
-                    
+            
             curr += timedelta(days=1)
 
+        # ✅ บันทึกค่าลง Object พนักงาน
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- 🚩 4. คำนวณยอดเงินหัก/เพิ่ม ---
+        # --- คำนวณยอดเงิน ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
         
-        # หักสาย/ออกก่อน (ใช้อัตรานาทีเดียวกัน)
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else default_set["days"]
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
+        
+        # คำนวณ Rate ต่อนาที
         rate_min = base_calc / l_days / l_hours / 60 if l_days * l_hours > 0 else 0
 
+        # ✅ คำนวณเงินหัก (Round 2 ตำแหน่ง)
         emp.calculated_late_deduction = round(rate_min * emp.late_minutes, 2)
         emp.calculated_early_deduction = round(rate_min * emp.early_minutes, 2)
 
-        # หักขาดงาน (คิดตามวัน)
+        # หักขาดงาน
         abs_conf = settings.get('absent')
         a_days = abs_conf.divider_days if abs_conf else default_set["days"]
         rate_day = base_calc / a_days if a_days > 0 else 0
         emp.calculated_absent_deduction = round(rate_day * emp.absent_days, 2)
 
-        # (ส่วน OT และ Draft Data คงเดิมตามโค้ดก่อนหน้าของนาย)
-        # ... [โค้ดส่วน OT และ Draft Data] ...
-
     return templates.TemplateResponse("admin_payroll.html", {
         "request": request,
         "employees": employees,
         "start_date": start_date,
-        "texts": texts,
-        "end_date": end_date
+        "end_date": end_date,
+        "texts": texts
     })
     
 def get_payroll_settings(db: Session):
