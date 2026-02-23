@@ -2342,30 +2342,37 @@ async def calculate_payroll_page(
         total_early_mins = 0
         curr = s_dt
         
-        # --- 🚩 3. วนลูปเช็คสถิติการมาทำงาน ---
+        # --- 🚩 3. วนลูปเช็คสถิติการมาทำงาน (เวอร์ชันแก้ไข) ---
         while curr <= e_dt:
             day_name = curr.strftime('%a')
             is_holiday = curr in holiday_dates
-            is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
             
+            # ดึงข้อมูลการเข้างานของวันนั้นมาดู
             att = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
                 func.date(models.Attendance.date) == curr
             ).first()
             
-            leave = db.query(models.LeaveRequest).filter(
-                models.LeaveRequest.employee_id == emp.id,
-                models.LeaveRequest.status == "Approved",
-                models.LeaveRequest.start_date <= curr,
-                models.LeaveRequest.end_date >= curr
-            ).first()
-
-            if not (is_holiday or is_weekly_off or leave):
-                if att:
+            # ถ้าวันนั้นมาทำงานจริง (มี record ใน attendance)
+            if att:
+                # 💡 เช็คก่อนว่าวันนั้นสถานะเป็น "ปกติ" หรือไม่
+                # ถ้าสถานะเป็น "ปกติ" (สีเขียวในรายงาน) เราจะไม่เอาค่าสายมาบวก
+                if att.status != "ปกติ": 
                     total_late_mins += (att.late_minutes or 0)
                     total_early_mins += (att.early_minutes or 0)
-                else:
+            else:
+                # ถ้าไม่มี record การเข้างาน ให้เช็คว่าเป็นวันหยุดไหม ถ้าไม่ใช่ก็คือ "ขาดงาน"
+                is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
+                leave = db.query(models.LeaveRequest).filter(
+                    models.LeaveRequest.employee_id == emp.id,
+                    models.LeaveRequest.status == "Approved",
+                    models.LeaveRequest.start_date <= curr,
+                    models.LeaveRequest.end_date >= curr
+                ).first()
+                
+                if not (is_holiday or is_weekly_off or leave):
                     absent_count += 1
+                    
             curr += timedelta(days=1)
 
         emp.absent_days = absent_count
