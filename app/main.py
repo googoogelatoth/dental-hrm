@@ -210,7 +210,7 @@ def log_activity(db, user, action, details, request):
         details=details,
         ip_address=request.client.host,
         created_at=now_th,
-        timestamp=datetime.now()
+        timestamp=now_th
     )
     db.add(new_log)
 

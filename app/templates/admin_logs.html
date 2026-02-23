@@ -27,25 +27,32 @@
                         {% for log in logs %}
                         <tr>
                             <td class="small text-nowrap">
-                                {{ log.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}
+                                {# ✅ แก้ไข: เช็คว่ามี timestamp ไหมก่อนใช้ strftime เพื่อป้องกัน Error 500 #}
+                                {% if log.timestamp %}
+                                    {{ log.timestamp.strftime('%d/%m/%Y %H:%M:%S') }}
+                                {% else %}
+                                    <span class="text-muted italic">---</span>
+                                {% endif %}
                             </td>
                             <td>
                                 <span class="fw-bold">{{ log.user_name }}</span>
                                 <div class="text-muted x-small">ID: {{ log.user_id }}</div>
                             </td>
                             <td>
-                                {% if 'ลบ' in log.action or 'Delete' in log.action or 'Resign' in log.action or 'ลาออก' in log.action %}
+                                {# ✅ จัดกลุ่ม Badge แยกสีตามประเภทการกระทำ #}
+                                {% set act = log.action | lower %}
+                                {% if 'ลบ' in act or 'delete' in act or 'resign' in act or 'ลาออก' in act %}
                                     <span class="badge bg-danger text-uppercase">{{ log.action }}</span>
-                                {% elif 'เพิ่ม' in log.action or 'Add' in log.action or 'Calculate' in log.action or 'คำนวณ' in log.action %}
+                                {% elif 'เพิ่ม' in act or 'add' in act or 'calculate' in act or 'คำนวณ' in act %}
                                     <span class="badge bg-success text-uppercase">{{ log.action }}</span>
-                                {% elif 'แก้ไข' in log.action or 'Edit' in log.action or 'Update' in log.action %}
+                                {% elif 'แก้ไข' in act or 'edit' in act or 'update' in act %}
                                     <span class="badge bg-warning text-dark text-uppercase">{{ log.action }}</span>
                                 {% else %}
                                     <span class="badge bg-info text-dark text-uppercase">{{ log.action }}</span>
                                 {% endif %}
                             </td>
                             <td class="small">{{ log.details }}</td>
-                            <td><code class="text-muted">{{ log.ip_address }}</code></td>
+                            <td><code class="text-muted small">{{ log.ip_address }}</code></td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -60,12 +67,10 @@
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
-
-
 <script>
     $(document).ready(function() {
         $('#logsTable').DataTable({
-            "order": [[ 0, "desc" ]],
+            "order": [[ 0, "desc" ]], // เรียงตามเวลาล่าสุดก่อน
             "pageLength": 25,
             "language": {
                 "search": "{{ texts.log_search }}",
@@ -82,6 +87,7 @@
 <style>
     .x-small { font-size: 0.75rem; }
     .table td { vertical-align: top; }
-    .badge { font-size: 0.75rem; letter-spacing: 0.5px; }
+    .badge { font-size: 0.7rem; letter-spacing: 0.5px; padding: 0.4em 0.6em; }
+    .italic { font-style: italic; opacity: 0.6; }
 </style>
 {% endblock %}
