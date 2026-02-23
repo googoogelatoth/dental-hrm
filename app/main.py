@@ -1061,6 +1061,8 @@ async def handle_check_in(
                 late_min = max(0, total_late - (schedule.grace_period_late or 0))
                 if late_min > 0:
                     status = "Late"
+        
+        now = get_now_th()
 
         new_attendance = models.Attendance(
             employee_id=user.id,

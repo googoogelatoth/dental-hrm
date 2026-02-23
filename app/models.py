@@ -251,9 +251,12 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer)  # ใครเป็นคนทำ
-    user_name = Column(String) # ชื่อคนทำ (เก็บไว้เลยเผื่อ User นั้นโดนลบ)
-    action = Column(String)    # ทำอะไร (เช่น Login, Edit Employee, Delete Leave)
-    details = Column(String)   # รายละเอียด (เช่น แก้ไขข้อมูลพนักงาน ID: 5)
-    ip_address = Column(String) # เลข IP เครื่อง
-    timestamp = Column(DateTime, default=datetime.now)
+    user_id = Column(Integer)
+    user_name = Column(String)
+    action = Column(String)
+    details = Column(String)
+    ip_address = Column(String)
+    # ✅ ลบ default=datetime.now ออก เพื่อให้รับค่าที่เราส่งไปจาก Python ตรงๆ
+    timestamp = Column(DateTime) 
+    # หรือถ้าอยากมี created_at อีกตัวก็ทำเหมือนกันครับ
+    created_at = Column(DateTime)
