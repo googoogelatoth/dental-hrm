@@ -2120,7 +2120,7 @@ VAPID_CLAIMS = {
 @app.post("/api/save-subscription")
 async def save_subscription(request: Request, db: Session = Depends(get_db)):
     subscription_data = await request.json()
-    # แนะนำให้ใช้รหัสพนักงานหรือ ID ที่แน่นอนจาก Cookie
+    # ดึงข้อมูลผู้ใช้จาก Cookie
     user_code = request.cookies.get("employee_code") or request.cookies.get("user_name")
     
     user = db.query(models.Employee).filter(models.Employee.employee_code == user_code).first()
@@ -2133,13 +2133,20 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
         models.PushSubscription.endpoint == subscription_data['endpoint']
     ).first()
     
+    now_th = get_now_th() # ใช้เวลาไทยที่นายทำไว้
+    action_type = ""
+    log_detail = ""
+
     if existing:
-        # 🚩 อัปเดตข้อมูลให้เป็นปัจจุบันเสมอ เผื่อ Browser เปลี่ยน Keys
+        # 🚩 อัปเดตข้อมูลให้เป็นปัจจุบัน
         existing.p256dh = subscription_data['keys']['p256dh']
         existing.auth = subscription_data['keys']['auth']
-        existing.employee_id = user.id # เผื่อมีการเปลี่ยน User ในเครื่องเดิม
+        existing.employee_id = user.id 
+        
+        action_type = "UPDATE NOTIFICATION"
+        log_detail = f"อัปเดตข้อมูลการแจ้งเตือน (Device/Browser เดิม)"
     else:
-        # บันทึกอันใหม่
+        # ✅ บันทึกอันใหม่ (เปิดครั้งแรก)
         new_sub = models.PushSubscription(
             employee_id=user.id,
             endpoint=subscription_data['endpoint'],
@@ -2147,33 +2154,47 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
             auth=subscription_data['keys']['auth']
         )
         db.add(new_sub)
+        
+        action_type = "ENABLE NOTIFICATION"
+        log_detail = f"เปิดการแจ้งเตือนครั้งแรก (Device: {subscription_data['endpoint'][:40]}...)"
+
+    # ✅ เพิ่มการบันทึก Activity Log ลงใน Database
+    new_log = models.ActivityLog(
+        user_id=user.id,
+        user_name=f"{user.first_name} {user.last_name}",
+        action=action_type,
+        details=log_detail,
+        ip_address=request.client.host if request.client else "Unknown",
+        timestamp=now_th
+    )
+    db.add(new_log)
     
     db.commit()
     return {"status": "success"}
 
-def send_push_notification(employee_id: int, title: str, message: str, db: Session):
-    # ดึง Subscription ทั้งหมดของพนักงานคนนี้ (เขาอาจจะมีหลายเครื่อง)
-    subs = db.query(models.PushSubscription).filter(
-        models.PushSubscription.employee_id == employee_id
-    ).all()
+# def send_push_notification(employee_id: int, title: str, message: str, db: Session):
+#     # ดึง Subscription ทั้งหมดของพนักงานคนนี้ (เขาอาจจะมีหลายเครื่อง)
+#     subs = db.query(models.PushSubscription).filter(
+#         models.PushSubscription.employee_id == employee_id
+#     ).all()
     
-    for sub in subs:
-        try:
-            webpush(
-                subscription_info={
-                    "endpoint": sub.endpoint,
-                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-                },
-                data=json.dumps({"title": title, "body": message}),
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims=VAPID_CLAIMS
-            )
-        except WebPushException as ex:
-            print(f"Push failed: {ex}")
-            # ถ้า Token หมดอายุ (410 Gone) ให้ลบออกจาก DB
-            if ex.response and ex.response.status_code == 410:
-                db.delete(sub)
-                db.commit()
+#     for sub in subs:
+#         try:
+#             webpush(
+#                 subscription_info={
+#                     "endpoint": sub.endpoint,
+#                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+#                 },
+#                 data=json.dumps({"title": title, "body": message}),
+#                 vapid_private_key=VAPID_PRIVATE_KEY,
+#                 vapid_claims=VAPID_CLAIMS
+#             )
+#         except WebPushException as ex:
+#             print(f"Push failed: {ex}")
+#             # ถ้า Token หมดอายุ (410 Gone) ให้ลบออกจาก DB
+#             if ex.response and ex.response.status_code == 410:
+#                 db.delete(sub)
+#                 db.commit()
 
 # @app.post("/admin/send-broadcast")
 # async def send_broadcast(title: str = Form(...), message: str = Form(...), db: Session = Depends(get_db)):
