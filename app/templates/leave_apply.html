@@ -69,12 +69,32 @@
 </div>
 
 <script>
-    // ป้องกันการเลือกวันที่ย้อนหลัง
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('start_date').setAttribute('min', today);
+    const startDateInput = document.getElementById('start_date');
+    const endDateInput = document.getElementById('end_date');
     
-    document.getElementById('start_date').addEventListener('change', function() {
-        document.getElementById('end_date').setAttribute('min', this.value);
+    // 📅 1. คำนวณวันที่ย้อนหลังได้ 3 วัน
+    const today = new Date();
+    const bufferDate = new Date();
+    bufferDate.setDate(today.getDate() - 3); // ถอยหลังไป 3 วัน
+    
+    // แปลง Format เป็น YYYY-MM-DD สำหรับ HTML Date Input
+    const minDateAllowed = bufferDate.toISOString().split('T')[0];
+
+    // 🔒 2. ตั้งค่าการเลือกวันที่ย้อนหลัง (มีผลกับทุกประเภทการลา)
+    startDateInput.setAttribute('min', minDateAllowed);
+
+    // 3. ปรับวันสิ้นสุด (End Date) ให้สัมพันธ์กับวันเริ่มต้น
+    startDateInput.addEventListener('change', function() {
+        if (this.value) {
+            endDateInput.setAttribute('min', this.value);
+            // ถ้าเลือกวันเริ่มแล้ววันจบดันน้อยกว่า ก็ให้รีเซ็ตวันจบ
+            if (endDateInput.value && endDateInput.value < this.value) {
+                endDateInput.value = this.value;
+            }
+        }
     });
+
+    // 4. ตั้งค่าขั้นต่ำให้ End Date ตอนโหลดหน้าแรกด้วย
+    endDateInput.setAttribute('min', minDateAllowed);
 </script>
 {% endblock %}
