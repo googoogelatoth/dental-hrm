@@ -2309,7 +2309,7 @@ def get_salary_and_approved_ot(emp_id: int, month: int, year: int, db: Session):
 
 @app.get("/admin/calculate-payroll")
 async def calculate_payroll_page(
-    request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang),
+    request: Request, user: models.Employee = Depends(get_current_active_user), texts: dict = Depends(get_lang),
     start_date: str = None,
     end_date: str = None,
     db: Session = Depends(get_db)
@@ -2342,26 +2342,29 @@ async def calculate_payroll_page(
         total_early_mins = 0
         curr = s_dt
         
-        # --- 🚩 3. วนลูปเช็คสถิติการมาทำงาน (เวอร์ชันแก้ไข) ---
+        # --- 🚩 3. วนลูปเช็คสถิติการมาทำงาน (ฉบับปรับปรุงความแม่นยำสูง) ---
         while curr <= e_dt:
             day_name = curr.strftime('%a')
             is_holiday = curr in holiday_dates
             
-            # ดึงข้อมูลการเข้างานของวันนั้นมาดู
             att = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
                 func.date(models.Attendance.date) == curr
             ).first()
             
-            # ถ้าวันนั้นมาทำงานจริง (มี record ใน attendance)
             if att:
-                # 💡 เช็คก่อนว่าวันนั้นสถานะเป็น "ปกติ" หรือไม่
-                # ถ้าสถานะเป็น "ปกติ" (สีเขียวในรายงาน) เราจะไม่เอาค่าสายมาบวก
-                if att.status != "ปกติ": 
-                    total_late_mins += (att.late_minutes or 0)
-                    total_early_mins += (att.early_minutes or 0)
+                # ✅ กรณีมาทำงาน: แยกเช็ค 'สาย' และ 'ออกก่อน' ตามสถานะจริง
+                # ถ้าสถานะเป็น "ปกติ" จะไม่นำนาทีใดๆ มาบวกเพิ่ม (ป้องกันข้อมูลขยะ)
+                if att.status != "ปกติ":
+                    # เช็คสาย: ต้องไม่ใช่ "ออกก่อนเวลา" ถึงจะนับนาทีสาย (ป้องกันยอดซ้ำซ้อน)
+                    if att.status != "ออกก่อนเวลา" and (att.late_minutes or 0) > 0:
+                        total_late_mins += att.late_minutes
+                    
+                    # เช็คออกก่อน: ดูจากสถานะ หรือมีเลขนาทีออกก่อน
+                    if att.status == "ออกก่อนเวลา" or (att.early_minutes or 0) > 0:
+                        total_early_mins += (att.early_minutes or 0)
             else:
-                # ถ้าไม่มี record การเข้างาน ให้เช็คว่าเป็นวันหยุดไหม ถ้าไม่ใช่ก็คือ "ขาดงาน"
+                # ✅ กรณีไม่พบข้อมูลการเข้างาน: เช็คว่าเป็นวันหยุด หรือ ลา หรือไม่
                 is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
                 leave = db.query(models.LeaveRequest).filter(
                     models.LeaveRequest.employee_id == emp.id,
@@ -2380,9 +2383,11 @@ async def calculate_payroll_page(
         emp.early_minutes = total_early_mins
 
         # --- 🚩 4. คำนวณยอดเงินตามสถิติ ---
-        base_calc = (emp.base_salary or 0) + (emp.position_allowance or 0)
+        base_salary_val = (emp.base_salary or 0)
+        position_allowance_val = (emp.position_allowance or 0)
+        base_calc = base_salary_val + position_allowance_val
         
-        # หักสาย/ออกก่อน
+        # หักสาย/ออกก่อน (คิดตามนาที)
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else default_set["days"]
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
@@ -2391,7 +2396,7 @@ async def calculate_payroll_page(
         emp.calculated_late_deduction = round(rate_min * emp.late_minutes, 2)
         emp.calculated_early_deduction = round(rate_min * emp.early_minutes, 2)
 
-        # หักขาดงาน
+        # หักขาดงาน (คิดตามวัน)
         abs_conf = settings.get('absent')
         a_days = abs_conf.divider_days if abs_conf else default_set["days"]
         rate_day = base_calc / a_days if a_days > 0 else 0
@@ -2413,21 +2418,18 @@ async def calculate_payroll_page(
             conf = settings.get(ot.ot_type)
             o_mult = conf.multiplier if conf else (1.0 if "1_0" in ot.ot_type else 1.5)
             ot_rate_min = base_calc / (conf.divider_days if conf else 30) / (conf.divider_hours if conf else 8) / 60
-            total_ot_pay += (ot_rate_min * ot.mins * o_mult)
+            total_ot_pay += (ot_rate_min * (ot.mins or 0) * o_mult)
         emp.approved_ot_pay = round(total_ot_pay, 2)
 
-        # --- 🚩 5. ส่วนที่เพิ่มใหม่: ดึงข้อมูลที่เคยบันทึกร่างไว้ (Draft Data) ---
-        # ค้นหาข้อมูลในตาราง PayrollDetail ของเดือนที่เลือก
+        # --- 🚩 5. ดึงข้อมูล Draft จากตาราง PayrollDetail ---
         payroll_draft = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == emp.id,
             models.PayrollDetail.month == e_dt.month,
             models.PayrollDetail.year == e_dt.year
         ).first()
 
-        # ถ้ามีข้อมูลร่าง ให้ส่งค่าเหล่านั้นไปที่หน้าจอ ถ้าไม่มีให้เป็น 0
         emp.draft_extra_income = payroll_draft.extra_income if payroll_draft else 0
         emp.draft_extra_deduction = payroll_draft.extra_deduction if payroll_draft else 0
-        # พ่วงค่า SSO และ Tax เผื่อกรณีมีการแก้ไขมือด้วย
         emp.draft_sso = payroll_draft.sso if payroll_draft else None
         emp.draft_tax = payroll_draft.tax if payroll_draft else 0
 
