@@ -82,16 +82,11 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # เข้าถึงใบลาผ่าน: /uploads/leave_documents/file.pdf
 app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
 
-# 1. ระบุโซนเวลาไทย
+# บนสุดของไฟล์
 TH_TZ = pytz.timezone('Asia/Bangkok')
 
-# 2. ดึงเวลาปัจจุบันของไทย แล้วตัดข้อมูล Timezone ทิ้ง (ทำเป็น Naive)
-# วิธีนี้จะทำให้ 13:24 ใน Python ถูกส่งไปเป็น 13:24 ใน DB จริงๆ
-now_th = datetime.now(TH_TZ).replace(tzinfo=None)
-
-# 3. นำไปบันทึก
-# attendance.check_in = now_th
-# db.commit()
+def get_now_th():
+    return datetime.now(TH_TZ).replace(tzinfo=None)
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
@@ -207,12 +202,14 @@ def log_activity(db, user, action, details, request):
     elif hasattr(user, 'employee_code'):
         u_name = user.employee_code
 
+    now_th = datetime.now(TH_TZ).replace(tzinfo=None)
     new_log = models.ActivityLog(
         user_id=user.id if hasattr(user, 'id') else 0,
         user_name=u_name, # ใช้ตัวแปรที่เราเช็คมาแล้ว
         action=action,
         details=details,
         ip_address=request.client.host,
+        created_at=now_th,
         timestamp=datetime.now()
     )
     db.add(new_log)
