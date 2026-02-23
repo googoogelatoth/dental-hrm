@@ -43,6 +43,7 @@ import cloudinary
 import cloudinary.uploader
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from dateutil.relativedelta import relativedelta
+import pytz
 
 app = FastAPI()
 
@@ -80,6 +81,15 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # เข้าถึงใบลาผ่าน: /uploads/leave_documents/file.pdf
 app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
+
+# 1. กำหนดเขตเวลาไทย
+TH_TZ = pytz.timezone('Asia/Bangkok')
+
+# 2. เวลาเช็คอิน/เช็คเอาท์ ให้ใช้แบบนี้แทน datetime.now() เฉยๆ
+now_th = datetime.now(TH_TZ)
+
+# ตัวอย่างเวลาไปใช้บันทึกใน Database
+# current_time = datetime.now(TH_TZ)
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
