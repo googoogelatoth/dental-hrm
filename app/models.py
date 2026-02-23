@@ -52,6 +52,7 @@ class Employee(Base):
     payroll_details = relationship("PayrollDetail", back_populates="employee")
     current_session_id = Column(String, nullable=True)
     pdpa_accepted = Column(Boolean, default=False)
+    subscriptions = relationship("PushSubscription", back_populates="employee", cascade="all, delete")
 
 class EmployeeDocument(Base):
     __tablename__ = "employee_documents"
