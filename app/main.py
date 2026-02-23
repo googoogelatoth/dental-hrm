@@ -82,14 +82,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # เข้าถึงใบลาผ่าน: /uploads/leave_documents/file.pdf
 app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
 
-# 1. กำหนดเขตเวลาไทย
+# 1. ระบุโซนเวลาไทย
 TH_TZ = pytz.timezone('Asia/Bangkok')
 
-# 2. เวลาเช็คอิน/เช็คเอาท์ ให้ใช้แบบนี้แทน datetime.now() เฉยๆ
-now_th = datetime.now(TH_TZ)
+# 2. ดึงเวลาปัจจุบันของไทย แล้วตัดข้อมูล Timezone ทิ้ง (ทำเป็น Naive)
+# วิธีนี้จะทำให้ 13:24 ใน Python ถูกส่งไปเป็น 13:24 ใน DB จริงๆ
+now_th = datetime.now(TH_TZ).replace(tzinfo=None)
 
-# ตัวอย่างเวลาไปใช้บันทึกใน Database
-# current_time = datetime.now(TH_TZ)
+# 3. นำไปบันทึก
+# attendance.check_in = now_th
+# db.commit()
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
