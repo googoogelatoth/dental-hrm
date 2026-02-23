@@ -596,6 +596,12 @@ async def handle_edit_employee(
     bank_account_number: str = Form(None),
     position: str = Form(...),
     role: str = Form(...),
+    # ✅ เพิ่มการรับค่าเงินเดือนและโควตาการลา
+    base_salary: float = Form(0.0),
+    position_allowance: float = Form(0.0),
+    sick_quota: int = Form(30),
+    personal_quota: int = Form(6),
+    vacation_quota: int = Form(6),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
     user: models.Employee = Depends(get_current_active_user),
@@ -609,10 +615,10 @@ async def handle_edit_employee(
     if not employee:
         return RedirectResponse(url="/employees", status_code=status.HTTP_303_SEE_OTHER)
 
-    # เก็บข้อมูลเดิมไว้ก่อนแก้ไขเพื่อทำ Log เปรียบเทียบ (Optional แต่แนะนำ)
-    old_data = f"เดิม: {employee.first_name} {employee.last_name}, ตำแหน่ง: {employee.position}, Role: {employee.role}"
+    # เก็บข้อมูลเดิมไว้ทำ Log
+    old_data = f"เดิม: {employee.first_name} {employee.last_name}, เงินเดือน: {employee.base_salary}"
 
-    # --- 2. UNIQUE Check ---
+    # --- 2. UNIQUE Check สำหรับบัตรประชาชน ---
     if id_card_number:
         encrypted_id_input = encrypt_data(id_card_number)
         existing_emp = db.query(models.Employee).filter(
@@ -626,13 +632,22 @@ async def handle_edit_employee(
                 "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
             })
 
-    # --- 3. อัปเดตข้อมูลทั่วไป ---
+    # --- 3. อัปเดตข้อมูลทั่วไปและเงินเดือน ✅ ---
     employee.first_name = first_name
     employee.last_name = last_name
     employee.nickname = nickname if nickname and nickname != "None" else employee.nickname
     employee.address = address
     employee.position = position
     employee.role = role
+    
+    # อัปเดตเงินเดือนและค่าตอบแทน
+    employee.base_salary = base_salary
+    employee.position_allowance = position_allowance
+    
+    # อัปเดตโควตาการลา
+    employee.sick_leave_quota = sick_quota
+    employee.personal_leave_quota = personal_quota
+    employee.vacation_leave_quota = vacation_quota
     
     # อัปเดตข้อมูลที่ต้องเข้ารหัส
     if id_card_number:
@@ -642,7 +657,7 @@ async def handle_edit_employee(
     if bank_account_number:
         employee.bank_account_number = encrypt_data(bank_account_number)
 
-    # --- 4. จัดการรูปโปรไฟล์ ---
+    # --- 4. จัดการรูปโปรไฟล์ (Cloudinary) ---
     log_details_extra = ""
     if profile_picture and profile_picture.filename:
         try:
@@ -679,17 +694,12 @@ async def handle_edit_employee(
                     print(f"Cloudinary Document Upload Error: {e}")
     
     # --- 6. บันทึก Log และ Commit ---
-    # สร้างข้อความ Log ให้ละเอียด
-    new_data = f"ใหม่: {first_name} {last_name}, ตำแหน่ง: {position}, Role: {role}"
+    new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}"
     log_msg = f"แก้ไขข้อมูลพนักงาน ID: {emp_id} | {old_data} -> {new_data}{log_details_extra}"
     
-    # 🚩 เรียกใช้ฟังก์ชันเก็บ Log (ที่นายสร้างไว้)
     log_activity(db, user, "แก้ไขข้อมูลพนักงาน", log_msg, request)
-    
-    # 🚩 ยืนยันการเปลี่ยนแปลงลงฐานข้อมูล
     db.commit()
 
-    # 🚩 ส่งกลับหน้าเดิมพร้อมแจ้งสถานะ
     return RedirectResponse(url="/dashboard?msg=updated", status_code=status.HTTP_303_SEE_OTHER)
 
 # --- 3. ฟังก์ชันลบข้อมูล ---
