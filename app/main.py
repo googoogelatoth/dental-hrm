@@ -2978,7 +2978,7 @@ async def download_attendance_template():
     }
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-@app.get("/admin/approve-all-requests")
+@app.post("/admin/approve-all-requests")
 async def approve_all_requests(db: Session = Depends(get_db)):
     # 1. ดึงรายการที่ยังเป็น Pending ทั้งหมดออกมา
     pending_list = db.query(models.ManualAttendanceRequest).filter(
