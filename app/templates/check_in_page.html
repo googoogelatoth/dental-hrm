@@ -30,7 +30,7 @@
             <div class="alert alert-info border-0 shadow-sm">
                 <strong>{{ texts.att_recorded_in }}</strong> {{ attendance.check_in.strftime('%H:%M:%S') }}
             </div>
-            <form id="checkout-form" action="/attendance/check-out" method="post">
+            <form id="checkout-form" action="/attendance/check-in" method="post">
                 <input type="hidden" name="lat" id="out_lat">
                 <input type="hidden" name="lon" id="out_lon">
                 <input type="hidden" name="image_data" id="out_image_data">
