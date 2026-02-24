@@ -185,6 +185,20 @@ def upload_file_to_cloudinary(file, folder_name):
 # ตั้งค่าการเข้ารหัสรหัสผ่าน
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', 'SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs=')
+cipher_suite = Fernet(ENCRYPTION_KEY)
+
+def decrypt_data(encrypted_text: str):
+    try:
+        if not encrypted_text:
+            return ""
+        # แปลงข้อความกลับเป็นเลขปกติ
+        return cipher_suite.decrypt(encrypted_text.encode()).decode()
+    except Exception as e:
+        # ถ้าถอดรหัสไม่ได้ (เช่น คีย์ไม่ตรง) ให้คืนค่าเดิม หรือ "Error"
+        print(f"❌ Decrypt Error: {e}")
+        return encrypted_text
+
 @app.on_event("startup")
 async def create_first_admin():
     db = SessionLocal()
