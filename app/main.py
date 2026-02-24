@@ -44,6 +44,7 @@ import cloudinary.uploader
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from dateutil.relativedelta import relativedelta
 import pytz
+from cryptography.fernet import Fernet
 
 app = FastAPI()
 
@@ -778,6 +779,9 @@ async def employee_detail(
         "id_card_number": decrypt_data(employee.id_card_number) if employee.id_card_number else "",
         "bank_account_number": decrypt_data(employee.bank_account_number) if employee.bank_account_number else ""
     }
+    
+    # 🚩 เพิ่มบรรทัดนี้เพื่อเช็คในหน้าจอ Terminal/Log
+    print(f"DEBUG: Decrypted ID Card = {display_data['id_card_number']}")
 
     return templates.TemplateResponse("employee_detail_content.html", {
         "request": request,

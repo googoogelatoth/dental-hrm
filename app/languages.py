@@ -84,7 +84,7 @@ TRANSLATIONS = {
         "reset": "ล้างข้อมูล",
         "save_emp": "บันทึกข้อมูลพนักงาน",
         "doctor": "แพทย์",
-        "nurse": "พยาบาล",
+        "nurse": "ผู้ช่วยทันตแพทย์",
         "staff": "เจ้าหน้าที่",
 
         # --- OT Approval Page ---
@@ -614,7 +614,7 @@ TRANSLATIONS = {
         "reset": "Reset",
         "save_emp": "Save Employee",
         "doctor": "Doctor",
-        "nurse": "Nurse",
+        "nurse": "Dental Assistant",
         "staff": "Staff",
 
         # --- OT Approval Page ---
