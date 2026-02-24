@@ -189,6 +189,9 @@ class PayrollDetail(Base):
     absence_deduction = Column(Float, default=0) # หักขาดงาน
     extra_income = Column(Float, default=0.0)    # สำหรับรายได้อื่นๆ
     extra_deduction = Column(Float, default=0.0) # สำหรับรายจ่ายอื่นๆ
+    late_deduction = Column(Float, default=0.0)  # เพิ่มตัวนี้
+    early_deduction = Column(Float, default=0.0) # เพิ่มตัวนี้
+    status = Column(String, default="Draft")     # เพิ่มตัวนี้
     
     net_salary = Column(Float) # เงินเดือนสุทธิ
     net_total = Column(Float)
