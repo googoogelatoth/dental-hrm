@@ -780,8 +780,10 @@ async def employee_detail(
         "bank_account_number": decrypt_data(employee.bank_account_number) if employee.bank_account_number else ""
     }
     
-    # 🚩 เพิ่มบรรทัดนี้เพื่อเช็คในหน้าจอ Terminal/Log
-    print(f"DEBUG: Decrypted ID Card = {display_data['id_card_number']}")
+    # 🚩 เพิ่มบรรทัดนี้ครับนาย!
+    print(f"--- DEBUG EMPLOYEE {emp_id} ---")
+    print(f"Decrypted Data: {display_data}")
+    print(f"-------------------------------")
 
     return templates.TemplateResponse("employee_detail_content.html", {
         "request": request,
