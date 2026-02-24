@@ -38,8 +38,8 @@
 
 <div class="mb-3 text-end">
     <h4 class="text-secondary">
-        {{ texts.rep_period_label }} {{ start_date.strftime('%d/%m/%Y') }} 
-        {% if start_date != end_date %} {{ texts.rep_to_label }} {{ end_date.strftime('%d/%m/%Y') }}{% endif %}
+        {{ texts.rep_period_label }} {{ start_date.strftime('%d/%m/%Y') if start_date is not string else start_date }} 
+        {% if start_date != end_date %} {{ texts.rep_to_label }} {{ end_date.strftime('%d/%m/%Y') if end_date is not string else end_date }}{% endif %}
     </h4>
 </div>
 
@@ -92,15 +92,15 @@
                     </td>
                     
                     <td class="text-center">
-                        {% if record.status == 'ปกติ' or record.status == 'Normal' %}
+                        {% if record.status in ['ปกติ', 'Normal'] %}
                             <span class="badge bg-success">{{ texts.rep_status_normal }}</span>
                         {% elif 'วันหยุด' in record.status or 'Holiday' in record.status %}
                             <span class="badge bg-secondary">{{ texts.rep_status_holiday }}</span>
-                        {% elif record.status == 'ขาดงาน' or record.status == 'Absent' %}
+                        {% elif record.status in ['ขาดงาน', 'Absent'] %}
                             <span class="badge bg-dark">{{ texts.rep_status_absent }}</span>
-                        {% elif record.status == 'Late' or record.status == 'สาย' %}
+                        {% elif record.status in ['Late', 'สาย'] %}
                             <span class="badge bg-danger">{{ texts.rep_status_late }}</span>
-                        {% elif record.status == 'Abnormal' or record.status == 'ผิดปกติ' %}
+                        {% elif record.status in ['Abnormal', 'ผิดปกติ'] %}
                             <span class="badge bg-warning text-dark">{{ texts.rep_status_abnormal }}</span>
                         {% else %}
                             <span class="badge bg-info text-dark">{{ record.status }}</span>
@@ -110,26 +110,30 @@
                     <td class="text-center">
                         <div class="btn-group">
                             {% if record.image_in %}
-                            <button type="button" class="btn btn-sm btn-outline-info" 
-                                    onclick="showPhoto('/uploads/attendance_photos/{{ record.image_in }}', '{{ texts.rep_photo_title_in }} - {{ record.employee.first_name }}')">
-                                <i class="bi bi-camera"></i> {{ texts.rep_photo_in }}
-                            </button>
+                            {% set img_in_path = record.image_in if record.image_in.startswith('http') else '/uploads/attendance_photos/' + record.image_in %}
+                                <button type="button" class="btn btn-sm btn-outline-info" 
+                                        onclick="showPhoto('{{ img_in_path }}', '{{ texts.rep_photo_title_in }} - {{ record.employee.first_name }}')">
+                                    <i class="bi bi-camera"></i> {{ texts.rep_photo_in }}
+                                </button>
                             {% endif %}
+
                             {% if record.image_out %}
-                            <button type="button" class="btn btn-sm btn-outline-secondary" 
-                                    onclick="showPhoto('/uploads/attendance_photos/{{ record.image_out }}', '{{ texts.rep_photo_title_out }} - {{ record.employee.first_name }}')">
-                                <i class="bi bi-camera"></i> {{ texts.rep_photo_out }}
-                            </button>
+                            {% set img_out_path = record.image_out if record.image_out.startswith('http') else '/uploads/attendance_photos/' + record.image_out %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                        onclick="showPhoto('{{ img_out_path }}', '{{ texts.rep_photo_title_out }} - {{ record.employee.first_name }}')">
+                                    <i class="bi bi-camera"></i> {{ texts.rep_photo_out }}
+                                </button>
                             {% endif %}
+
                             {% if not record.image_in and not record.image_out %}
-                            <span class="text-muted small">-</span>
+                                <span class="text-muted small">-</span>
                             {% endif %}
                         </div>
                     </td>
 
                     <td class="text-center">
                         {% if record.lat and record.lon %}
-                        <a href="http://maps.google.com/?q={{ record.lat }},{{ record.lon }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                        <a href="https://www.google.com/maps?q={{ record.lat }},{{ record.lon }}" target="_blank" class="btn btn-sm btn-outline-primary">
                             <i class="bi bi-geo-alt"></i> {{ texts.rep_map_btn }}
                         </a>
                         {% else %}
@@ -158,7 +162,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center p-0">
-                <img src="" id="modalImage" class="img-fluid" alt="Attendance Photo" style="min-width: 100%;">
+                <img id="modalImage" class="img-fluid" alt="Attendance Photo" style="width: 100%; object-fit: contain; max-height: 80vh;">
             </div>
         </div>
     </div>
@@ -166,10 +170,14 @@
 
 <script>
 function showPhoto(src, title) {
-    document.getElementById('modalImage').src = src;
-    document.getElementById('photoModalLabel').innerText = title;
-    var myModal = new bootstrap.Modal(document.getElementById('photoModal'));
-    myModal.show();
+    // ป้องกันรูปค้างจากครั้งก่อน
+    document.getElementById('modalImage').src = '';
+    setTimeout(() => {
+        document.getElementById('modalImage').src = src;
+        document.getElementById('photoModalLabel').innerText = title;
+        var myModal = new bootstrap.Modal(document.getElementById('photoModal'));
+        myModal.show();
+    }, 50);
 }
 </script>
 {% endblock %}
