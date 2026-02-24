@@ -1160,7 +1160,7 @@ async def handle_check_in(
             if current_time < end_dt.time():
                 diff = datetime.combine(today, end_dt.time()) - datetime.combine(today, current_time)
                 total_early = int(diff.total_seconds() / 60)
-                early_min = max(0, total_early - (schedule.grace_period_early or 0))
+                early_min = max(0, total_early - (schedule.grace_period_early_out or 0))
 
         attendance.check_out = now
         attendance.early_minutes = early_min
