@@ -186,7 +186,12 @@ def upload_file_to_cloudinary(file, folder_name):
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', 'SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs=')
-cipher_suite = Fernet(ENCRYPTION_KEY)
+
+if not ENCRYPTION_KEY or ENCRYPTION_KEY == 'ใส่รหัสคีย์ของนายตรงนี้ถ้าไม่ได้ใช้ env':
+    # 🚩 วางคีย์ที่นายใช้แล้วเลขขึ้นตะกี้ลงตรงนี้เลยครับนาย
+    ENCRYPTION_KEY = "SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs=" 
+
+cipher_suite = Fernet(ENCRYPTION_KEY.encode())
 
 def decrypt_data(encrypted_text: str):
     try:
