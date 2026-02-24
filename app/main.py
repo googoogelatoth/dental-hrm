@@ -144,6 +144,43 @@ async def get_lang(request: Request):
     lang = request.cookies.get("lang", "th")
     return TRANSLATIONS.get(lang, TRANSLATIONS["th"])
 
+def upload_base64_to_cloudinary(base64_data, employee_code, suffix):
+    try:
+        if not base64_data or len(base64_data) < 100:
+            return None
+            
+        # 🚩 ขั้นตอนสำคัญ: ถ้ามีหัวข้อความติดมา ให้ตัดออกเหลือแต่ตัวรหัสรูป
+        if "base64," in base64_data:
+            base64_data = base64_data.split("base64,")[1]
+
+        # อัปโหลดขึ้น Cloudinary โดยตรง
+        upload_result = cloudinary.uploader.upload(
+            f"data:image/png;base64,{base64_data}",
+            folder="hrm_system/attendance",
+            public_id=f"{employee_code}_{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            transformation=[
+                {"width": 640, "crop": "limit", "quality": "auto"}
+            ]
+        )
+        return upload_result.get("secure_url") # คืนค่าเป็นลิงก์ https://...
+    except Exception as e:
+        print(f"❌ Cloudinary Error: {e}")
+        return None
+    
+def upload_file_to_cloudinary(file, folder_name):
+    try:
+        # อัปโหลดไฟล์ตรงๆ จากหน่วยความจำ
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            folder=f"hrm_system/{folder_name}/",
+            # ถ้าเป็น PDF หรือรูปภาพ Cloudinary จัดการให้ได้หมดครับ
+            resource_type="auto" 
+        )
+        return upload_result.get("secure_url")
+    except Exception as e:
+        print(f"❌ Cloudinary Upload Error: {e}")
+        return None
+
 # ตั้งค่าการเข้ารหัสรหัสผ่าน
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -1021,32 +1058,36 @@ def save_attendance_photo(base64_data, emp_code, type="in"):
 
 @app.post("/attendance/check-in")
 async def handle_check_in(
-    request: Request,user: models.Employee = Depends(get_current_active_user), 
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user), 
     lat: float = Form(None), 
     lon: float = Form(None),
     image_data: str = Form(None), 
     db: Session = Depends(get_db)
 ):
+    # ดึงข้อมูลผู้ใช้จาก Cookie เพื่อความชัวร์
     emp_code = request.cookies.get("user_name")
     user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
     
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     
-    now = datetime.now()
+    now = get_now_th() # ใช้เวลาไทยที่เราเซตไว้
     today = now.date()
     current_time = now.time()
     schedule = user.schedule
 
-    # ค้นหา Record ของวันนี้
+    # ค้นหาว่าวันนี้พนักงานคนนี้เคยลงเวลาหรือยัง
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == user.id,
         models.Attendance.date == today
     ).first()
 
     if not attendance:
-        # --- 📸 ส่วนที่ 1: บันทึกรูปภาพตอนเข้า (Check-in) ---
-        photo_name = save_attendance_photo(image_data, user.employee_code, "in")
+        # -----------------------------------------------
+        # 📸 กรณีที่ 1: เช็คอินเข้างาน (Check-in)
+        # -----------------------------------------------
+        photo_url = upload_base64_to_cloudinary(image_data, user.employee_code, "in")
         
         late_min = 0
         status = "Normal"
@@ -1061,24 +1102,24 @@ async def handle_check_in(
                 late_min = max(0, total_late - (schedule.grace_period_late or 0))
                 if late_min > 0:
                     status = "Late"
-        
-        now = get_now_th()
 
         new_attendance = models.Attendance(
             employee_id=user.id,
             date=today,
-            check_in=now, # ส่งเป็น datetime object สำหรับ SQLite
+            check_in=now,
             lat=lat,
             lon=lon,
             late_minutes=late_min,
-            image_in=photo_name, # บันทึกชื่อไฟล์รูปเข้า
+            image_in=photo_url, # บันทึก URL จาก Cloudinary
             status=status
         )
         db.add(new_attendance)
     
     else:
-        # --- 📸 ส่วนที่ 2: บันทึกรูปภาพตอนออก (Check-out) ---
-        photo_name = save_attendance_photo(image_data, user.employee_code, "out")
+        # -----------------------------------------------
+        # 📸 กรณีที่ 2: เช็คเอาท์ออกงาน (Check-out)
+        # -----------------------------------------------
+        photo_url = upload_base64_to_cloudinary(image_data, user.employee_code, "out")
         
         early_min = 0
         if schedule and schedule.work_end_time:
@@ -1090,10 +1131,11 @@ async def handle_check_in(
                 total_early = int(diff.total_seconds() / 60)
                 early_min = max(0, total_early - (schedule.grace_period_early or 0))
 
-        attendance.check_out = now # ส่งเป็น datetime object เพื่อแก้ SQLite Error
+        attendance.check_out = now
         attendance.early_minutes = early_min
-        attendance.image_out = photo_name # บันทึกชื่อไฟล์รูปออก
+        attendance.image_out = photo_url # บันทึก URL จาก Cloudinary
         
+        # ถ้ามีสายหรือออกก่อน ให้เปลี่ยนสถานะเป็น Abnormal
         if attendance.late_minutes > 0 or early_min > 0:
             attendance.status = "Abnormal"
 
@@ -1102,64 +1144,78 @@ async def handle_check_in(
 
 @app.post("/attendance/check-out")
 async def handle_check_out(
-    request: Request,user: models.Employee = Depends(get_current_active_user), 
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user), 
     lat: float = Form(None), 
     lon: float = Form(None),
     image_data: str = Form(None), 
     db: Session = Depends(get_db)
 ):
+    # 1. ตรวจสอบ User จาก Cookie
     emp_code = request.cookies.get("user_name")
     user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
     
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    now = datetime.now()
+    now = get_now_th() # ใช้เวลาไทยที่ตั้งค่าไว้
     today = now.date()
     current_time = now.time()
     schedule = user.schedule
 
-    # ค้นหา Record ของวันนี้ที่เคย Check-in ไว้ (ใช้ตัวแปรเดียวให้ชัดเจน)
+    # 2. ค้นหา Record ของวันนี้ที่เคย Check-in ไว้
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == user.id,
         models.Attendance.date == today
     ).first()
     
     if attendance:
-        # --- 📸 1. บันทึกรูปภาพตอนออกงาน ---
-        photo_name = save_attendance_photo(image_data, emp_code, "out")
-        attendance.image_out = photo_name 
+        # --- 📸 1. บันทึกรูปภาพตอนออกงานขึ้น Cloudinary ---
+        # ใช้ฟังก์ชัน upload_base64_to_cloudinary ที่เราสร้างไว้
+        photo_url = upload_base64_to_cloudinary(image_data, emp_code, "out")
+        
+        # เก็บ URL ที่ได้ลงในฐานข้อมูล (ถ้าอัปโหลดสำเร็จจะได้ https://...)
+        if photo_url:
+            attendance.image_out = photo_url 
 
         # --- 2. คำนวณการออกก่อนเวลา (Early Out) ---
         early_min = 0
         if schedule and schedule.work_end_time:
-            end_dt = datetime.strptime(schedule.work_end_time, "%H:%M")
-            end_time = end_dt.time()
-            
-            if current_time < end_time:
-                diff = datetime.combine(today, end_time) - datetime.combine(today, current_time)
-                total_early = int(diff.total_seconds() / 60)
-                # ใช้ชื่อฟิลด์ตามตารางของคุณ (grace_period_early_out)
-                early_min = max(0, total_early - (schedule.grace_period_early_out or 0))
+            try:
+                end_dt = datetime.strptime(schedule.work_end_time, "%H:%M")
+                end_time = end_dt.time()
+                
+                if current_time < end_time:
+                    # คำนวณส่วนต่างเวลา
+                    diff = datetime.combine(today, end_time) - datetime.combine(today, current_time)
+                    total_early = int(diff.total_seconds() / 60)
+                    
+                    # หักลบช่วงเวลาอนุโลม (Grace Period)
+                    grace_period = schedule.grace_period_early_out or 0
+                    early_min = max(0, total_early - grace_period)
+            except Exception as e:
+                print(f"❌ Error calculating early out: {e}")
 
         # --- 3. บันทึกค่าลง Database ---
-        attendance.check_out = now # ใช้ datetime วัตถุเพื่อเลี่ยง Error ใน SQLite
+        attendance.check_out = now 
         attendance.early_minutes = early_min
         
-        # ปรับสถานะ (ถ้าสายหรือออกก่อนให้เป็น Abnormal)
-        if (attendance.late_minutes and attendance.late_minutes > 0) or early_min > 0:
+        # ปรับสถานะ (ถ้ามาสายตอนเช้า หรือออกก่อนตอนเย็น ให้เป็น Abnormal)
+        is_late = attendance.late_minutes and attendance.late_minutes > 0
+        is_early = early_min > 0
+        
+        if is_late or is_early:
             attendance.status = "Abnormal"
         else:
             attendance.status = "Normal"
         
         # อัปเดตพิกัดล่าสุดตอนออก
-        attendance.lat = lat 
-        attendance.lon = lon
+        if lat: attendance.lat = lat 
+        if lon: attendance.lon = lon
         
         db.commit()
 
     return RedirectResponse(url="/check-in-page?msg=checkout_success", status_code=303)
-
 @app.post("/save-schedules")
 async def save_schedules(request: Request,user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     # 1. ตรวจสอบการ Login
@@ -1388,7 +1444,8 @@ async def my_profile_page(
     
 @app.post("/leave/apply")
 async def handle_leave_apply(
-    request: Request,user: models.Employee = Depends(get_current_active_user),
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
     leave_type: str = Form(...),
     start_date: str = Form(...),
     end_date: str = Form(...),
@@ -1396,65 +1453,50 @@ async def handle_leave_apply(
     evidence: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
-    # 1. ตรวจสอบ Login (ใช้ employee_code จาก user_name cookie)
+    # 1. ตรวจสอบ Login
     emp_code = request.cookies.get("user_name")
     user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
     
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    # 2. จัดการไฟล์แนบ
-    evidence_path = None
+    # ✅ 2. จัดการไฟล์แนบ (เปลี่ยนจากเซฟลงเครื่อง เป็นขึ้น Cloudinary)
+    evidence_url = None
     if evidence and evidence.filename:
-        file_ext = evidence.filename.split(".")[-1]
-        file_name = f"{user.employee_code}_{datetime.now().strftime('%Y%m%d%H%M')}.{file_ext}"
-        
-        # วาง Path ให้ถูกต้องสำหรับ Windows/Linux
-        evidence_path = os.path.join("static", "uploads", "leave_documents", file_name)
-        full_path = os.path.join(os.getcwd(), "app", evidence_path)
-        
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        with open(full_path, "wb") as buffer:
-            shutil.copyfileobj(evidence.file, buffer)
+        # เรียกใช้ฟังก์ชันที่เราสร้างไว้
+        evidence_url = upload_file_to_cloudinary(evidence, "leave_documents")
 
     # 3. บันทึกลง Database
     new_leave = models.LeaveRequest(
         employee_id=user.id,
         leave_type=leave_type,
+        # แปลง string เป็น date object
         start_date=datetime.strptime(start_date, "%Y-%m-%d").date(),
         end_date=datetime.strptime(end_date, "%Y-%m-%d").date(),
         reason=reason,
-        evidence_path=evidence_path,
+        evidence_path=evidence_url, # 🚩 เก็บเป็น URL HTTPS แทน Path เดิม
         status="Pending"
     )
     db.add(new_leave)
-    db.commit() # ✅ บันทึกให้สำเร็จก่อนแจ้งเตือน
+    db.commit()
 
-    # 🚩 ส่วนส่งแจ้งเตือนหา Admin (เวอร์ชันแก้ Error user_id)
+    # 🚩 ส่วนส่งแจ้งเตือนหา Admin
     try:
-        # 1. ดึง Admin ทั้งหมด
         admins = db.query(models.Employee).filter(
             (models.Employee.role.ilike("admin")) | 
             (models.Employee.employee_code == "admin")
         ).all()
         
-        print(f"🔔 DEBUG: พบ Admin ทั้งหมด {len(admins)} คน")
-
-        # 2. วนลูปส่งแจ้งเตือน
         for admin in admins:
-            print(f"🚀 DEBUG: กำลังส่ง Push หา Admin ID: {admin.id}")
-            
-            # ดึงรหัสพนักงานจากตัวแปร user (ที่มีอยู่ในฟังก์ชัน handle_leave_apply)
             sender_info = user.employee_code if user else "ไม่ระบุรหัส"
-            
             send_push_to_user(
                 admin.id, 
                 "📢 มีคำขอลาใหม่", 
-                f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ", 
+                f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})", 
                 db
             )
     except Exception as e:
-        print(f"❌ Notification Error ในจุดส่งหา Admin: {e}")
+        print(f"❌ Notification Error: {e}")
 
     return RedirectResponse(url="/check-in-page?msg=leave_sent", status_code=303)
 
