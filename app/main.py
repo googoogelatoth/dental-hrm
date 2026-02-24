@@ -646,135 +646,135 @@ async def update_company_settings(
     db.commit()
     return RedirectResponse(url="/admin/settings?msg=success", status_code=303)
 
-# --- 1. แสดงหน้าฟอร์มแก้ไข ---
-@app.get("/edit-employee/{emp_id}", response_class=HTMLResponse)
-async def edit_employee_page(emp_id: int, request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+# # --- 1. แสดงหน้าฟอร์มแก้ไข ---
+# @app.get("/edit-employee/{emp_id}", response_class=HTMLResponse)
+# async def edit_employee_page(emp_id: int, request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
     
-    if request.cookies.get("user_role") != "Admin":
-        return RedirectResponse(url="/check-in-page", status_code=303)
+#     if request.cookies.get("user_role") != "Admin":
+#         return RedirectResponse(url="/check-in-page", status_code=303)
     
-    employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-    return templates.TemplateResponse("edit_employee.html",{"request": request,"texts": texts, "employee": employee})
+#     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+#     return templates.TemplateResponse("edit_employee.html",{"request": request,"texts": texts, "employee": employee})
 
-# --- 2. รับข้อมูลจากฟอร์มแก้ไข (POST) ---
-@app.post("/edit-employee/{emp_id}")
-async def handle_edit_employee(
-    request: Request,
-    emp_id: int,
-    first_name: str = Form(...),
-    last_name: str = Form(...),
-    nickname: str = Form(None),
-    id_card_number: str = Form(None),
-    phone_number: str = Form(None),
-    address: str = Form(None),
-    bank_account_number: str = Form(None),
-    position: str = Form(...),
-    role: str = Form(...),
-    # ✅ เพิ่มการรับค่าเงินเดือนและโควตาการลา
-    base_salary: float = Form(0.0),
-    position_allowance: float = Form(0.0),
-    sick_quota: int = Form(30),
-    personal_quota: int = Form(6),
-    vacation_quota: int = Form(6),
-    profile_picture: UploadFile = File(None),
-    documents: List[UploadFile] = File(None),
-    user: models.Employee = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    # --- 1. ตรวจสอบสิทธิ์ Admin ---
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
+# # --- 2. รับข้อมูลจากฟอร์มแก้ไข (POST) ---
+# @app.post("/edit-employee/{emp_id}")
+# async def handle_edit_employee(
+#     request: Request,
+#     emp_id: int,
+#     first_name: str = Form(...),
+#     last_name: str = Form(...),
+#     nickname: str = Form(None),
+#     id_card_number: str = Form(None),
+#     phone_number: str = Form(None),
+#     address: str = Form(None),
+#     bank_account_number: str = Form(None),
+#     position: str = Form(...),
+#     role: str = Form(...),
+#     # ✅ เพิ่มการรับค่าเงินเดือนและโควตาการลา
+#     base_salary: float = Form(0.0),
+#     position_allowance: float = Form(0.0),
+#     sick_quota: int = Form(30),
+#     personal_quota: int = Form(6),
+#     vacation_quota: int = Form(6),
+#     profile_picture: UploadFile = File(None),
+#     documents: List[UploadFile] = File(None),
+#     user: models.Employee = Depends(get_current_active_user),
+#     db: Session = Depends(get_db)
+# ):
+#     # --- 1. ตรวจสอบสิทธิ์ Admin ---
+#     if user.role != "Admin":
+#         raise HTTPException(status_code=403, detail="Forbidden")
     
-    employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-    if not employee:
-        return RedirectResponse(url="/employees", status_code=status.HTTP_303_SEE_OTHER)
+#     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
+#     if not employee:
+#         return RedirectResponse(url="/employees", status_code=status.HTTP_303_SEE_OTHER)
 
-    # เก็บข้อมูลเดิมไว้ทำ Log
-    old_data = f"เดิม: {employee.first_name} {employee.last_name}, เงินเดือน: {employee.base_salary}"
+#     # เก็บข้อมูลเดิมไว้ทำ Log
+#     old_data = f"เดิม: {employee.first_name} {employee.last_name}, เงินเดือน: {employee.base_salary}"
 
-    # --- 2. UNIQUE Check สำหรับบัตรประชาชน ---
-    if id_card_number:
-        encrypted_id_input = encrypt_data(id_card_number)
-        existing_emp = db.query(models.Employee).filter(
-            models.Employee.id_card_number == encrypted_id_input,
-            models.Employee.id != emp_id
-        ).first()
-        if existing_emp:
-            return templates.TemplateResponse("edit_employee.html", {
-                "request": request,
-                "employee": employee,
-                "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
-            })
+#     # --- 2. UNIQUE Check สำหรับบัตรประชาชน ---
+#     if id_card_number:
+#         encrypted_id_input = encrypt_data(id_card_number)
+#         existing_emp = db.query(models.Employee).filter(
+#             models.Employee.id_card_number == encrypted_id_input,
+#             models.Employee.id != emp_id
+#         ).first()
+#         if existing_emp:
+#             return templates.TemplateResponse("edit_employee.html", {
+#                 "request": request,
+#                 "employee": employee,
+#                 "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
+#             })
 
-    # --- 3. อัปเดตข้อมูลทั่วไปและเงินเดือน ✅ ---
-    employee.first_name = first_name
-    employee.last_name = last_name
-    employee.nickname = nickname if nickname and nickname != "None" else employee.nickname
-    employee.address = address
-    employee.position = position
-    employee.role = role
+#     # --- 3. อัปเดตข้อมูลทั่วไปและเงินเดือน ✅ ---
+#     employee.first_name = first_name
+#     employee.last_name = last_name
+#     employee.nickname = nickname if nickname and nickname != "None" else employee.nickname
+#     employee.address = address
+#     employee.position = position
+#     employee.role = role
     
-    # อัปเดตเงินเดือนและค่าตอบแทน
-    employee.base_salary = base_salary
-    employee.position_allowance = position_allowance
+#     # อัปเดตเงินเดือนและค่าตอบแทน
+#     employee.base_salary = base_salary
+#     employee.position_allowance = position_allowance
     
-    # อัปเดตโควตาการลา
-    employee.sick_leave_quota = sick_quota
-    employee.personal_leave_quota = personal_quota
-    employee.vacation_leave_quota = vacation_quota
+#     # อัปเดตโควตาการลา
+#     employee.sick_leave_quota = sick_quota
+#     employee.personal_leave_quota = personal_quota
+#     employee.vacation_leave_quota = vacation_quota
     
-    # อัปเดตข้อมูลที่ต้องเข้ารหัส
-    if id_card_number:
-        employee.id_card_number = encrypt_data(id_card_number)
-    if phone_number:
-        employee.phone_number = encrypt_data(phone_number)
-    if bank_account_number:
-        employee.bank_account_number = encrypt_data(bank_account_number)
+#     # อัปเดตข้อมูลที่ต้องเข้ารหัส
+#     if id_card_number:
+#         employee.id_card_number = encrypt_data(id_card_number)
+#     if phone_number:
+#         employee.phone_number = encrypt_data(phone_number)
+#     if bank_account_number:
+#         employee.bank_account_number = encrypt_data(bank_account_number)
 
-    # --- 4. จัดการรูปโปรไฟล์ (Cloudinary) ---
-    log_details_extra = ""
-    if profile_picture and profile_picture.filename:
-        try:
-            upload_result = cloudinary.uploader.upload(
-                profile_picture.file,
-                folder="hrm/profiles",
-                public_id=f"emp_{employee.employee_code}",
-                overwrite=True
-            )
-            employee.profile_picture = upload_result.get("secure_url")
-            log_details_extra += " [อัปเดตรูปโปรไฟล์]"
-        except Exception as e:
-            print(f"Cloudinary Profile Upload Error: {e}")
+#     # --- 4. จัดการรูปโปรไฟล์ (Cloudinary) ---
+#     log_details_extra = ""
+#     if profile_picture and profile_picture.filename:
+#         try:
+#             upload_result = cloudinary.uploader.upload(
+#                 profile_picture.file,
+#                 folder="hrm/profiles",
+#                 public_id=f"emp_{employee.employee_code}",
+#                 overwrite=True
+#             )
+#             employee.profile_picture = upload_result.get("secure_url")
+#             log_details_extra += " [อัปเดตรูปโปรไฟล์]"
+#         except Exception as e:
+#             print(f"Cloudinary Profile Upload Error: {e}")
 
-    # --- 5. จัดการเอกสาร PDF ---
-    if documents:
-        for doc in documents:
-            if doc.filename:
-                try:
-                    doc_upload = cloudinary.uploader.upload(
-                        doc.file,
-                        folder=f"hrm/docs/{employee.employee_code}",
-                        resource_type="raw",
-                        public_id=doc.filename
-                    )
-                    new_doc = models.EmployeeDocument(
-                        file_path=doc_upload.get("secure_url"),
-                        file_name=doc.filename,
-                        employee_id=employee.id
-                    )
-                    db.add(new_doc)
-                    log_details_extra += f" [เพิ่มเอกสาร: {doc.filename}]"
-                except Exception as e:
-                    print(f"Cloudinary Document Upload Error: {e}")
+#     # --- 5. จัดการเอกสาร PDF ---
+#     if documents:
+#         for doc in documents:
+#             if doc.filename:
+#                 try:
+#                     doc_upload = cloudinary.uploader.upload(
+#                         doc.file,
+#                         folder=f"hrm/docs/{employee.employee_code}",
+#                         resource_type="raw",
+#                         public_id=doc.filename
+#                     )
+#                     new_doc = models.EmployeeDocument(
+#                         file_path=doc_upload.get("secure_url"),
+#                         file_name=doc.filename,
+#                         employee_id=employee.id
+#                     )
+#                     db.add(new_doc)
+#                     log_details_extra += f" [เพิ่มเอกสาร: {doc.filename}]"
+#                 except Exception as e:
+#                     print(f"Cloudinary Document Upload Error: {e}")
     
-    # --- 6. บันทึก Log และ Commit ---
-    new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}"
-    log_msg = f"แก้ไขข้อมูลพนักงาน ID: {emp_id} | {old_data} -> {new_data}{log_details_extra}"
+#     # --- 6. บันทึก Log และ Commit ---
+#     new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}"
+#     log_msg = f"แก้ไขข้อมูลพนักงาน ID: {emp_id} | {old_data} -> {new_data}{log_details_extra}"
     
-    log_activity(db, user, "แก้ไขข้อมูลพนักงาน", log_msg, request)
-    db.commit()
+#     log_activity(db, user, "แก้ไขข้อมูลพนักงาน", log_msg, request)
+#     db.commit()
 
-    return RedirectResponse(url="/dashboard?msg=updated", status_code=status.HTTP_303_SEE_OTHER)
+#     return RedirectResponse(url="/dashboard?msg=updated", status_code=status.HTTP_303_SEE_OTHER)
 
 # --- 3. ฟังก์ชันลบข้อมูล ---
 @app.get("/delete-employee/{emp_id}")
@@ -1673,52 +1673,124 @@ async def my_leaves_page(request: Request,user: models.Employee = Depends(get_cu
     })
     
 @app.get("/admin/edit-employee/{emp_id}", response_class=HTMLResponse)
-async def edit_employee_page(emp_id: int, request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # เช็คสิทธิ Admin
-    if request.cookies.get("user_role") != "Admin":
+async def edit_employee_page(
+    emp_id: int, 
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang), 
+    db: Session = Depends(get_db)
+):
+    # ตรวจสอบสิทธิ์ Admin (ใช้ user object โดยตรงชัวร์กว่า cookie)
+    if not user or user.role != "Admin":
         return RedirectResponse(url="/dashboard", status_code=303)
     
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-    return templates.TemplateResponse("edit_employee.html", {"texts": texts,"request": request, "employee": employee})
+    if not employee:
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    # ✅ เพิ่มการถอดรหัสข้อมูลก่อนส่งไปโชว์ที่หน้า Form
+    decrypted_data = {
+        "phone_number": decrypt_data(employee.phone_number),
+        "id_card_number": decrypt_data(employee.id_card_number),
+        "bank_account_number": decrypt_data(employee.bank_account_number)
+    }
+    
+    return templates.TemplateResponse("edit_employee.html", {
+        "request": request, 
+        "texts": texts, 
+        "employee": employee,
+        "decrypted": decrypted_data # 🚩 ส่งค่าที่ถอดแล้วไปใช้ใน value ของ HTML
+    })
 
 @app.post("/admin/edit-employee/{emp_id}")
 async def handle_edit_employee(
-    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
+    request: Request,
     emp_id: int,
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    nickname: str = Form(None),
+    id_card_number: str = Form(None),
+    phone_number: str = Form(None),
+    address: str = Form(None),
+    bank_account_number: str = Form(None),
+    position: str = Form(...),
+    role: str = Form(...),
+    base_salary: float = Form(0.0),
+    position_allowance: float = Form(0.0),
+    sick_quota: int = Form(30),        # รวมโควตาลามาไว้ที่นี่เลย
+    personal_quota: int = Form(6),
+    vacation_quota: int = Form(6),
+    profile_picture: UploadFile = File(None),
+    documents: List[UploadFile] = File(None),
     user: models.Employee = Depends(get_current_active_user),
-    sick_quota: int = Form(...),
-    personal_quota: int = Form(...),
-    vacation_quota: int = Form(...),
     db: Session = Depends(get_db)
 ):
-    # 1. เช็คสิทธิ์ Admin
+    # 1. ตรวจสอบสิทธิ์ Admin
     if not user or user.role != "Admin":
-        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์เข้าถึงส่วนนี้")
-
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-    
-    if employee:
-        # 2. เก็บข้อมูลเก่าไว้ทำ Log (เปรียบเทียบค่าเดิม)
-        old_data = f"ป่วย:{employee.sick_leave_quota}, กิจ:{employee.personal_leave_quota}, พักร้อน:{employee.vacation_leave_quota}"
-        
-        # 3. อัปเดตข้อมูลใหม่
-        employee.sick_leave_quota = sick_quota
-        employee.personal_leave_quota = personal_quota
-        employee.vacation_leave_quota = vacation_quota
-        
-        # 4. 🚩 บันทึก Log: การปรับปรุงโควตาวันลา
-        new_data = f"ป่วย:{sick_quota}, กิจ:{personal_quota}, พักร้อน:{vacation_quota}"
-        log_activity(
-            db, 
-            user, 
-            "แก้ไขโควตาวันลา", 
-            f"แก้ไขโควตาวันลาของ {employee.first_name} {employee.last_name} (ID: {emp_id}) | [{old_data}] -> [{new_data}]", 
-            request
-        )
+    if not employee:
+        return RedirectResponse(url="/dashboard", status_code=303)
 
-        # 5. ยืนยันการเปลี่ยนแปลง
-        db.commit()
+    # 2. เก็บข้อมูลเดิมไว้ทำ Log (ละเอียดขึ้น)
+    old_data = (f"เดิม: {employee.first_name} {employee.last_name}, "
+                f"เงินเดือน: {employee.base_salary}, "
+                f"โควตา(ป่วย/กิจ/พัก): {employee.sick_leave_quota}/{employee.personal_leave_quota}/{employee.vacation_leave_quota}")
+
+    # 3. UNIQUE Check สำหรับบัตรประชาชน (Encrypt ก่อนเทียบ)
+    if id_card_number:
+        encrypted_id_input = encrypt_data(id_card_number)
+        existing_emp = db.query(models.Employee).filter(
+            models.Employee.id_card_number == encrypted_id_input,
+            models.Employee.id != emp_id
+        ).first()
+        if existing_emp:
+            return templates.TemplateResponse("edit_employee.html", {
+                "request": request, "employee": employee, "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว", "texts": get_lang()
+            })
+
+    # 4. อัปเดตข้อมูลทั่วไป เงินเดือน และโควตาการลา
+    employee.first_name = first_name
+    employee.last_name = last_name
+    employee.nickname = nickname if nickname and nickname != "None" else employee.nickname
+    employee.address = address
+    employee.position = position
+    employee.role = role
+    employee.base_salary = base_salary
+    employee.position_allowance = position_allowance
+    employee.sick_leave_quota = sick_quota
+    employee.personal_leave_quota = personal_quota
+    employee.vacation_leave_quota = vacation_quota
     
+    # 5. ✅ เข้ารหัสข้อมูลลับก่อนบันทึก
+    if id_card_number:
+        employee.id_card_number = encrypt_data(id_card_number)
+    if phone_number:
+        employee.phone_number = encrypt_data(phone_number)
+    if bank_account_number:
+        employee.bank_account_number = encrypt_data(bank_account_number)
+
+    # 6. จัดการรูปโปรไฟล์ (Cloudinary)
+    log_extra = ""
+    if profile_picture and profile_picture.filename:
+        try:
+            upload_result = cloudinary.uploader.upload(
+                profile_picture.file,
+                folder="hrm/profiles",
+                public_id=f"emp_{employee.employee_code}",
+                overwrite=True
+            )
+            employee.profile_picture = upload_result.get("secure_url")
+            log_extra += " [อัปเดตรูป]"
+        except Exception as e:
+            print(f"Cloudinary Error: {e}")
+
+    # 7. บันทึก Log และ Commit
+    new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}, โควตา: {sick_quota}/{personal_quota}/{vacation_quota}"
+    log_activity(db, user, "แก้ไขข้อมูลพนักงาน", f"{old_data} -> {new_data}{log_extra}", request)
+    
+    db.commit()
     return RedirectResponse(url="/dashboard?msg=updated", status_code=303)
 
 @app.get("/my-attendance", response_class=HTMLResponse)
