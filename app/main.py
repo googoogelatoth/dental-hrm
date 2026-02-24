@@ -356,54 +356,76 @@ async def monitor_page(
     texts: dict = Depends(get_lang),
     db: Session = Depends(get_db)
 ):
-    # 1. ดึงข้อมูลบริษัท
+    # 1. ข้อมูลพื้นฐานและเวลาปัจจุบัน
+    now_th = get_now_th()
+    today = now_th.date()
     company = db.query(models.CompanySetting).first()
 
-    # 2. คำนวณตัวเลขสถิติ (ข้อมูลจริง)
-    stat_total = db.query(models.Employee).filter(models.Employee.is_active == True).count()
-    stat_pending = 0 # ถ้านายยังไม่มี table ลา ให้ใส่ 0 ไว้ก่อนครับ
+    # 2. คำนวณสถิติ "วันนี้" (ข้อมูลจริง)
+    total_active_emp = db.query(models.Employee).filter(models.Employee.is_active == True).count()
+    
+    # - มาทำงาน (เช็คอินแล้ว)
+    present_today = db.query(models.Attendance).filter(models.Attendance.date == today).count()
+    
+    # - ลางาน (เฉพาะที่อนุมัติแล้วและครอบคลุมวันนี้)
+    on_leave_today = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date <= today,
+        models.LeaveRequest.end_date >= today
+    ).count()
 
-    # 1. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - แยกตามประเภทการลา
-    # นับจำนวนคนลาป่วย ลากิจ และลาพักร้อน จากฐานข้อมูล
+    # - สาย และ ออกก่อน (ดึงจากบันทึกเวลาวันนี้)
+    stat_late_today = db.query(models.Attendance).filter(
+        models.Attendance.date == today, 
+        models.Attendance.late_minutes > 0
+    ).count()
+    
+    stat_early_today = db.query(models.Attendance).filter(
+        models.Attendance.date == today, 
+        models.Attendance.early_minutes > 0
+    ).count()
+
+    # - ขาดงาน (พนักงานทั้งหมด - มาทำงาน - ลางาน)
+    stat_absent_today = max(0, total_active_emp - present_today - on_leave_today)
+
+    # 3. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - สถิติการลาทั้งหมด
     sick_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาป่วย").count()
     personal_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลากิจ").count()
     vacation_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาพักร้อน").count()
-
     leave_pie_data = [sick_leave, personal_leave, vacation_leave]
 
-    # 2. ข้อมูลสำหรับกราฟแท่ง (Bar Chart) - สถิติ 6 เดือนล่าสุด
-    # ตัวอย่างแบบง่าย: เราจะสร้าง List เก็บยอดรวมการลาของแต่ละเดือน
-    current_month = datetime.now().month
-    leave_bar_data = []
-    # วนลูปนับย้อนหลัง 6 เดือน (นายอาจจะต้องปรับ Query ตามโครงสร้าง Table ของนาย)
-    for i in range(5, -1, -1):
-        count = db.query(models.LeaveRequest).filter(
-            func.extract('month', models.LeaveRequest.start_date) == (current_month - i)
-        ).count()
-        leave_bar_data.append(count)
-
-    # 1. สร้างชื่อเดือนภาษาไทย 
+    # 4. ข้อมูลสำหรับกราฟแท่ง (Bar Chart) - สถิติลา 6 เดือนล่าสุด
     thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-
-    # 2. คำนวณชื่อเดือนย้อนหลัง 6 เดือนจากปัจจุบัน
     leave_bar_labels = []
-    now = datetime.now()
+    leave_bar_data = []
 
     for i in range(5, -1, -1):
-        month_date = now - relativedelta(months=i)
-        leave_bar_labels.append(thai_months[month_date.month])
+        target_date = now_th - relativedelta(months=i)
+        m = target_date.month
+        y = target_date.year
+        
+        # นับจำนวนการลาในเดือนนั้นๆ
+        month_count = db.query(models.LeaveRequest).filter(
+            extract('month', models.LeaveRequest.start_date) == m,
+            extract('year', models.LeaveRequest.start_date) == y
+        ).count()
+        
+        leave_bar_labels.append(thai_months[m])
+        leave_bar_data.append(month_count)
 
     return templates.TemplateResponse("monitor.html", {
         "request": request,
         "texts": texts,
         "user": user,
-        "stat_total": stat_total,
-        "stat_present": stat_total, # สมมติว่ามาครบไปก่อน
-        "stat_onleave": 0,
-        "stat_pending": stat_pending,
-        "leave_bar_labels": leave_bar_labels, # ✅ ต้องส่งชื่อนี้ไป
-        "leave_bar_data": leave_bar_data,     # ✅ ต้องส่งชื่อนี้ไป
-        "leave_pie_data": leave_pie_data,     # ✅ ต้องส่งชื่อนี้ไป
+        "stat_total": total_active_emp,
+        "stat_present": present_today,
+        "stat_onleave": on_leave_today,
+        "stat_late_today": stat_late_today,
+        "stat_early_today": stat_early_today,
+        "stat_absent_today": stat_absent_today,
+        "leave_bar_labels": leave_bar_labels,
+        "leave_bar_data": leave_bar_data,
+        "leave_pie_data": leave_pie_data,
         "company_name": company.company_name if company else "Mini HRM",
         "company_logo": company.logo_path if company else None,
     })

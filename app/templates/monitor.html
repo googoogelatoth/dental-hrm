@@ -7,29 +7,50 @@
         <span class="badge bg-primary px-3 py-2">{{ texts.mon_last_update }}: <span id="lastUpdate">...</span></span>
     </div>
 
-    <div class="row g-3 mb-4">
+    <div class="row g-3 mb-3">
         <div class="col-6 col-lg-3">
             <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #0d6efd !important;">
                 <div class="text-muted small">{{ texts.mon_total_emp }}</div>
-                <div class="h3 fw-bold" id="stat-total">{{ stat_total if stat_total is not none else 0 }}</div>
+                <div class="h3 fw-bold">{{ stat_total }}</div>
             </div>
         </div>
         <div class="col-6 col-lg-3">
             <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #198754 !important;">
                 <div class="text-muted small">{{ texts.mon_present }}</div>
-                <div class="h3 fw-bold text-success" id="stat-present">{{ stat_present if stat_present is not none else 0 }}</div>
+                <div class="h3 fw-bold text-success">{{ stat_present }}</div>
             </div>
         </div>
         <div class="col-6 col-lg-3">
             <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #dc3545 !important;">
                 <div class="text-muted small">{{ texts.mon_on_leave }}</div>
-                <div class="h3 fw-bold text-danger" id="stat-onleave">{{ stat_onleave if stat_onleave is not none else 0 }}</div>
+                <div class="h3 fw-bold text-danger">{{ stat_onleave }}</div>
             </div>
         </div>
         <div class="col-6 col-lg-3">
             <div class="card border-0 shadow-sm h-100 p-3" style="border-left: 5px solid #ffc107 !important;">
                 <div class="text-muted small">{{ texts.mon_pending }}</div>
-                <div class="h3 fw-bold text-warning" id="stat-pending">{{ stat_pending if stat_pending is not none else 0 }}</div>
+                <div class="h3 fw-bold text-warning">{{ stat_pending }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-4">
+            <div class="card border-0 shadow-sm p-3 bg-danger bg-opacity-10 text-center">
+                <div class="text-danger small fw-bold"><i class="bi bi-person-x me-1"></i> ขาดวันนี้</div>
+                <div class="h4 fw-bold text-danger mb-0">{{ stat_absent_today }}</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card border-0 shadow-sm p-3 bg-warning bg-opacity-10 text-center">
+                <div class="text-warning small fw-bold text-dark"><i class="bi bi-clock-history me-1"></i> สายวันนี้</div>
+                <div class="h4 fw-bold text-warning mb-0">{{ stat_late_today }}</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card border-0 shadow-sm p-3 bg-info bg-opacity-10 text-center">
+                <div class="text-info small fw-bold"><i class="bi bi-box-arrow-right me-1"></i> ออกก่อนวันนี้</div>
+                <div class="h4 fw-bold text-info mb-0">{{ stat_early_today }}</div>
             </div>
         </div>
     </div>
@@ -62,14 +83,6 @@
             </div>
             <div class="modal-body">
                 <p>{{ texts.pdpa_description }}</p>
-                <div class="bg-light p-3 rounded small mb-3" style="max-height: 200px; overflow-y: auto;">
-                    <strong>{{ texts.pdpa_purpose_title }}</strong>
-                    <ul>
-                        <li>{{ texts.pdpa_purpose_1 }}</li>
-                        <li>{{ texts.pdpa_purpose_2 }}</li>
-                        <li>{{ texts.pdpa_purpose_3 }}</li>
-                    </ul>
-                </div>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="dontShowAgain">
                     <label class="form-check-label small" for="dontShowAgain">
@@ -87,19 +100,16 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // อัปเดตเวลาล่าสุด
         document.getElementById('lastUpdate').innerText = new Date().toLocaleTimeString();
 
-        // --- ส่วนที่ 1: PDPA Logic ---
+        // Check PDPA Status
         const isAccepted = "{{ user.pdpa_accepted }}"; 
         if (isAccepted === "False") {
             var myModal = new bootstrap.Modal(document.getElementById('pdpaModal'));
             myModal.show();
         }
 
-        // --- ส่วนที่ 2: Charts Logic (ข้อมูลจริง) ---
-        
-        // กราฟแท่ง
+        // กราฟแท่ง (Bar Chart) - สถิติรายเดือน
         const ctxBar = document.getElementById('leaveBarChart').getContext('2d');
         new Chart(ctxBar, {
             type: 'bar',
@@ -119,7 +129,7 @@
             }
         });
 
-        // กราฟวงกลม
+        // กราฟวงกลม (Pie Chart) - ประเภทการลา
         const ctxPie = document.getElementById('leavePieChart').getContext('2d');
         new Chart(ctxPie, {
             type: 'doughnut',
@@ -143,7 +153,6 @@
         });
     });
 
-    // ฟังก์ชันยิง API บันทึก PDPA
     function acceptPDPA() {
         const dontShow = document.getElementById('dontShowAgain').checked;
         fetch('/api/accept-pdpa', {
