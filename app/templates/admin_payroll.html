@@ -76,7 +76,7 @@
                                 <td><input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)"></td>
-                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)"></td>
+                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" value="{{ [((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0 }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01"></td>
                                 
