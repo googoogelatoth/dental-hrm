@@ -193,16 +193,24 @@ if not ENCRYPTION_KEY or ENCRYPTION_KEY == 'ใส่รหัสคีย์ข
 
 cipher_suite = Fernet(ENCRYPTION_KEY.encode())
 
-def decrypt_data(encrypted_text: str):
+# บังคับใช้ Key นี้ตัวเดียวเท่านั้น ทั้งรับและส่ง
+STATIC_KEY = "SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs="
+cipher_suite = Fernet(STATIC_KEY.encode())
+
+def encrypt_data(data: str):
+    if not data: return None
+    # ใช้ cipher_suite ที่ประกาศไว้ข้างบน
+    return cipher_suite.encrypt(data.encode()).decode()
+
+def decrypt_data(data: str):
     try:
-        if not encrypted_text:
-            return ""
-        # แปลงข้อความกลับเป็นเลขปกติ
-        return cipher_suite.decrypt(encrypted_text.encode()).decode()
+        if not data: return ""
+        # ถ้าไม่ใช่รหัส gAAAAA ให้คืนค่าเดิม
+        if not data.startswith("gAAAAA"): return data
+        return cipher_suite.decrypt(data.encode()).decode()
     except Exception as e:
-        # ถ้าถอดรหัสไม่ได้ (เช่น คีย์ไม่ตรง) ให้คืนค่าเดิม หรือ "Error"
-        print(f"❌ Decrypt Error: {e}")
-        return encrypted_text
+        print(f"❌ Decrypt Error: {e}") # ดูว่า Error อะไร
+        return data
 
 @app.on_event("startup")
 async def create_first_admin():
