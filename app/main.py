@@ -2427,23 +2427,28 @@ def send_push_notification(employee_id: int, title: str, message: str, db: Sessi
                 db.commit()
 
 def calculate_ot_pay(emp_id: int, month: int, year: int, db: Session):
-    # 1. ดึงฐานเงินเดือนพนักงานมาคำนวณ Rate ต่อชั่วโมง
+    # 1. ดึงข้อมูลพนักงานเพื่อเอาฐานเงินเดือนมาคำนวณ Rate ต่อชั่วโมง
     user = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if not user or not user.base_salary:
         return 0.0
     
-    # สูตร: (เงินเดือน / 30 / 8) * 1.5 (หรือตามนโยบายคลินิกคุณ)
-    hourly_rate = (user.base_salary / 30 / 8) * 1.5
+    # สูตรคำนวณรายชั่วโมง (เงินเดือน / 30 วัน / 8 ชั่วโมง)
+    # หมายเหตุ: ตรงนี้คูณ 1.5 เป็นค่าเฉลี่ย ถ้านายมีหลาย Rate (1.5, 2, 3) 
+    # อาจต้องทำ Logic แยกตามประเภท ot_type ในอนาคตครับ
+    hourly_rate = (user.base_salary / 30 / 8)
     
-    # 2. รวมชั่วโมง OT ที่ได้รับการอนุมัติแล้วในเดือนนั้น
-    total_hours = db.query(func.sum(models.OTRequest.hours)).filter(
+    # 2. รวมนาที OT จากตาราง ot_requests (คอลัมน์ total_minutes ตาม Model ของนาย)
+    total_mins = db.query(func.sum(models.OTRequest.total_minutes)).filter(
         models.OTRequest.employee_id == emp_id,
-        models.OTRequest.status == "approved",
-        extract('month', models.OTRequest.date) == month,
-        extract('year', models.OTRequest.date) == year
+        models.OTRequest.status == "approved",  # ดึงเฉพาะที่ Admin อนุมัติแล้ว
+        extract('month', models.OTRequest.request_date) == month, # ใช้ request_date ตาม Model
+        extract('year', models.OTRequest.request_date) == year
     ).scalar() or 0.0
     
-    return total_hours * hourly_rate
+    # 3. แปลงนาทีเป็นชั่วโมง (หาร 60) แล้วคูณด้วย Rate (สมมติมาตรฐานที่ 1.5 เท่า)
+    ot_pay_total = (total_mins / 60) * hourly_rate * 1.5
+    
+    return round(ot_pay_total, 2)
 
 def count_absent_days(emp_id: int, month: int, year: int, db: Session):
     # 1. หาวันที่ทั้งหมดในเดือนและปีที่ระบุ
