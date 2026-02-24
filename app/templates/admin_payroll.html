@@ -64,20 +64,27 @@
                                     {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
                                 </td>
                                 <td class="text-center small text-nowrap">
-                                    <div class="text-warning">{{ texts.pay_stat_late }}: <strong>{{ emp.late_minutes }}</strong> {{ texts.pay_unit_min }}</div>
-                                    <div class="text-warning">{{ texts.pay_stat_early }}: <strong>{{ emp.early_minutes }}</strong> {{ texts.pay_unit_min }}</div>
-                                    <div class="text-danger">{{ texts.pay_stat_absent }}: <strong>{{ emp.absent_days }}</strong> {{ texts.pay_unit_day }}</div>
+                                    <div class="text-warning">{{ texts.pay_stat_late }}: <strong>{{ emp.late_minutes }}</strong></div>
+                                    <div class="text-warning">{{ texts.pay_stat_early }}: <strong>{{ emp.early_minutes }}</strong></div>
+                                    <div class="text-danger">{{ texts.pay_stat_absent }}: <strong>{{ emp.absent_days }}</strong></div>
                                 </td>
                                 <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
                                     {{ "{:,.2f}".format(emp.approved_ot_pay or 0) }}
                                     <input type="hidden" name="ot_{{ emp.id }}" value="{{ emp.approved_ot_pay or 0 }}">
                                 </td>
+                                
                                 <td><input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
                                 <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)"></td>
                                 <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)" step="0.01"></td>
-                                <td><input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" value="{{ [((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0 }}" oninput="calculateRow(this)" step="0.01"></td>
+                                
+                                <td>
+                                    <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" 
+                                    value="{{ emp.draft_sso if emp.draft_sso is not none else ([((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0) }}" 
+                                    oninput="calculateRow(this)" step="0.01">
+                                </td>
+                                
                                 <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01"></td>
                                 
                                 <td class="text-end fw-bold text-primary">
@@ -103,53 +110,54 @@
     </div>
 </div>
 
-
-
 <script>
 /**
- * ฟังก์ชันคำนวณเงินเดือนสุทธิในแต่ละแถว
+ * ฟังก์ชันคำนวณเงินสุทธิในแต่ละแถว (ปรับปรุงใหม่ให้แม่นยำขึ้น)
  */
 function calculateRow(element) {
     const row = element.closest('tr');
     if (!row) return;
 
-    // ดึงค่าพื้นฐานจาก Attribute data-val
-    const salary = parseFloat(row.querySelector('.salary-cell').getAttribute('data-val')) || 0;
-    const ot = parseFloat(row.querySelector('.ot-cell').getAttribute('data-val')) || 0;
-    
-    // ดึงค่าจาก Input ต่างๆ
-    const extraIncome = parseFloat(row.querySelector('.extra-income-input')?.value) || 0;
-    const lateDeduction = parseFloat(row.querySelector('.late-deduct')?.value) || 0;
-    const earlyDeduction = parseFloat(row.querySelector('.early-deduct')?.value) || 0; 
-    const absentDeduction = parseFloat(row.querySelector('.absent-deduct')?.value) || 0;
-    const extraDeduction = parseFloat(row.querySelector('.extra-deduction-input')?.value) || 0;
-    const sso = parseFloat(row.querySelector('.sso-input')?.value) || 0;
-    const tax = parseFloat(row.querySelector('.tax-input')?.value) || 0;
+    // Helper ดึงค่าจาก Input หรือ Attribute
+    const getVal = (selector, isAttr = false) => {
+        const el = row.querySelector(selector);
+        if (!el) return 0;
+        const val = isAttr ? el.getAttribute('data-val') : el.value;
+        return parseFloat(val) || 0;
+    };
 
-    // สูตร: รายรับ - รายจ่าย
+    const salary = getVal('.salary-cell', true);
+    const ot = getVal('.ot-cell', true);
+    
+    const extraIncome = getVal('.extra-income-input');
+    const lateDeduction = getVal('.late-deduct');
+    const earlyDeduction = getVal('.early-deduct'); 
+    const absentDeduction = getVal('.absent-deduct');
+    const extraDeduction = getVal('.extra-deduction-input');
+    const sso = getVal('.sso-input');
+    const tax = getVal('.tax-input');
+
+    // คำนวณ (รายรับ - รายจ่าย)
     const totalIncome = salary + ot + extraIncome;
     const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + extraDeduction + sso + tax;
     const netSalary = totalIncome - totalDeductions;
     
-    // แสดงผลในหน้าเว็บ
-    const netSalaryCell = row.querySelector('.net-salary-cell');
-    if (netSalaryCell) {
-        netSalaryCell.innerText = netSalary.toLocaleString('en-US', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        });
+    // แสดงผล
+    const netDisplay = row.querySelector('.net-salary-cell');
+    if (netDisplay) {
+        netDisplay.innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     
-    // ใส่ค่าลง Hidden Input เพื่อส่งกลับไปยัง Server
-    const hiddenInput = row.querySelector('.net-hidden-input');
-    if (hiddenInput) {
-        hiddenInput.value = netSalary.toFixed(2);
-    }
+    const netInput = row.querySelector('.net-hidden-input');
+    if (netInput) { netInput.value = netSalary.toFixed(2); }
 }
 
-// สั่งคำนวณทุกแถวทันทีเมื่อโหลดหน้าเว็บเสร็จ
+// คำนวณทันทีที่โหลดหน้าเสร็จ
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.late-deduct').forEach(input => calculateRow(input));
+    document.querySelectorAll('tbody tr').forEach(row => {
+        const firstInput = row.querySelector('input[type="number"]');
+        if (firstInput) calculateRow(firstInput);
+    });
 });
 </script>
 
@@ -158,5 +166,6 @@ document.addEventListener('DOMContentLoaded', function() {
     .net-salary-cell { color: #0d6efd; }
     .table th { font-size: 0.85rem; font-weight: 600; }
     .form-control-sm { font-size: 0.8rem; text-align: right; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 </style>
 {% endblock %}

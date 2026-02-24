@@ -2510,9 +2510,9 @@ async def calculate_payroll_page(
     end_date: str = None,
     db: Session = Depends(get_db)
 ):
-    # 1. จัดการวันที่ Default
+    # 1. จัดการวันที่ Default (ถ้าไม่เลือก ให้เอาเดือนปัจจุบัน)
+    now_th = get_now_th()
     if not start_date or not end_date:
-        now_th = get_now_th()
         start_date = now_th.replace(day=1).strftime('%Y-%m-%d')
         last_day = calendar.monthrange(now_th.year, now_th.month)[1]
         end_date = now_th.replace(day=last_day).strftime('%Y-%m-%d')
@@ -2524,7 +2524,7 @@ async def calculate_payroll_page(
     default_set = {"days": 30, "hours": 8}
     employees = db.query(models.Employee).all()
 
-    # ดึงวันหยุด
+    # ดึงวันหยุดในช่วงที่เลือก
     holidays = db.query(models.Holiday).filter(
         models.Holiday.holiday_date >= s_dt,
         models.Holiday.holiday_date <= e_dt
@@ -2532,12 +2532,12 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
+        # --- [A] คำนวณสถิติจาก Attendance (สาย/ขาด/ลา) ---
         absent_count = 0
         total_late_mins = 0
         total_early_mins = 0
         curr = s_dt
         
-        # --- วนลูปคำนวณสถิติจากตาราง Attendance ---
         while curr <= e_dt:
             day_name = curr.strftime('%a')
             is_holiday = curr in holiday_dates
@@ -2561,20 +2561,21 @@ async def calculate_payroll_page(
                 
                 if not (is_holiday or is_weekly_off or leave):
                     absent_count += 1
-            
             curr += timedelta(days=1)
 
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- คำนวณอัตราเงินเดือนพื้นฐาน ---
+        # --- [B] ดึงยอด OT อัตโนมัติ (จุดที่นายติด) ---
+        # เรียกใช้ฟังก์ชันที่ทำไว้แล้วเพื่อคำนวณ OT ของเดือนนั้นๆ
+        emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt.month, e_dt.year, db)
+
+        # --- [C] ดึงข้อมูลร่าง (Draft) หรือคำนวณใหม่ ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
         
-        # --- 🚩 จุดสำคัญ: ดึงข้อมูลร่าง (Draft) จาก PayrollDetail ---
-        # อิงจากเดือนและปีของวันที่สิ้นสุดงวด
         draft = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == emp.id,
             models.PayrollDetail.month == e_dt.month,
@@ -2582,24 +2583,23 @@ async def calculate_payroll_page(
         ).first()
 
         if draft:
-            # ถ้ามีร่างเดิม ให้ใช้ค่าที่ Admin เคยกรอกบันทึกไว้
+            # ถ้ามีร่างเดิม ให้ใช้ค่าที่เคยบันทึกไว้ (รวมถึง OT ที่อาจถูกแก้ด้วยมือ)
             emp.draft_extra_income = draft.extra_income
-            emp.draft_extra_deduction = draft.extra_deduction # ✅ ค่า 1,250 จะอยู่ตรงนี้
+            emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
-            # สำหรับค่าที่คำนวณอัตโนมัติ จะใช้ค่าจาก Draft มาโชว์ถ้ามีการกดเซฟไปแล้ว
             emp.calculated_late_deduction = draft.late_deduction
             emp.calculated_early_deduction = draft.early_deduction
             emp.calculated_absent_deduction = draft.absence_deduction
             emp.approved_ot_pay = draft.ot_pay
         else:
-            # ถ้ายังไม่มีร่าง ให้ใช้ Logic คำนวณสดใหม่
+            # ถ้ายังไม่มีร่าง ให้ตั้งค่าเริ่มต้น
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
             emp.draft_sso = min(base_salary_val * 0.05, 750)
 
-            # คำนวณเงินหักตามสถิติ Attendance
+            # คำนวณเงินหักตามสถิติ
             late_conf = settings.get('late')
             l_days = late_conf.divider_days if late_conf else default_set["days"]
             l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
