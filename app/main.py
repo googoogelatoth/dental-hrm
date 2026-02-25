@@ -1699,7 +1699,7 @@ async def my_leaves_page(request: Request,user: models.Employee = Depends(get_cu
         "used": used_days
     })
     
-@app.get("/admin/edit-employee/{emp_id}", response_class=HTMLResponse)
+@app.get("/edit-employee/{emp_id}", response_class=HTMLResponse)
 async def edit_employee_page(
     emp_id: int, 
     request: Request,
@@ -1729,7 +1729,7 @@ async def edit_employee_page(
         "decrypted": decrypted_data # 🚩 ส่งค่าที่ถอดแล้วไปใช้ใน value ของ HTML
     })
 
-@app.post("/admin/edit-employee/{emp_id}")
+@app.post("/edit-employee/{emp_id}")
 async def handle_edit_employee(
     request: Request,
     emp_id: int,
