@@ -2558,7 +2558,7 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
-        # --- [A] คำนวณสถิติจาก Attendance (นับใหม่ทุกครั้งที่โหลดหน้านี้) ---
+        # --- [A] คำนวณสถิติจริงจาก Attendance (นับใหม่ทุกครั้งที่เปิดหน้านี้) ---
         absent_count = 0
         total_late_mins = 0
         total_early_mins = 0
@@ -2587,20 +2587,18 @@ async def calculate_payroll_page(
                     absent_count += 1
             curr += timedelta(days=1)
 
-        # 🚩 บันทึกสถิติใหม่ลง Object พนักงานทันที (เพื่อให้หน้าจอโชว์ค่าล่าสุด)
+        # 🚩 บันทึกสถิติที่คำนวณได้ "ล่าสุด" ลงใน Object พนักงานทันที (เพื่อให้สถิติสีส้มอัปเดต)
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- [B] คำนวณอัตราเงินหักและโอที ---
+        # --- [B] คำนวณอัตราเงินหักและโอที (คำนวณใหม่ตามสถิติล่าสุด) ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
         
-        # ดึงยอด OT อัตโนมัติ
         emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt.month, e_dt.year, db)
 
-        # คำนวณเงินหักตามสถิติจริง
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else default_set["days"]
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
@@ -2621,23 +2619,23 @@ async def calculate_payroll_page(
             models.PayrollDetail.year == e_dt.year
         ).first()
 
-        # 🚩 สถิติตัวเลขและยอดเงินหักอัตโนมัติ "ต้อง" ใช้ค่าที่คำนวณใหม่เสมอ
+        # 🚩 บังคับให้หน้าจอ "สถิติ" และ "เงินหักอัตโนมัติ" ใช้ค่าที่คำนวณใหม่เสมอ
         emp.calculated_late_deduction = real_late_deduct
         emp.calculated_early_deduction = real_early_deduct
         emp.calculated_absent_deduction = real_absent_deduct
 
         if draft:
-            # ดึงเฉพาะค่าที่ Admin ต้องกรอก/แก้ไขเองมาจาก Draft
+            # ดึงเฉพาะค่าที่ Admin ต้องกรอก/แก้ไขมือเองมาจาก Draft
             emp.draft_extra_income = draft.extra_income
             emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
             
-            # ถ้ามียอด OT ใน Draft ให้ใช้ค่าใน Draft (เผื่อมีการแก้คนขยันเพิ่มมือ)
+            # ยอด OT ถ้าเคยมีบันทึกใน Draft (เผื่อ Admin ใจดีบวกเพิ่มมือ) ให้ใช้ค่า Draft
             if draft.ot_pay > 0:
                 emp.approved_ot_pay = draft.ot_pay
         else:
-            # กรณีไม่มีร่าง ให้ตั้งค่าเริ่มต้น
+            # กรณีไม่มีร่าง ให้ใช้ค่าคำนวณสดและค่า Default
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
