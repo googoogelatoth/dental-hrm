@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3><i class="bi bi-calculator text-primary me-2"></i> {{ texts.pay_title }}</h3>
         <span class="badge bg-info text-dark">{{ texts.pay_subtitle }} (ICT Timezone)</span>
@@ -12,7 +12,7 @@
             <div class="card mb-4 border-primary bg-light bg-opacity-10">
                 <div class="card-body">
                     <form method="GET" action="/admin/calculate-payroll" class="row g-3 align-items-end" id="filterForm">
-                        <div class="col-md-6">
+                        <div class="col-md-5">
                             <label class="form-label fw-bold">{{ texts.pay_select_range }}</label>
                             <div class="input-group shadow-sm">
                                 <span class="input-group-text bg-white">{{ texts.pay_start }}</span>
@@ -23,7 +23,7 @@
                         </div>
                         <div class="col-md-3">
                             <button type="submit" class="btn btn-primary w-100 shadow-sm">
-                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่ตามวันที่เลือก
+                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่ตามรอบวันที่เลือก
                             </button>
                         </div>
                         <div class="col-md-3">
@@ -44,16 +44,16 @@
                     <table class="table table-hover align-middle border">
                         <thead class="table-dark text-nowrap">
                             <tr>
-                                <th style="width: 50px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
-                                <th style="min-width: 250px;">{{ texts.pay_col_name }} / ช่วงวันคำนวณ</th>
-                                <th class="text-end">{{ texts.pay_col_base }} (เฉลี่ย)</th>
-                                <th class="text-center">วันที่มีสิทธิได้เงิน</th>
+                                <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                                <th style="min-width: 220px;">{{ texts.pay_col_name }} / ช่วงวัน</th>
+                                <th class="text-end">{{ texts.pay_col_base }}</th>
+                                <th class="text-center">สถิติ (วัน/สาย)</th>
                                 <th class="text-end">เงินเดือนตามจริง</th>
                                 <th class="text-end">OT</th>
-                                <th>{{ texts.pay_col_late }}</th>
-                                <th>{{ texts.pay_col_extra_inc }}</th>
-                                <th>{{ texts.pay_col_extra_ded }}</th>
-                                <th>{{ texts.pay_col_sso }}</th>
+                                <th style="min-width: 120px;">หักสาย/ออกก่อน</th>
+                                <th style="min-width: 100px;">หักขาดงาน</th>
+                                <th style="min-width: 100px;">เงินเพิ่ม/ลดพิเศษ</th>
+                                <th style="min-width: 120px;">SSO / Tax</th>
                                 <th class="text-end">{{ texts.pay_col_net }}</th>
                             </tr>
                         </thead>
@@ -66,7 +66,7 @@
                                 <td>
                                     <div class="fw-bold">{{ emp.first_name }} {{ emp.last_name }}</div>
                                     <div class="d-flex flex-column gap-1 mt-1">
-                                        <div class="input-group input-group-sm" style="max-width: 220px;">
+                                        <div class="input-group input-group-sm">
                                             <input type="date" name="start_{{ emp.id }}" class="form-control ind-date" value="{{ emp.calc_start_date }}">
                                             <input type="date" name="end_{{ emp.id }}" class="form-control ind-date" value="{{ emp.calc_end_date }}">
                                         </div>
@@ -76,9 +76,9 @@
                                 <td class="text-end text-muted small">
                                     {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
                                 </td>
-                                <td class="text-center">
-                                    <span class="badge bg-secondary fs-6">{{ emp.paid_days }} วัน</span>
-                                    <div class="small text-warning mt-1">สาย: {{ emp.late_minutes }} น.</div>
+                                <td class="text-center small">
+                                    <span class="badge bg-secondary mb-1">{{ emp.paid_days }} วัน</span><br>
+                                    <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span>
                                 </td>
                                 <td class="text-end salary-cell fw-bold text-success" data-val="{{ emp.display_income }}">
                                     {{ "{:,.2f}".format(emp.display_income) }}
@@ -90,18 +90,41 @@
                                 </td>
                                 
                                 <td>
-                                    <div class="small text-danger">หักสาย: {{ "{:,.2f}".format(emp.calculated_late_deduction) }}</div>
-                                    <input type="hidden" name="late_deduct_{{ emp.id }}" class="late-deduct" value="{{ emp.calculated_late_deduction }}">
-                                    <input type="hidden" name="absent_deduct_{{ emp.id }}" class="absent-deduct" value="0">
+                                    <div class="mb-1">
+                                        <label class="x-small text-muted">สาย:</label>
+                                        <input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct text-end" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01">
+                                    </div>
+                                    <div>
+                                        <label class="x-small text-muted">ออกก่อน:</label>
+                                        <input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct text-end" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01">
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <label class="x-small text-muted">ขาดงาน:</label>
+                                    <input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct text-end" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01">
                                 </td>
                                 
-                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input text-end" oninput="calculateRow(this)"></td>
-                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input text-end" oninput="calculateRow(this)" step="0.01"></td>
+                                <td>
+                                    <div class="mb-1">
+                                        <label class="x-small text-muted">เพิ่ม:</label>
+                                        <input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input text-end" oninput="calculateRow(this)">
+                                    </div>
+                                    <div>
+                                        <label class="x-small text-muted">ลด:</label>
+                                        <input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input text-end" oninput="calculateRow(this)" step="0.01">
+                                    </div>
+                                </td>
                                 
                                 <td>
-                                    <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input text-end" 
-                                    value="{{ emp.draft_sso }}" oninput="calculateRow(this)" step="0.01">
-                                    <div class="text-muted" style="font-size: 0.7rem;">Tax: <input type="number" name="tax_{{ emp.id }}" class="tax-input border-0 bg-transparent text-end" style="width: 50px;" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)"></div>
+                                    <div class="mb-1">
+                                        <label class="x-small text-muted">SSO:</label>
+                                        <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input text-end" value="{{ emp.draft_sso }}" oninput="calculateRow(this)" step="0.01">
+                                    </div>
+                                    <div>
+                                        <label class="x-small text-muted">TAX:</label>
+                                        <input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input text-end" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01">
+                                    </div>
                                 </td>
                                 
                                 <td class="text-end fw-bold text-primary">
@@ -116,13 +139,13 @@
 
                 <div class="d-flex justify-content-between align-items-center mt-4 mb-5">
                     <div class="text-muted small">
-                        * <span class="badge bg-warning text-dark">แถบสีเหลือง</span> หมายถึงพนักงานที่มีการระบุช่วงวันที่แตกต่างจากค่าปกติของเดือน
+                        <i class="bi bi-info-circle me-1"></i> แถบสีเหลือง = คำนวณวันที่ต่างจากรอบปกติของเดือน
                     </div>
                     <div class="d-flex gap-3">
                         <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg px-4">
                             <i class="bi bi-save me-1"></i> บันทึกร่าง (Draft)
                         </button>
-                        <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
+                        <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('ยืนยันยอดเงินเดือนทั้งหมด? พนักงานจะสามารถดูสลิปได้ทันที')">
                             <i class="bi bi-check-all me-1"></i> ยืนยันจ่ายเงินเดือน
                         </button>
                     </div>
@@ -133,12 +156,12 @@
 </div>
 
 <script>
-// จัดการเลือกทั้งหมด
+// เลือกทั้งหมด
 document.getElementById('selectAll').addEventListener('change', function() {
     document.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = this.checked);
 });
 
-// เมื่อมีการเปลี่ยนวันที่รายคน ให้ทำการ Submit ฟอร์มกรองใหม่เพื่อ Re-calculate
+// เปลี่ยนวันที่รายคนแล้วโหลดใหม่
 document.querySelectorAll('.ind-date').forEach(input => {
     input.addEventListener('change', function() {
         const row = this.closest('tr');
@@ -146,7 +169,6 @@ document.querySelectorAll('.ind-date').forEach(input => {
         const start = row.querySelector('input[name^="start_"]').value;
         const end = row.querySelector('input[name^="end_"]').value;
         
-        // สร้าง URL ใหม่ที่มี Parameter เฉพาะของคนนี้
         let url = new URL(window.location.href);
         url.searchParams.set(`start_${empId}`, start);
         url.searchParams.set(`end_${empId}`, end);
@@ -161,50 +183,35 @@ function calculateRow(element) {
     const getVal = (selector, isAttr = false) => {
         const el = row.querySelector(selector);
         if (!el) return 0;
-        const val = isAttr ? el.getAttribute('data-val') : el.value;
-        return parseFloat(val) || 0;
+        return parseFloat(isAttr ? el.getAttribute('data-val') : el.value) || 0;
     };
 
-    const salary = getVal('.salary-cell', true); // ยอด Prorata 3,750
-    const ot = getVal('.ot-cell', true);
-    const extraIncome = getVal('.extra-income-input');
-    
-    const lateDeduction = getVal('.late-deduct', false); // ค่าซ่อน
-    const absentDeduction = getVal('.absent-deduct', false); // ปกติเป็น 0
-    const extraDeduction = getVal('.extra-deduction-input');
-    const sso = getVal('.sso-input');
-    const tax = getVal('.tax-input');
+    const income = getVal('.salary-cell', true) + getVal('.ot-cell', true) + getVal('.extra-income-input');
+    const deduct = getVal('.late-deduct') + getVal('.early-deduct') + getVal('.absent-deduct') + 
+                   getVal('.extra-deduction-input') + getVal('.sso-input') + getVal('.tax-input');
 
-    const totalIncome = salary + ot + extraIncome;
-    const totalDeductions = lateDeduction + absentDeduction + extraDeduction + sso + tax;
-    const netSalary = totalIncome - totalDeductions;
+    const netSalary = income - deduct;
     
-    const netDisplay = row.querySelector('.net-salary-cell');
-    if (netDisplay) {
-        netDisplay.innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-    
-    const netInput = row.querySelector('.net-hidden-input');
-    if (netInput) { netInput.value = netSalary.toFixed(2); }
+    row.querySelector('.net-salary-cell').innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 });
+    row.querySelector('.net-hidden-input').value = netSalary.toFixed(2);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('tbody tr').forEach(row => {
-        const firstInput = row.querySelector('.sso-input');
-        if (firstInput) calculateRow(firstInput);
+        const trigger = row.querySelector('.sso-input');
+        if (trigger) calculateRow(trigger);
     });
 });
 </script>
 
 <style>
-    .salary-cell { background-color: #f0fff4; } /* สีเขียวอ่อนเน้นยอดรายได้จริง */
-    .ot-cell { background-color: #f8f9fa; }
+    .salary-cell { background-color: #f0fff4; }
     .net-salary-cell { color: #0d6efd; font-weight: 800; }
-    .table th { font-size: 0.8rem; text-transform: uppercase; }
-    .form-control-sm { font-size: 0.85rem; }
-    input[type=number]::-webkit-inner-spin-button, 
-    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-    .ind-date { border: 1px solid #dee2e6; font-size: 0.75rem; }
-    tr.table-warning { border-left: 5px solid #ffc107; }
+    .table th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-control-sm { font-size: 0.8rem; height: 30px; }
+    .x-small { font-size: 0.65rem; display: block; margin-bottom: 1px; font-weight: bold; }
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .ind-date { border: 1px solid #dee2e6; font-size: 0.7rem; padding: 2px 5px; }
+    tr.table-warning { border-left: 4px solid #ffc107; }
 </style>
 {% endblock %}

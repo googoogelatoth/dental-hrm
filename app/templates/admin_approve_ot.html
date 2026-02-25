@@ -21,7 +21,7 @@
                     <tbody>
                         {% for ot in pending_ot %}
                         <tr>
-                            <td><strong>{{ texts.emp_id }}: {{ ot.employee_id }}</strong></td>
+                            <td><div class="fw-bold">{{ ot.employee.first_name }} {{ ot.employee.last_name }}</div><div class="text-muted small"><i class="bi bi-person-badge me-1"></i>{{ texts.emp_id }}: {{ ot.employee.employee_code }}</div></td>
                             <td>{{ ot.request_date.strftime('%d/%m/%Y') }}</td>
                             <td>{{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</td>
                             <td>{{ ot.total_minutes }} {{ texts.minute_unit }}</td>

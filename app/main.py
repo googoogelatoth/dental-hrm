@@ -2582,15 +2582,33 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
-        # 🚩 [NEW] รับค่าวันที่คำนวณรายคนจาก Query Params (ถ้าหน้าบ้านส่งมา)
-        # เช่น ?start_2503=2024-12-01&end_2503=2024-12-09
-        ind_start = request.query_params.get(f'start_{emp.id}')
-        ind_end = request.query_params.get(f'end_{emp.id}')
-        
-        s_dt = datetime.strptime(ind_start, '%Y-%m-%d').date() if ind_start else s_dt_global
-        e_dt = datetime.strptime(ind_end, '%Y-%m-%d').date() if ind_end else e_dt_global
+        # --- 🚩 [แก้ไขส่วนการเลือกวันที่] ---
+        # 1. เช็คข้อมูล Draft ใน DB ก่อน
+        draft = db.query(models.PayrollDetail).filter(
+            models.PayrollDetail.employee_id == emp.id,
+            models.PayrollDetail.month == e_dt_global.month,
+            models.PayrollDetail.year == e_dt_global.year
+        ).first()
 
-        # --- [A] คำนวณสถิติรายบุคคล ---
+        # 2. รับค่าจาก Query Params (ลำดับความสำคัญสูงสุด)
+        ind_start_query = request.query_params.get(f'start_{emp.id}')
+        ind_end_query = request.query_params.get(f'end_{emp.id}')
+        
+        # 3. ตัดสินใจเลือกวันที่ที่จะใช้
+        if ind_start_query and ind_end_query:
+            # ใช้จาก URL (เมื่อมีการเลือกใหม่หน้าเว็บ)
+            s_dt = datetime.strptime(ind_start_query, '%Y-%m-%d').date()
+            e_dt = datetime.strptime(ind_end_query, '%Y-%m-%d').date()
+        elif draft and draft.calc_start_date and draft.calc_end_date:
+            # 🚩 ใช้จากที่เคยบันทึกไว้ในฐานข้อมูล (ระบบจะจำค่าได้)
+            s_dt = draft.calc_start_date
+            e_dt = draft.calc_end_date
+        else:
+            # ใช้ค่ามาตรฐานของเดือน
+            s_dt = s_dt_global
+            e_dt = e_dt_global
+
+        # --- [A] คำนวณสถิติรายบุคคล (ใช้ s_dt และ e_dt ที่เลือกมาแล้ว) ---
         paid_days = 0 
         total_late_mins = 0
         total_early_mins = 0
@@ -2600,16 +2618,13 @@ async def calculate_payroll_page(
             day_name = curr.strftime('%a')
             is_holiday = curr in holiday_dates
             
-            # เช็คบันทึกเวลา
             att = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
                 models.Attendance.date == curr
             ).first()
             
-            # เช็ควันหยุดประจำสัปดาห์
             is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
             
-            # เช็คการลาที่อนุมัติ
             leave = db.query(models.LeaveRequest).filter(
                 models.LeaveRequest.employee_id == emp.id,
                 models.LeaveRequest.status == "Approved",
@@ -2617,7 +2632,6 @@ async def calculate_payroll_page(
                 models.LeaveRequest.end_date >= curr
             ).first()
 
-            # ตรรกะ Paid Day: ถ้ามาทำงาน หรือเป็นวันหยุด/วันลาที่ได้เงิน ให้นับเป็นวันที่มีสิทธิได้ค่าจ้าง
             if att or is_holiday or is_weekly_off or leave:
                 paid_days += 1
                 if att:
@@ -2626,7 +2640,6 @@ async def calculate_payroll_page(
             
             curr += timedelta(days=1)
 
-        # 🚩 [NEW] เก็บค่าช่วงวันที่ใช้คำนวณจริงลง Object เพื่อไปโชว์ใน HTML
         emp.calc_start_date = s_dt
         emp.calc_end_date = e_dt
         emp.paid_days = paid_days
@@ -2638,16 +2651,13 @@ async def calculate_payroll_page(
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
         
-        # คำนวณรายวันตามกฎหมาย (หาร 30 เสมอ)
         daily_rate = base_calc / 30
-        
-        # รายได้รวมตามวันที่ทำงานจริง (Prorata)
         real_income_total = round(daily_rate * paid_days, 2)
 
-        # คำนวณ OT
+        # คำนวณ OT (ใช้เดือน/ปี ตามงวด)
         emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt_global.month, e_dt_global.year, db)
 
-        # คำนวณเงินหัก สาย/ออกก่อน (รายนาที)
+        # คำนวณเงินหัก สาย/ออกก่อน
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else 30
         l_hours = late_conf.divider_hours if late_conf else 8
@@ -2655,29 +2665,23 @@ async def calculate_payroll_page(
         
         emp.calculated_late_deduction = round(rate_min * total_late_mins, 2)
         emp.calculated_early_deduction = round(rate_min * total_early_mins, 2)
-
-        # 🚩 [NEW] กรณีคำนวณรายวันแบบ Prorata เราจะไม่โชว์ยอด "หักขาดงาน" 
-        # เพราะเราเอาเงินเดือนหาร 30 แล้วคูณวันที่ทำจริง (paid_days) ไปแล้ว
         emp.calculated_absent_deduction = 0 
-        emp.display_income = real_income_total # ค่าที่จะโชว์ในช่องเงินเดือน/รายได้
+        emp.display_income = real_income_total 
 
-        # --- [C] จัดการข้อมูลร่าง (Draft) ---
-        draft = db.query(models.PayrollDetail).filter(
-            models.PayrollDetail.employee_id == emp.id,
-            models.PayrollDetail.month == e_dt_global.month,
-            models.PayrollDetail.year == e_dt_global.year
-        ).first()
-
+        # --- [C] จัดการข้อมูลร่าง (Draft) ดึงค่าเงินที่เคยกรอกไว้ ---
         if draft:
             emp.draft_extra_income = draft.extra_income
             emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
+            # ถ้าใน DB มีค่าหักสาย/ขาดงานที่เคยแก้ด้วยมือ ก็ดึงมาโชว์ (Optional)
+            emp.calculated_late_deduction = draft.late_deduction
+            emp.calculated_early_deduction = draft.early_deduction
+            emp.calculated_absent_deduction = draft.absence_deduction
         else:
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
-            # SSO 5% จากฐานเงินเดือนจริง (ปรับตามนโยบายได้)
             emp.draft_sso = min(base_salary_val * 0.05, 750)
 
     return templates.TemplateResponse("admin_payroll.html", {
@@ -2693,82 +2697,81 @@ def get_payroll_settings(db: Session):
     settings = db.query(models.PayrollSetting).all()
     return {s.type_name: s for s in settings}
 
-@app.post("/admin/calculate-payroll")
+@app.post("/admin/process-payroll")
 async def process_payroll(
-    request: Request, # 🚩 เพิ่มเพื่อใช้ดึง IP ใน Log
-    emp_id: int = Form(...),
-    month: int = Form(...),
-    year: int = Form(...),
-    sso_custom: float = Form(None), 
-    tax_custom: float = Form(None), 
+    request: Request,
+    action: str = Form(...),
+    start_date: str = Form(...), # วันที่ Global
+    end_date: str = Form(...),   # วันที่ Global
     db: Session = Depends(get_db),
-    current_user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มคนทำรายการ
+    current_user: models.Employee = Depends(get_current_active_user)
 ):
-    # --- 1. ตรวจสอบสิทธิ์ Admin ---
     if current_user.role != "Admin":
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # 2. ค้นหาพนักงาน
-    user = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-    if not user:
-        return {"error": "Employee not found"}
+    form_data = await request.form()
+    # 🚩 ดึง ID พนักงานทุกคนที่ถูกติ๊กเลือกจาก Checkbox (name="emp_ids")
+    emp_ids = form_data.getlist("emp_ids") 
 
-    # ดึงค่าฐานเงินเดือนและค่าตำแหน่ง
-    salary = user.base_salary if hasattr(user, 'base_salary') else 0.0
-    position_allowance = user.position_allowance if hasattr(user, 'position_allowance') else 0.0
+    dt_end_global = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+    for eid in emp_ids:
+        # 1. ดึงวันที่รายคนจากฟอร์ม (ถ้าคนไหนไม่ได้แก้ จะใช้ค่า Global)
+        ind_start = form_data.get(f"start_{eid}") or start_date
+        ind_end = form_data.get(f"end_{eid}") or end_date
+        
+        dt_start = datetime.strptime(ind_start, '%Y-%m-%d').date()
+        dt_end = datetime.strptime(ind_end, '%Y-%m-%d').date()
+
+        user = db.query(models.Employee).filter(models.Employee.id == int(eid)).first()
+        if not user: continue
+
+        # ฟังก์ชันช่วยแปลงค่าตัวเลข ป้องกัน Comma ทำงานพัง
+        def parse_to_float(field_name):
+            val = form_data.get(field_name, "0")
+            return float(str(val).replace(',', '')) if val else 0.0
+
+        # 2. ล้าง Draft เก่าของคนนี้ในงวดนี้ทิ้งก่อนบันทึกใหม่
+        db.query(models.PayrollDetail).filter(
+            models.PayrollDetail.employee_id == user.id,
+            models.PayrollDetail.month == dt_end_global.month,
+            models.PayrollDetail.year == dt_end_global.year
+        ).delete()
+
+        # 3. สร้าง Record ใหม่ (เก็บทั้งเงินและ "วันที่" ที่ใช้คำนวณ)
+        new_payroll = models.PayrollDetail(
+            employee_id=user.id,
+            month=dt_end_global.month,
+            year=dt_end_global.year,
+            calc_start_date=dt_start, # 🚩 บันทึกวันที่เริ่ม
+            calc_end_date=dt_end,     # 🚩 บันทึกวันที่จบ
+            salary=user.base_salary,
+            position_allowance=user.position_allowance,
+            ot_pay=parse_to_float(f"ot_{eid}"),
+            sso=parse_to_float(f"sso_{eid}"),
+            tax=parse_to_float(f"tax_{eid}"),
+            late_deduction=parse_to_float(f"late_deduct_{eid}"),
+            early_deduction=parse_to_float(f"early_deduct_{eid}"),
+            absence_deduction=parse_to_float(f"absent_deduct_{eid}"),
+            extra_income=parse_to_float(f"extra_income_{eid}"),
+            extra_deduction=parse_to_float(f"extra_deduction_{eid}"),
+            net_total=parse_to_float(f"net_{eid}"),
+            status="Draft" if action == "save_draft" else "Finalized"
+        )
+        db.add(new_payroll)
+
+        # บันทึก Log รายคน
+        log_activity(
+            db, current_user, "บันทึกเงินเดือน", 
+            f"คำนวณงวด {dt_end_global.month}/{dt_end_global.year} ของ {user.first_name} (ช่วง {ind_start} ถึง {ind_end})", 
+            request
+        )
+
+    db.commit()
     
-    # 3. คำนวณ OT และรายได้รวม
-    ot = calculate_ot_pay(emp_id, month, year, db) 
-    total_earnings = salary + position_allowance + ot
-
-    # 4. จัดการค่า SSO และ Tax (กรณีมีการกรอกทับ)
-    final_sso = sso_custom if sso_custom is not None else min(salary * 0.05, 750)
-    final_tax = tax_custom if tax_custom is not None else 0.0
-    
-    # หักเงินขาดงาน
-    other_deductions = calculate_absence_deduction(emp_id, month, year, db)
-
-    # 5. คำนวณยอดสุทธิ
-    net_salary = total_earnings - (final_sso + final_tax + other_deductions)
-
-    # 6. บันทึกลงฐานข้อมูล PayrollDetail
-    new_payroll = models.PayrollDetail(
-        employee_id=emp_id,
-        month=month,
-        year=year,
-        salary=salary,
-        position_allowance=position_allowance,
-        ot_pay=ot,
-        sso=final_sso,
-        tax=final_tax,
-        absence_deduction=other_deductions,
-        net_total=net_salary
-    )
-    
-    db.add(new_payroll)
-
-    # --- 🚩 บันทึก Log: การคำนวณเงินเดือน ---
-    custom_tag = ""
-    if sso_custom is not None or tax_custom is not None:
-        custom_tag = " (มีการปรับแก้ SSO/Tax ด้วยตนเอง)"
-    
-    log_msg = (
-        f"คำนวณเงินเดือนพนักงาน: {user.first_name} {user.last_name} (ID: {emp_id}) "
-        f"ประจำงวด {month}/{year} | ยอดสุทธิ: {net_salary:,.2f} บาท{custom_tag}"
-    )
-    
-    log_activity(
-        db, 
-        current_user, 
-        "คำนวณเงินเดือน", 
-        log_msg, 
-        request
-    )
-
-    db.commit() # บันทึกข้อมูลทั้งหมดและ Log พร้อมกัน
-
-    # 7. Redirect กลับไปหน้ารายงาน
-    return RedirectResponse(url=f"/admin/payroll-summary?month={month}&year={year}", status_code=303)
+    # 4. Redirect กลับหน้าเดิมพร้อมรักษาช่วงวันที่ Global ไว้
+    msg = "draft_saved" if action == "save_draft" else "finalized"
+    return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg={msg}", status_code=303)
 
 @app.post("/admin/save-payroll-settings")
 async def save_payroll_settings(

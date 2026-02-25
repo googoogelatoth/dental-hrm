@@ -196,6 +196,8 @@ class PayrollDetail(Base):
     net_salary = Column(Float) # เงินเดือนสุทธิ
     net_total = Column(Float)
     ot_pay = Column(Float, default=0.0)
+    calc_start_date = Column(Date, nullable=True) # 🚩 เพิ่มเพื่อเก็บวันที่เริ่มคำนวณรายคน
+    calc_end_date = Column(Date, nullable=True)   # 🚩 เพิ่มเพื่อเก็บวันที่จบคำนวณรายคน
     
     employee = relationship("Employee", back_populates="payroll_details")
     
