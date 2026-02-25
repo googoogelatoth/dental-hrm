@@ -2535,10 +2535,11 @@ async def calculate_payroll_page(
     texts: dict = Depends(get_lang),
     start_date: str = None,
     end_date: str = None,
-    reset: bool = Query(False), # 🚩 เพิ่มตัวรับค่าจากปุ่มรีเซ็ต
+    # 🚩 จุดสำคัญ: ต้องเป็น reset: str เพื่อรับค่า "true" จาก URL
+    reset: str = Query(None), 
     db: Session = Depends(get_db)
 ):
-    # 1. จัดการวันที่ Default (ถ้าไม่เลือก ให้เอาเดือนปัจจุบัน)
+    # 1. จัดการวันที่ Default
     now_th = get_now_th()
     if not start_date or not end_date:
         start_date = now_th.replace(day=1).strftime('%Y-%m-%d')
@@ -2548,20 +2549,23 @@ async def calculate_payroll_page(
     s_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
     e_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
 
-    # 🚩 2. ระบบ Reset Draft: ถ้ากดปุ่มรีเซ็ต จะล้างข้อมูลร่างเก่าของเดือนนี้ทิ้งเพื่อให้คำนวณใหม่หมด
-    if reset:
+    # 🚩 2. ระบบ Reset Draft: ถ้ากดปุ่มรีเซ็ต จะล้างข้อมูลร่างเก่าของเดือนนี้ทิ้ง
+    # เปลี่ยนจาก reset เป็น reset == "true" เพื่อให้ตรงกับค่าจากปุ่ม HTML
+    if reset == "true":
         db.query(models.PayrollDetail).filter(
             models.PayrollDetail.month == e_dt.month,
             models.PayrollDetail.year == e_dt.year,
             models.PayrollDetail.status == "Draft"
         ).delete()
         db.commit()
+        # หลังลบเสร็จ สั่งให้หน้าเว็บโหลดใหม่แบบไม่มีคำสั่ง reset เพื่อเริ่มคำนวณสดๆ
+        return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}", status_code=303)
 
     settings = get_payroll_settings(db)
     default_set = {"days": 30, "hours": 8}
     employees = db.query(models.Employee).all()
 
-    # ดึงวันหยุดในช่วงที่เลือก
+    # ดึงวันหยุด
     holidays = db.query(models.Holiday).filter(
         models.Holiday.holiday_date >= s_dt,
         models.Holiday.holiday_date <= e_dt
@@ -2598,20 +2602,17 @@ async def calculate_payroll_page(
                     absent_count += 1
             curr += timedelta(days=1)
 
-        # 🚩 บันทึกสถิติใหม่ลง Object พนักงานทันที (แก้ปัญหาเลข 544 ค้างหน้าจอ)
+        # 🚩 บันทึกสถิติล่าสุดลง Object (แก้ปัญหาเลขค้าง)
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- [B] คำนวณอัตราเงินหักและโอที (คำนวณตามสถิติใหม่เสมอ) ---
+        # --- [B] คำนวณอัตราเงินหักและโอที ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
-        
-        # ดึงยอด OT อัตโนมัติ (ผ่านฟังก์ชัน calculate_ot_pay ที่แก้คอลัมน์แล้ว)
         emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt.month, e_dt.year, db)
 
-        # คำนวณเงินหักตามสถิติจริง
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else default_set["days"]
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
@@ -2632,34 +2633,26 @@ async def calculate_payroll_page(
             models.PayrollDetail.year == e_dt.year
         ).first()
 
-        # 🚩 บังคับให้หน้าจอ "เงินหักอัตโนมัติ" ใช้ค่าที่คำนวณใหม่เสมอตามสถิติ Attendance
+        # 🚩 บังคับให้ใช้ค่าที่คำนวณใหม่เสมอ (ล้างค่าค้างจาก DB)
         emp.calculated_late_deduction = real_late_deduct
         emp.calculated_early_deduction = real_early_deduct
         emp.calculated_absent_deduction = real_absent_deduct
 
         if draft:
-            # ดึงเฉพาะค่าที่ Admin ต้องแก้ด้วยมือมาจาก Draft (เงินเพิ่ม/หักพิเศษ/ภาษี)
             emp.draft_extra_income = draft.extra_income
             emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
-            
-            # ถ้ามียอด OT ใน Draft ให้ใช้ค่าใน Draft (เผื่อ Admin แก้ไขมือ)
             if draft.ot_pay > 0:
                 emp.approved_ot_pay = draft.ot_pay
         else:
-            # กรณีไม่มีร่าง ให้ตั้งค่าเริ่มต้น
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
             emp.draft_sso = min(base_salary_val * 0.05, 750)
 
     return templates.TemplateResponse("admin_payroll.html", {
-        "request": request,
-        "employees": employees,
-        "start_date": start_date,
-        "end_date": end_date,
-        "texts": texts
+        "request": request, "employees": employees, "start_date": start_date, "end_date": end_date, "texts": texts
     })
     
 def get_payroll_settings(db: Session):
