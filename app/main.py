@@ -2535,9 +2535,10 @@ async def calculate_payroll_page(
     texts: dict = Depends(get_lang),
     start_date: str = None,
     end_date: str = None,
+    reset: bool = Query(False), # 🚩 เพิ่มตัวรับค่าจากปุ่มรีเซ็ต
     db: Session = Depends(get_db)
 ):
-    # 1. จัดการวันที่ Default
+    # 1. จัดการวันที่ Default (ถ้าไม่เลือก ให้เอาเดือนปัจจุบัน)
     now_th = get_now_th()
     if not start_date or not end_date:
         start_date = now_th.replace(day=1).strftime('%Y-%m-%d')
@@ -2547,10 +2548,20 @@ async def calculate_payroll_page(
     s_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
     e_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
 
+    # 🚩 2. ระบบ Reset Draft: ถ้ากดปุ่มรีเซ็ต จะล้างข้อมูลร่างเก่าของเดือนนี้ทิ้งเพื่อให้คำนวณใหม่หมด
+    if reset:
+        db.query(models.PayrollDetail).filter(
+            models.PayrollDetail.month == e_dt.month,
+            models.PayrollDetail.year == e_dt.year,
+            models.PayrollDetail.status == "Draft"
+        ).delete()
+        db.commit()
+
     settings = get_payroll_settings(db)
     default_set = {"days": 30, "hours": 8}
     employees = db.query(models.Employee).all()
 
+    # ดึงวันหยุดในช่วงที่เลือก
     holidays = db.query(models.Holiday).filter(
         models.Holiday.holiday_date >= s_dt,
         models.Holiday.holiday_date <= e_dt
@@ -2558,7 +2569,7 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
-        # --- [A] คำนวณสถิติจริงจาก Attendance (นับใหม่ทุกครั้งที่เปิดหน้านี้) ---
+        # --- [A] คำนวณสถิติจริงจาก Attendance (นับใหม่ทุกครั้งที่โหลดหน้านี้) ---
         absent_count = 0
         total_late_mins = 0
         total_early_mins = 0
@@ -2587,18 +2598,20 @@ async def calculate_payroll_page(
                     absent_count += 1
             curr += timedelta(days=1)
 
-        # 🚩 บันทึกสถิติที่คำนวณได้ "ล่าสุด" ลงใน Object พนักงานทันที (เพื่อให้สถิติสีส้มอัปเดต)
+        # 🚩 บันทึกสถิติใหม่ลง Object พนักงานทันที (แก้ปัญหาเลข 544 ค้างหน้าจอ)
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- [B] คำนวณอัตราเงินหักและโอที (คำนวณใหม่ตามสถิติล่าสุด) ---
+        # --- [B] คำนวณอัตราเงินหักและโอที (คำนวณตามสถิติใหม่เสมอ) ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
         
+        # ดึงยอด OT อัตโนมัติ (ผ่านฟังก์ชัน calculate_ot_pay ที่แก้คอลัมน์แล้ว)
         emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt.month, e_dt.year, db)
 
+        # คำนวณเงินหักตามสถิติจริง
         late_conf = settings.get('late')
         l_days = late_conf.divider_days if late_conf else default_set["days"]
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
@@ -2619,23 +2632,23 @@ async def calculate_payroll_page(
             models.PayrollDetail.year == e_dt.year
         ).first()
 
-        # 🚩 บังคับให้หน้าจอ "สถิติ" และ "เงินหักอัตโนมัติ" ใช้ค่าที่คำนวณใหม่เสมอ
+        # 🚩 บังคับให้หน้าจอ "เงินหักอัตโนมัติ" ใช้ค่าที่คำนวณใหม่เสมอตามสถิติ Attendance
         emp.calculated_late_deduction = real_late_deduct
         emp.calculated_early_deduction = real_early_deduct
         emp.calculated_absent_deduction = real_absent_deduct
 
         if draft:
-            # ดึงเฉพาะค่าที่ Admin ต้องกรอก/แก้ไขมือเองมาจาก Draft
+            # ดึงเฉพาะค่าที่ Admin ต้องแก้ด้วยมือมาจาก Draft (เงินเพิ่ม/หักพิเศษ/ภาษี)
             emp.draft_extra_income = draft.extra_income
             emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
             
-            # ยอด OT ถ้าเคยมีบันทึกใน Draft (เผื่อ Admin ใจดีบวกเพิ่มมือ) ให้ใช้ค่า Draft
+            # ถ้ามียอด OT ใน Draft ให้ใช้ค่าใน Draft (เผื่อ Admin แก้ไขมือ)
             if draft.ot_pay > 0:
                 emp.approved_ot_pay = draft.ot_pay
         else:
-            # กรณีไม่มีร่าง ให้ใช้ค่าคำนวณสดและค่า Default
+            # กรณีไม่มีร่าง ให้ตั้งค่าเริ่มต้น
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
