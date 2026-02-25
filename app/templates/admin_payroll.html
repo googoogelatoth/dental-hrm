@@ -26,6 +26,12 @@
                                 <i class="bi bi-search me-1"></i> {{ texts.pay_btn_fetch }}
                             </button>
                         </div>
+                        <div class="col-md-2">
+                            <button type="submit" name="reset" value="true" class="btn btn-outline-danger w-100 shadow-sm" 
+                                onclick="return confirm('ยืนยันการรีเซ็ตสถิติใหม่? ระบบจะล้างข้อมูลที่คุณเคยบันทึกร่างไว้ และนับนาที สาย/ขาด/ออกก่อน ใหม่ทั้งหมดตามจริง')">
+                                <i class="bi bi-arrow-clockwise me-1"></i> รีเซ็ตข้อมูลใหม่
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -56,7 +62,7 @@
                             {% for emp in employees %}
                             <tr>
                                 <td>
-                                    <div class="fw-bold text-dark">{{ emp.first_name }} {{ emp.last_name }}</div>
+                                    <div class="fw-bold">{{ emp.first_name }} {{ emp.last_name }}</div>
                                     <div class="text-muted small">ID: {{ emp.employee_code or emp.id }}</div>
                                     <input type="hidden" name="emp_ids" value="{{ emp.id }}">
                                 </td>
@@ -101,9 +107,6 @@
                 </div>
 
                 <div class="d-flex justify-content-end gap-3 mt-4 mb-5">
-                    <button type="submit" name="reset" value="true" class="btn btn-outline-danger w-100 shadow-sm" onclick="return confirm('ระบบจะลบข้อมูลที่บันทึกร่างไว้ของเดือนนี้ และคำนวณใหม่จากสถิติลงเวลาล่าสุด ยืนยันหรือไม่?')">
-                        <i class="bi bi-arrow-clockwise me-1"></i> รีเซ็ตสถิติใหม่
-                    </button>
                     <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg">
                         <i class="bi bi-save me-1"></i> {{ texts.pay_btn_save_draft }}
                     </button>
@@ -117,9 +120,6 @@
 </div>
 
 <script>
-/**
- * ฟังก์ชันคำนวณเงินสุทธิรายแถว
- */
 function calculateRow(element) {
     const row = element.closest('tr');
     if (!row) return;
@@ -155,11 +155,10 @@ function calculateRow(element) {
     if (netInput) { netInput.value = netSalary.toFixed(2); }
 }
 
-// คำนวณทุกแถวทันทีที่โหลดหน้าเสร็จ
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('tbody tr').forEach(row => {
-        const anyInput = row.querySelector('input[type="number"]');
-        if (anyInput) calculateRow(anyInput);
+        const firstInput = row.querySelector('input[type="number"]');
+        if (firstInput) calculateRow(firstInput);
     });
 });
 </script>
@@ -169,5 +168,6 @@ document.addEventListener('DOMContentLoaded', function() {
     .net-salary-cell { color: #0d6efd; }
     .table th { font-size: 0.85rem; font-weight: 600; }
     .form-control-sm { font-size: 0.8rem; text-align: right; }
+    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 </style>
 {% endblock %}
