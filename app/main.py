@@ -1121,62 +1121,70 @@ async def handle_check_in(
     image_data: str = Form(None), 
     db: Session = Depends(get_db)
 ):
+    # 1. ดึงข้อมูลพนักงานจาก Cookie เพื่อความปลอดภัย
     emp_code = request.cookies.get("user_name")
     user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
     
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     
+    # 2. ตั้งค่าเวลาปัจจุบัน (ICT Timezone)
     now = get_now_th()
     today = now.date()
     current_time = now.time()
     schedule = user.schedule
 
-    # ค้นหา Record ของวันนี้
+    # 3. ค้นหา Record ของวันนี้ในฐานข้อมูล
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == user.id,
         models.Attendance.date == today
     ).first()
 
-    # -----------------------------------------------
-    # 📸 กรณีที่ 1: เช็คอินเข้างาน (ยังไม่มี Record วันนี้)
-    # -----------------------------------------------
+    # -------------------------------------------------------
+    # 📸 กรณีที่ 1: บันทึกเช็คอิน (First-In)
+    # จะทำงานเฉพาะตอนที่ "ยังไม่มี" ข้อมูลของวันนี้เท่านั้น
+    # -------------------------------------------------------
     if not attendance:
-        # ✅ ใช้ Cloudinary เท่านั้น รูประยะยาวไม่หายแน่นอน
+        # อัปโหลดรูปเข้างาน (ครั้งแรกของวัน)
         photo_url = upload_base64_to_cloudinary(image_data, user.employee_code, "in")
         
         late_min = 0
         status = "Normal"
 
+        # คำนวณนาทีสาย
         if schedule and schedule.work_start_time:
             start_dt = datetime.strptime(schedule.work_start_time, "%H:%M")
             if current_time > start_dt.time():
                 diff = datetime.combine(today, current_time) - datetime.combine(today, start_dt.time())
                 total_late = int(diff.total_seconds() / 60)
+                # หักลบช่วงเวลา Grace Period (ถ้ามี)
                 late_min = max(0, total_late - (schedule.grace_period_late or 0))
                 if late_min > 0: status = "Late"
 
+        # สร้าง Record ใหม่ (มีแค่ Check-in)
         new_attendance = models.Attendance(
             employee_id=user.id,
             date=today,
-            check_in=now,
+            check_in=now, # บันทึกเวลาเข้าครั้งแรก
             lat=lat,
             lon=lon,
             late_minutes=late_min,
-            image_in=photo_url, # URL จาก Cloudinary
+            image_in=photo_url,
             status=status
         )
         db.add(new_attendance)
         msg = "success"
     
-    # -----------------------------------------------
-    # 📸 กรณีที่ 2: เช็คเอาท์ออกงาน (มี Record เช็คอินแล้ว)
-    # -----------------------------------------------
+    # -------------------------------------------------------
+    # 📸 กรณีที่ 2: บันทึกเช็คเอาท์ (Last-Out)
+    # จะทำงานเมื่อมีข้อมูลเช็คอินอยู่แล้ว และจะ Update ทับทุกครั้งที่กดซ้ำ
+    # -------------------------------------------------------
     else:
-        # ✅ อัปโหลดรูปออกงานขึ้น Cloudinary
+        # อัปโหลดรูปออกงาน (จะอัปเดตรูปใหม่ทุกครั้งที่กดออกซ้ำ)
         photo_url = upload_base64_to_cloudinary(image_data, user.employee_code, "out")
         
         early_min = 0
+        # คำนวณนาทีออกก่อน (เทียบกับเวลาที่กดล่าสุด)
         if schedule and schedule.work_end_time:
             end_dt = datetime.strptime(schedule.work_end_time, "%H:%M")
             if current_time < end_dt.time():
@@ -1184,21 +1192,26 @@ async def handle_check_in(
                 total_early = int(diff.total_seconds() / 60)
                 early_min = max(0, total_early - (schedule.grace_period_early_out or 0))
 
-        attendance.check_out = now
+        # อัปเดตข้อมูลทับลงในแถวเดิม (Update Existing Row)
+        attendance.check_out = now  # เวลาจะเลื่อนไปตามการกดครั้งล่าสุด
         attendance.early_minutes = early_min
-        attendance.image_out = photo_url # URL จาก Cloudinary
+        attendance.image_out = photo_url 
         
-        if attendance.late_minutes > 0 or early_min > 0:
+        # ตรวจสอบสถานะรวม (ถ้าสายหรือออกก่อน ให้เป็น Abnormal)
+        if (attendance.late_minutes or 0) > 0 or early_min > 0:
             attendance.status = "Abnormal"
         else:
             attendance.status = "Normal"
             
-        # อัปเดตพิกัดตอนออกด้วย
+        # อัปเดตพิกัดล่าสุดตอนออก
         if lat: attendance.lat = lat
         if lon: attendance.lon = lon
         msg = "checkout_success"
 
+    # 4. บันทึกทุกอย่างลง Database
     db.commit()
+    
+    # ส่งกลับไปยังหน้าเช็คอินพร้อมข้อความแจ้งเตือน
     return RedirectResponse(url=f"/check-in-page?msg={msg}", status_code=303)
 
 # @app.post("/attendance/check-out")
