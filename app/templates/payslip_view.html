@@ -17,7 +17,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>เงินเดือน (Salary)</td><td class="text-end">{{ salary }}</td></tr>
+                    <tr><td>เงินเดือน (Salary)</td><td class="text-end">{{ "{:,.2f}".format(p.salary) }}</td></tr>
                     <tr><td>ค่าตำแหน่ง (Position Allowance)</td><td class="text-end">{{ position_allowance }}</td></tr>
                     <tr><td>ค่าล่วงเวลา (OT Approved)</td><td class="text-end">{{ ot_pay }}</td></tr>
                 </tbody>

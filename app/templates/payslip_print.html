@@ -43,7 +43,7 @@
         <tbody>
             <tr>
                 <td style="padding: 15px; vertical-align: top; line-height: 1.8;">
-                    เงินเดือน/ตำแหน่ง: <span style="float: right;">{{ "{:,.2f}".format(p.salary + p.position_allowance) }}</span><br>
+                    เงินเดือน/ตำแหน่ง: <span style="float: right;">{{ "{:,.2f}".format(p.salary) }}</span><br>
                     ค่าล่วงเวลา (OT): <span style="float: right;">{{ "{:,.2f}".format(p.ot_pay or 0) }}</span><br>
                     เงินเพิ่มพิเศษ: <span style="float: right;">{{ "{:,.2f}".format(p.extra_income or 0) }}</span>
                 </td>
