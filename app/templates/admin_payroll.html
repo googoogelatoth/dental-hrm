@@ -11,25 +11,25 @@
         <div class="card-body">
             <div class="card mb-4 border-primary bg-light bg-opacity-10">
                 <div class="card-body">
-                    <form method="GET" action="/admin/calculate-payroll" class="row g-3 align-items-end">
+                    <form method="GET" action="/admin/calculate-payroll" class="row g-3 align-items-end" id="filterForm">
                         <div class="col-md-6">
                             <label class="form-label fw-bold">{{ texts.pay_select_range }}</label>
-                            <div class="input-group">
+                            <div class="input-group shadow-sm">
                                 <span class="input-group-text bg-white">{{ texts.pay_start }}</span>
-                                <input type="date" name="start_date" class="form-control" value="{{ start_date }}" required>
+                                <input type="date" name="start_date" id="global_start" class="form-control" value="{{ start_date }}" required>
                                 <span class="input-group-text bg-white">{{ texts.pay_end }}</span>
-                                <input type="date" name="end_date" class="form-control" value="{{ end_date }}" required>
+                                <input type="date" name="end_date" id="global_end" class="form-control" value="{{ end_date }}" required>
                             </div>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <button type="submit" class="btn btn-primary w-100 shadow-sm">
-                                <i class="bi bi-search me-1"></i> {{ texts.pay_btn_fetch }}
+                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่ตามวันที่เลือก
                             </button>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-md-3">
                             <button type="submit" name="reset" value="true" class="btn btn-outline-danger w-100 shadow-sm" 
                                 onclick="return confirm('ยืนยันการรีเซ็ตสถิติใหม่? ระบบจะล้างข้อมูลที่คุณเคยบันทึกร่างไว้ และนับนาที สาย/ขาด/ออกก่อน ใหม่ทั้งหมดตามจริง')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> รีเซ็ตข้อมูลใหม่
+                                <i class="bi bi-arrow-clockwise me-1"></i> ล้าง Draft และเริ่มใหม่
                             </button>
                         </div>
                     </form>
@@ -44,36 +44,44 @@
                     <table class="table table-hover align-middle border">
                         <thead class="table-dark text-nowrap">
                             <tr>
-                                <th>{{ texts.pay_col_name }}</th>
-                                <th class="text-end">{{ texts.pay_col_base }}</th>
-                                <th class="text-center">{{ texts.pay_col_stats }}</th>
-                                <th class="text-end">{{ texts.pay_col_ot }}</th>
-                                <th style="min-width: 100px;">{{ texts.pay_col_late }}</th>
-                                <th style="min-width: 100px;">{{ texts.pay_col_early }}</th>
-                                <th style="min-width: 100px;">{{ texts.pay_col_absent }}</th>
-                                <th style="min-width: 90px;">{{ texts.pay_col_extra_inc }}</th>
-                                <th style="min-width: 90px;">{{ texts.pay_col_extra_ded }}</th>
-                                <th style="min-width: 100px;">{{ texts.pay_col_sso }}</th>
-                                <th style="min-width: 100px;">{{ texts.pay_col_tax }}</th>
+                                <th style="width: 50px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                                <th style="min-width: 250px;">{{ texts.pay_col_name }} / ช่วงวันคำนวณ</th>
+                                <th class="text-end">{{ texts.pay_col_base }} (เฉลี่ย)</th>
+                                <th class="text-center">วันที่มีสิทธิได้เงิน</th>
+                                <th class="text-end">เงินเดือนตามจริง</th>
+                                <th class="text-end">OT</th>
+                                <th>{{ texts.pay_col_late }}</th>
+                                <th>{{ texts.pay_col_extra_inc }}</th>
+                                <th>{{ texts.pay_col_extra_ded }}</th>
+                                <th>{{ texts.pay_col_sso }}</th>
                                 <th class="text-end">{{ texts.pay_col_net }}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for emp in employees %}
-                            <tr>
+                            <tr class="{% if emp.calc_start_date.strftime('%Y-%m-%d') != start_date or emp.calc_end_date.strftime('%Y-%m-%d') != end_date %}table-warning{% endif %}">
+                                <td class="text-center">
+                                    <input type="checkbox" name="emp_ids" value="{{ emp.id }}" class="form-check-input emp-checkbox" checked>
+                                </td>
                                 <td>
                                     <div class="fw-bold">{{ emp.first_name }} {{ emp.last_name }}</div>
-                                    <div class="text-muted small">ID: {{ emp.employee_code or emp.id }}</div>
-                                    <input type="hidden" name="emp_ids" value="{{ emp.id }}">
+                                    <div class="d-flex flex-column gap-1 mt-1">
+                                        <div class="input-group input-group-sm" style="max-width: 220px;">
+                                            <input type="date" name="start_{{ emp.id }}" class="form-control ind-date" value="{{ emp.calc_start_date }}">
+                                            <input type="date" name="end_{{ emp.id }}" class="form-control ind-date" value="{{ emp.calc_end_date }}">
+                                        </div>
+                                        <small class="text-muted">ID: {{ emp.employee_code or emp.id }}</small>
+                                    </div>
                                 </td>
-                                <td class="text-end salary-cell fw-semibold" data-val="{{ (emp.base_salary or 0) + (emp.position_allowance or 0) }}">
+                                <td class="text-end text-muted small">
                                     {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
                                 </td>
-                                
-                                <td class="text-center small text-nowrap">
-                                    <div class="text-warning">{{ texts.pay_stat_late }}: <strong>{{ emp.late_minutes }}</strong></div>
-                                    <div class="text-warning">{{ texts.pay_stat_early }}: <strong>{{ emp.early_minutes }}</strong></div>
-                                    <div class="text-danger">{{ texts.pay_stat_absent }}: <strong>{{ emp.absent_days }}</strong></div>
+                                <td class="text-center">
+                                    <span class="badge bg-secondary fs-6">{{ emp.paid_days }} วัน</span>
+                                    <div class="small text-warning mt-1">สาย: {{ emp.late_minutes }} น.</div>
+                                </td>
+                                <td class="text-end salary-cell fw-bold text-success" data-val="{{ emp.display_income }}">
+                                    {{ "{:,.2f}".format(emp.display_income) }}
                                 </td>
 
                                 <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
@@ -81,23 +89,23 @@
                                     <input type="hidden" name="ot_{{ emp.id }}" value="{{ emp.approved_ot_pay or 0 }}">
                                 </td>
                                 
-                                <td><input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
-                                <td><input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
-                                <td><input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01"></td>
-                                
-                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input" oninput="calculateRow(this)"></td>
-                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input" oninput="calculateRow(this)" step="0.01"></td>
-                                
                                 <td>
-                                    <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input" 
-                                    value="{{ emp.draft_sso if emp.draft_sso is not none else ([((emp.base_salary or 0) * 0.05), 750]|min if emp.base_salary else 0) }}" 
-                                    oninput="calculateRow(this)" step="0.01">
+                                    <div class="small text-danger">หักสาย: {{ "{:,.2f}".format(emp.calculated_late_deduction) }}</div>
+                                    <input type="hidden" name="late_deduct_{{ emp.id }}" class="late-deduct" value="{{ emp.calculated_late_deduction }}">
+                                    <input type="hidden" name="absent_deduct_{{ emp.id }}" class="absent-deduct" value="0">
                                 </td>
                                 
-                                <td><input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01"></td>
+                                <td><input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input text-end" oninput="calculateRow(this)"></td>
+                                <td><input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input text-end" oninput="calculateRow(this)" step="0.01"></td>
+                                
+                                <td>
+                                    <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input text-end" 
+                                    value="{{ emp.draft_sso }}" oninput="calculateRow(this)" step="0.01">
+                                    <div class="text-muted" style="font-size: 0.7rem;">Tax: <input type="number" name="tax_{{ emp.id }}" class="tax-input border-0 bg-transparent text-end" style="width: 50px;" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)"></div>
+                                </td>
                                 
                                 <td class="text-end fw-bold text-primary">
-                                    <span class="net-salary-cell fs-6">0.00</span>
+                                    <span class="net-salary-cell fs-5">0.00</span>
                                     <input type="hidden" name="net_{{ emp.id }}" class="net-hidden-input">
                                 </td>
                             </tr>
@@ -106,13 +114,18 @@
                     </table>
                 </div>
 
-                <div class="d-flex justify-content-end gap-3 mt-4 mb-5">
-                    <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg">
-                        <i class="bi bi-save me-1"></i> {{ texts.pay_btn_save_draft }}
-                    </button>
-                    <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
-                        <i class="bi bi-check-all me-1"></i> {{ texts.pay_btn_finalize }}
-                    </button>
+                <div class="d-flex justify-content-between align-items-center mt-4 mb-5">
+                    <div class="text-muted small">
+                        * <span class="badge bg-warning text-dark">แถบสีเหลือง</span> หมายถึงพนักงานที่มีการระบุช่วงวันที่แตกต่างจากค่าปกติของเดือน
+                    </div>
+                    <div class="d-flex gap-3">
+                        <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg px-4">
+                            <i class="bi bi-save me-1"></i> บันทึกร่าง (Draft)
+                        </button>
+                        <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
+                            <i class="bi bi-check-all me-1"></i> ยืนยันจ่ายเงินเดือน
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -120,6 +133,27 @@
 </div>
 
 <script>
+// จัดการเลือกทั้งหมด
+document.getElementById('selectAll').addEventListener('change', function() {
+    document.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = this.checked);
+});
+
+// เมื่อมีการเปลี่ยนวันที่รายคน ให้ทำการ Submit ฟอร์มกรองใหม่เพื่อ Re-calculate
+document.querySelectorAll('.ind-date').forEach(input => {
+    input.addEventListener('change', function() {
+        const row = this.closest('tr');
+        const empId = row.querySelector('.emp-checkbox').value;
+        const start = row.querySelector('input[name^="start_"]').value;
+        const end = row.querySelector('input[name^="end_"]').value;
+        
+        // สร้าง URL ใหม่ที่มี Parameter เฉพาะของคนนี้
+        let url = new URL(window.location.href);
+        url.searchParams.set(`start_${empId}`, start);
+        url.searchParams.set(`end_${empId}`, end);
+        window.location.href = url.toString();
+    });
+});
+
 function calculateRow(element) {
     const row = element.closest('tr');
     if (!row) return;
@@ -131,18 +165,18 @@ function calculateRow(element) {
         return parseFloat(val) || 0;
     };
 
-    const salary = getVal('.salary-cell', true);
+    const salary = getVal('.salary-cell', true); // ยอด Prorata 3,750
     const ot = getVal('.ot-cell', true);
     const extraIncome = getVal('.extra-income-input');
-    const lateDeduction = getVal('.late-deduct');
-    const earlyDeduction = getVal('.early-deduct'); 
-    const absentDeduction = getVal('.absent-deduct');
+    
+    const lateDeduction = getVal('.late-deduct', false); // ค่าซ่อน
+    const absentDeduction = getVal('.absent-deduct', false); // ปกติเป็น 0
     const extraDeduction = getVal('.extra-deduction-input');
     const sso = getVal('.sso-input');
     const tax = getVal('.tax-input');
 
     const totalIncome = salary + ot + extraIncome;
-    const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + extraDeduction + sso + tax;
+    const totalDeductions = lateDeduction + absentDeduction + extraDeduction + sso + tax;
     const netSalary = totalIncome - totalDeductions;
     
     const netDisplay = row.querySelector('.net-salary-cell');
@@ -156,17 +190,21 @@ function calculateRow(element) {
 
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('tbody tr').forEach(row => {
-        const firstInput = row.querySelector('input[type="number"]');
+        const firstInput = row.querySelector('.sso-input');
         if (firstInput) calculateRow(firstInput);
     });
 });
 </script>
 
 <style>
-    .salary-cell, .ot-cell { background-color: #f8f9fa; }
-    .net-salary-cell { color: #0d6efd; }
-    .table th { font-size: 0.85rem; font-weight: 600; }
-    .form-control-sm { font-size: 0.8rem; text-align: right; }
-    input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .salary-cell { background-color: #f0fff4; } /* สีเขียวอ่อนเน้นยอดรายได้จริง */
+    .ot-cell { background-color: #f8f9fa; }
+    .net-salary-cell { color: #0d6efd; font-weight: 800; }
+    .table th { font-size: 0.8rem; text-transform: uppercase; }
+    .form-control-sm { font-size: 0.85rem; }
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .ind-date { border: 1px solid #dee2e6; font-size: 0.75rem; }
+    tr.table-warning { border-left: 5px solid #ffc107; }
 </style>
 {% endblock %}
