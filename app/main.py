@@ -2558,7 +2558,7 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
-        # --- [A] คำนวณสถิติจาก Attendance ---
+        # --- [A] คำนวณสถิติจาก Attendance (นับใหม่ทุกครั้งที่โหลดหน้านี้) ---
         absent_count = 0
         total_late_mins = 0
         total_early_mins = 0
@@ -2587,11 +2587,12 @@ async def calculate_payroll_page(
                     absent_count += 1
             curr += timedelta(days=1)
 
+        # 🚩 บันทึกสถิติใหม่ลง Object พนักงานทันที (เพื่อให้หน้าจอโชว์ค่าล่าสุด)
         emp.absent_days = absent_count
         emp.late_minutes = total_late_mins
         emp.early_minutes = total_early_mins
 
-        # --- [B] คำนวณอัตราเงินหักและโอที (คำนวณใหม่เสมอ) ---
+        # --- [B] คำนวณอัตราเงินหักและโอที ---
         base_salary_val = (emp.base_salary or 0)
         position_allowance_val = (emp.position_allowance or 0)
         base_calc = base_salary_val + position_allowance_val
@@ -2605,7 +2606,6 @@ async def calculate_payroll_page(
         l_hours = late_conf.divider_hours if late_conf else default_set["hours"]
         rate_min = base_calc / l_days / l_hours / 60 if l_days * l_hours > 0 else 0
         
-        # 🚩 เก็บค่าที่คำนวณได้จริงไว้ก่อน
         real_late_deduct = round(rate_min * total_late_mins, 2)
         real_early_deduct = round(rate_min * total_early_mins, 2)
 
@@ -2621,26 +2621,23 @@ async def calculate_payroll_page(
             models.PayrollDetail.year == e_dt.year
         ).first()
 
+        # 🚩 สถิติตัวเลขและยอดเงินหักอัตโนมัติ "ต้อง" ใช้ค่าที่คำนวณใหม่เสมอ
+        emp.calculated_late_deduction = real_late_deduct
+        emp.calculated_early_deduction = real_early_deduct
+        emp.calculated_absent_deduction = real_absent_deduct
+
         if draft:
-            # ใช้ค่าที่คำนวณใหม่เป็นหลัก (เว้นแต่มีการบันทึกค่าอื่นไว้ใน Draft และต้องการใช้ค่านั้น)
-            # ในที่นี้เราจะบังคับใช้ค่าคำนวณใหม่เพื่อให้ยอดอัปเดตตามเวลาจริง
-            emp.calculated_late_deduction = real_late_deduct
-            emp.calculated_early_deduction = real_early_deduct
-            emp.calculated_absent_deduction = real_absent_deduct
-            
-            # ค่าที่ดึงจาก Draft (ส่วนที่ Admin แก้ไขเอง)
+            # ดึงเฉพาะค่าที่ Admin ต้องกรอก/แก้ไขเองมาจาก Draft
             emp.draft_extra_income = draft.extra_income
             emp.draft_extra_deduction = draft.extra_deduction
             emp.draft_tax = draft.tax
             emp.draft_sso = draft.sso
-            # ถ้ามียอด OT ใน Draft ให้ใช้ค่าใน Draft (เผื่อ Admin แก้ไขมือ)
+            
+            # ถ้ามียอด OT ใน Draft ให้ใช้ค่าใน Draft (เผื่อมีการแก้คนขยันเพิ่มมือ)
             if draft.ot_pay > 0:
                 emp.approved_ot_pay = draft.ot_pay
         else:
-            # กรณีไม่มีร่าง ให้ใช้ค่าคำนวณสด
-            emp.calculated_late_deduction = real_late_deduct
-            emp.calculated_early_deduction = real_early_deduct
-            emp.calculated_absent_deduction = real_absent_deduct
+            # กรณีไม่มีร่าง ให้ตั้งค่าเริ่มต้น
             emp.draft_extra_income = 0
             emp.draft_extra_deduction = 0
             emp.draft_tax = 0
