@@ -27,11 +27,11 @@
         <div class="row mb-3">
             <div class="col-md-4">
                 <label class="form-label">เลขบัตรประชาชน</label>
-                <input type="text" name="id_card_number" class="form-control" value="{{ employee.id_card_number }}" maxlength="13">
+                <input type="text" name="id_card_number" class="form-control" value="{{ decrypted.id_card_number }}" maxlength="13">
             </div>
             <div class="col-md-4">
                 <label class="form-label">เบอร์โทรศัพท์</label>
-                <input type="tel" name="phone_number" class="form-control" value="{{ employee.phone_number }}">
+                <input type="tel" name="phone_number" class="form-control" value="{{ decrypted.phone_number }}">
             </div>
             <div class="col-md-4">
                 <label class="form-label">ตำแหน่ง/แผนก</label>
@@ -58,7 +58,7 @@
         <div class="row mb-3">
             <div class="col-md-6">
                 <label class="form-label">หมายเลขสมุดบัญชี</label>
-                <input type="text" name="bank_account_number" class="form-control" value="{{ employee.bank_account_number }}">
+                <input type="text" name="bank_account_number" class="form-control" value="{{ decrypted.bank_account_number }}">
             </div>
             <div class="col-md-6">
                 <label class="form-label">สิทธิการใช้งานระบบ</label>
