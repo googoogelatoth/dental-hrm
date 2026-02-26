@@ -186,12 +186,33 @@ function calculateRow(element) {
         return parseFloat(isAttr ? el.getAttribute('data-val') : el.value) || 0;
     };
 
-    const income = getVal('.salary-cell', true) + getVal('.ot-cell', true) + getVal('.extra-income-input');
-    const deduct = getVal('.late-deduct') + getVal('.early-deduct') + getVal('.absent-deduct') + 
-                   getVal('.extra-deduction-input') + getVal('.sso-input') + getVal('.tax-input');
-
-    const netSalary = income - deduct;
+    // ========== DYNAMIC CALCULATION LOGIC ==========
+    // Base income from attendance calculation
+    const baseIncome = getVal('.salary-cell', true);
     
+    // OT pay (from approved OT requests)
+    const otPay = getVal('.ot-cell', true);
+    
+    // Manual additions
+    const extraIncome = getVal('.extra-income-input');
+    
+    // Calculate gross income
+    const grossIncome = baseIncome + otPay + extraIncome;
+
+    // Deductions (all sources: attendance-based + manual)
+    const lateDeduction = getVal('.late-deduct');
+    const earlyDeduction = getVal('.early-deduct');
+    const absentDeduction = getVal('.absent-deduct');
+    const extraDeduction = getVal('.extra-deduction-input');
+    const sso = getVal('.sso-input');
+    const tax = getVal('.tax-input');
+    
+    const totalDeductions = lateDeduction + earlyDeduction + absentDeduction + extraDeduction + sso + tax;
+
+    // Net salary = Gross - Total Deductions
+    const netSalary = grossIncome - totalDeductions;
+    
+    // Update display
     row.querySelector('.net-salary-cell').innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 });
     row.querySelector('.net-hidden-input').value = netSalary.toFixed(2);
 }

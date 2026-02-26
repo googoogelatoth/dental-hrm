@@ -38,8 +38,16 @@
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
             <tr>
                 <td style="width: 25%; text-align: left; vertical-align: middle;">
-                    {% if company and company.logo_path %}
-                        <img src="/static/uploads/{{ company.logo_path }}" alt="Logo" style="max-height: 70px; max-width: 140px;">
+                    {% if company_logo %}
+                        <img src="{{ company_logo }}" alt="Logo" style="max-height: 70px; max-width: 140px;">
+                    {% elif company and company.logo_path %}
+                        {# fallback logic in case route did not provide company_logo #}
+                        {% set lp = company.logo_path.strip() %}
+                        {% if lp.startswith('http') %}
+                            <img src="{{ lp }}" alt="Logo" style="max-height: 70px; max-width: 140px;">
+                        {% else %}
+                            <img src="/static/uploads/{{ lp }}" alt="Logo" style="max-height: 70px; max-width: 140px;">
+                        {% endif %}
                     {% else %}
                         <div style="width: 70px; height: 70px; border: 1px dashed #ccc; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #999;">Company Logo</div>
                     {% endif %}

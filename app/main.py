@@ -8,7 +8,7 @@ import uuid
 import calendar
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
-from typing import List
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import (
@@ -99,6 +99,24 @@ def get_now_th():
 
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
+
+
+def compute_logo_url(company: Optional[models.CompanySetting]) -> Optional[str]:
+    """Return a URL that can be safely inserted into templates.
+
+    The stored `logo_path` may be a full https:// URL from Cloudinary or a
+    relative filename.  Clients previously concatenated ``/static/uploads/``
+    blindly, which caused requests like
+    ``/static/uploads/https://...`` and 404s (see Cloud Run logs).  This
+    helper centralizes the logic so routes can simply pass ``company_logo``
+    to every template.
+    """
+    if not company or not company.logo_path:
+        return None
+    lp = company.logo_path.strip()
+    if lp.lower().startswith("http"):
+        return lp
+    return f"/static/uploads/{lp}"
 
 # 1. ตั้งค่า Cloudinary (ดึงค่าจากชื่อตัวแปร Environment)
 cloudinary.config(
@@ -286,10 +304,7 @@ async def get_manifest(db: Session = Depends(get_db)):
     company = db.query(models.CompanySetting).first()
     
     # ถ้ายังไม่ได้อัปโหลดโลโก้ ให้ใช้โลโก้ Default
-    logo_url = "/static/img/mini-hrm-logo.png"
-    if company and company.logo_path:
-        # ถ้า logo_path เป็น https (Cloudinary) ก็ใช้ได้เลย
-        logo_url = company.logo_path if company.logo_path.startswith('http') else f"/static/uploads/{company.logo_path}"
+    logo_url = compute_logo_url(company) or "/static/img/mini-hrm-logo.png"
 
     manifest_data = {
         "name": "Mini HRM System",
@@ -415,7 +430,7 @@ async def monitor_page(
         "leave_bar_data": leave_bar_data,
         "leave_pie_data": leave_pie_data,
         "company_name": company.company_name if company else "Mini HRM",
-        "company_logo": company.logo_path if company else None,
+        "company_logo": compute_logo_url(company),
     })
 
 @app.post("/api/accept-pdpa")
@@ -498,7 +513,7 @@ async def dashboard(
         "user_role": user.role, 
         "user": user,
         "company_name": company.company_name if company else None,
-        "company_logo": company.logo_path if company else None,
+        "company_logo": compute_logo_url(company),
         "texts": texts
     })
 
@@ -2529,6 +2544,131 @@ def get_salary_and_approved_ot(emp_id: int, month: int, year: int, db: Session):
 
     return SalaryInfo()
 
+
+def calculate_dynamic_payroll_details(
+    emp: models.Employee,
+    start_date: date,
+    end_date: date,
+    db: Session,
+    holiday_dates: set,
+    settings: dict,
+    draft: models.PayrollDetail = None
+) -> dict:
+    """
+    Dynamically compute all payroll components for an employee over a date range.
+    
+    Returns: dict with all calculated and draft values
+    - attendance-based: paid_days, late_mins, early_mins, late_deduct, early_deduct
+    - ot-based: approved_ot_pay
+    - draft-based: extra_income, extra_deduction, tax, sso
+    - derived: display_income, net_salary
+    """
+    # ========== 1. ATTENDANCE STATS (Dynamic from DB) ==========
+    paid_days = 0
+    total_late_mins = 0
+    total_early_mins = 0
+    curr = start_date
+    
+    while curr <= end_date:
+        day_name = curr.strftime('%a')
+        is_holiday = curr in holiday_dates
+        is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
+        
+        att = db.query(models.Attendance).filter(
+            models.Attendance.employee_id == emp.id,
+            models.Attendance.date == curr
+        ).first()
+        
+        leave = db.query(models.LeaveRequest).filter(
+            models.LeaveRequest.employee_id == emp.id,
+            models.LeaveRequest.status == "Approved",
+            models.LeaveRequest.start_date <= curr,
+            models.LeaveRequest.end_date >= curr
+        ).first()
+
+        if att or is_holiday or is_weekly_off or leave:
+            paid_days += 1
+            if att:
+                total_late_mins += (att.late_minutes or 0)
+                total_early_mins += (att.early_minutes or 0)
+        
+        curr += timedelta(days=1)
+
+    # ========== 2. BASE INCOME ==========
+    base_salary = emp.base_salary or 0
+    position_allowance = emp.position_allowance or 0
+    base_calc = base_salary + position_allowance
+    daily_rate = base_calc / 30
+    display_income = round(daily_rate * paid_days, 2)
+
+    # ========== 3. DEDUCTIONS: LATE/EARLY (Dynamic from Attendance) ==========
+    late_conf = settings.get('late')
+    l_days = late_conf.divider_days if late_conf else 30
+    l_hours = late_conf.divider_hours if late_conf else 8
+    rate_min = base_calc / l_days / l_hours / 60 if l_days * l_hours > 0 else 0
+    
+    calculated_late_deduction = round(rate_min * total_late_mins, 2)
+    calculated_early_deduction = round(rate_min * total_early_mins, 2)
+    calculated_absent_deduction = 0.0
+
+    # ========== 4. OT PAY (Dynamic from OTRequest Approved) ==========
+    approved_ot_pay = calculate_ot_pay(emp.id, end_date.month, end_date.year, db)
+
+    # ========== 5. DRAFT VALUES (Manual overrides from DB) ==========
+    if draft:
+        draft_extra_income = draft.extra_income or 0
+        draft_extra_deduction = draft.extra_deduction or 0
+        draft_tax = draft.tax or 0
+        draft_sso = draft.sso or 0
+        
+        # If draft has manual overrides for computed fields, use those instead
+        if draft.late_deduction is not None and draft.late_deduction >= 0:
+            calculated_late_deduction = draft.late_deduction
+        if draft.early_deduction is not None and draft.early_deduction >= 0:
+            calculated_early_deduction = draft.early_deduction
+        if draft.absence_deduction is not None and draft.absence_deduction >= 0:
+            calculated_absent_deduction = draft.absence_deduction
+    else:
+        draft_extra_income = 0
+        draft_extra_deduction = 0
+        draft_sso = min(base_salary * 0.05, 750)
+        draft_tax = 0
+
+    # ========== 6. NET SALARY (Final Calculation) ==========
+    gross_income = display_income + approved_ot_pay + draft_extra_income
+    total_deductions = (
+        calculated_late_deduction +
+        calculated_early_deduction +
+        calculated_absent_deduction +
+        draft_extra_deduction +
+        draft_sso +
+        draft_tax
+    )
+    net_salary = gross_income - total_deductions
+
+    return {
+        # Attendance-based
+        'paid_days': paid_days,
+        'late_minutes': total_late_mins,
+        'early_minutes': total_early_mins,
+        # Deductions
+        'calculated_late_deduction': calculated_late_deduction,
+        'calculated_early_deduction': calculated_early_deduction,
+        'calculated_absent_deduction': calculated_absent_deduction,
+        # OT
+        'approved_ot_pay': approved_ot_pay,
+        # Draft/Manual values
+        'draft_extra_income': draft_extra_income,
+        'draft_extra_deduction': draft_extra_deduction,
+        'draft_sso': draft_sso,
+        'draft_tax': draft_tax,
+        # Display/Summary
+        'display_income': display_income,
+        'gross_income': gross_income,
+        'total_deductions': total_deductions,
+        'net_salary': net_salary,
+    }
+
 @app.get("/admin/calculate-payroll")
 async def calculate_payroll_page(
     request: Request, 
@@ -2570,107 +2710,47 @@ async def calculate_payroll_page(
     holiday_dates = {h.holiday_date for h in holidays}
 
     for emp in employees:
-        # --- 🚩 [แก้ไขส่วนการเลือกวันที่] ---
-        # 1. เช็คข้อมูล Draft ใน DB ก่อน
+        # --- [1] Determine calculation date range ---
         draft = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == emp.id,
             models.PayrollDetail.month == e_dt_global.month,
             models.PayrollDetail.year == e_dt_global.year
         ).first()
 
-        # 2. รับค่าจาก Query Params (ลำดับความสำคัญสูงสุด)
         ind_start_query = request.query_params.get(f'start_{emp.id}')
         ind_end_query = request.query_params.get(f'end_{emp.id}')
         
-        # 3. ตัดสินใจเลือกวันที่ที่จะใช้
         if ind_start_query and ind_end_query:
-            # ใช้จาก URL (เมื่อมีการเลือกใหม่หน้าเว็บ)
             s_dt = datetime.strptime(ind_start_query, '%Y-%m-%d').date()
             e_dt = datetime.strptime(ind_end_query, '%Y-%m-%d').date()
         elif draft and draft.calc_start_date and draft.calc_end_date:
-            # 🚩 ใช้จากที่เคยบันทึกไว้ในฐานข้อมูล (ระบบจะจำค่าได้)
             s_dt = draft.calc_start_date
             e_dt = draft.calc_end_date
         else:
-            # ใช้ค่ามาตรฐานของเดือน
             s_dt = s_dt_global
             e_dt = e_dt_global
 
-        # --- [A] คำนวณสถิติรายบุคคล (ใช้ s_dt และ e_dt ที่เลือกมาแล้ว) ---
-        paid_days = 0 
-        total_late_mins = 0
-        total_early_mins = 0
-        curr = s_dt
+        # --- [2] Use dynamic calculation helper ---
+        payroll_details = calculate_dynamic_payroll_details(
+            emp, s_dt, e_dt, db, holiday_dates, settings, draft
+        )
         
-        while curr <= e_dt:
-            day_name = curr.strftime('%a')
-            is_holiday = curr in holiday_dates
-            
-            att = db.query(models.Attendance).filter(
-                models.Attendance.employee_id == emp.id,
-                models.Attendance.date == curr
-            ).first()
-            
-            is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
-            
-            leave = db.query(models.LeaveRequest).filter(
-                models.LeaveRequest.employee_id == emp.id,
-                models.LeaveRequest.status == "Approved",
-                models.LeaveRequest.start_date <= curr,
-                models.LeaveRequest.end_date >= curr
-            ).first()
-
-            if att or is_holiday or is_weekly_off or leave:
-                paid_days += 1
-                if att:
-                    total_late_mins += (att.late_minutes or 0)
-                    total_early_mins += (att.early_minutes or 0)
-            
-            curr += timedelta(days=1)
-
+        # --- [3] Map calculated values to employee object ---
         emp.calc_start_date = s_dt
         emp.calc_end_date = e_dt
-        emp.paid_days = paid_days
-        emp.late_minutes = total_late_mins
-        emp.early_minutes = total_early_mins
-
-        # --- [B] คำนวณตัวเลขเงิน ---
-        base_salary_val = (emp.base_salary or 0)
-        position_allowance_val = (emp.position_allowance or 0)
-        base_calc = base_salary_val + position_allowance_val
-        
-        daily_rate = base_calc / 30
-        real_income_total = round(daily_rate * paid_days, 2)
-
-        # คำนวณ OT (ใช้เดือน/ปี ตามงวด)
-        emp.approved_ot_pay = calculate_ot_pay(emp.id, e_dt_global.month, e_dt_global.year, db)
-
-        # คำนวณเงินหัก สาย/ออกก่อน
-        late_conf = settings.get('late')
-        l_days = late_conf.divider_days if late_conf else 30
-        l_hours = late_conf.divider_hours if late_conf else 8
-        rate_min = base_calc / l_days / l_hours / 60 if l_days * l_hours > 0 else 0
-        
-        emp.calculated_late_deduction = round(rate_min * total_late_mins, 2)
-        emp.calculated_early_deduction = round(rate_min * total_early_mins, 2)
-        emp.calculated_absent_deduction = 0 
-        emp.display_income = real_income_total 
-
-        # --- [C] จัดการข้อมูลร่าง (Draft) ดึงค่าเงินที่เคยกรอกไว้ ---
-        if draft:
-            emp.draft_extra_income = draft.extra_income
-            emp.draft_extra_deduction = draft.extra_deduction
-            emp.draft_tax = draft.tax
-            emp.draft_sso = draft.sso
-            # ถ้าใน DB มีค่าหักสาย/ขาดงานที่เคยแก้ด้วยมือ ก็ดึงมาโชว์ (Optional)
-            emp.calculated_late_deduction = draft.late_deduction
-            emp.calculated_early_deduction = draft.early_deduction
-            emp.calculated_absent_deduction = draft.absence_deduction
-        else:
-            emp.draft_extra_income = 0
-            emp.draft_extra_deduction = 0
-            emp.draft_tax = 0
-            emp.draft_sso = min(base_salary_val * 0.05, 750)
+        emp.paid_days = payroll_details['paid_days']
+        emp.late_minutes = payroll_details['late_minutes']
+        emp.early_minutes = payroll_details['early_minutes']
+        emp.calculated_late_deduction = payroll_details['calculated_late_deduction']
+        emp.calculated_early_deduction = payroll_details['calculated_early_deduction']
+        emp.calculated_absent_deduction = payroll_details['calculated_absent_deduction']
+        emp.approved_ot_pay = payroll_details['approved_ot_pay']
+        emp.draft_extra_income = payroll_details['draft_extra_income']
+        emp.draft_extra_deduction = payroll_details['draft_extra_deduction']
+        emp.draft_sso = payroll_details['draft_sso']
+        emp.draft_tax = payroll_details['draft_tax']
+        emp.display_income = payroll_details['display_income']
+        emp.net_salary = payroll_details['net_salary']
 
     return templates.TemplateResponse("admin_payroll.html", {
         "request": request,
@@ -2707,6 +2787,15 @@ async def process_payroll(
             return float(str(val).replace(',', ''))
         return 0.0
 
+    # Get holidays for dynamic recalculation
+    s_dt_global = datetime.strptime(start_date, '%Y-%m-%d').date()
+    holidays = db.query(models.Holiday).filter(
+        models.Holiday.holiday_date >= s_dt_global,
+        models.Holiday.holiday_date <= dt_end_global
+    ).all()
+    holiday_dates = {h.holiday_date for h in holidays}
+    settings = get_payroll_settings(db)
+
     # If specific employees selected, process those (preserve per-employee date ranges)
     if emp_ids:
         for eid in emp_ids:
@@ -2719,7 +2808,39 @@ async def process_payroll(
             if not user:
                 continue
 
-            # remove old draft for this employee
+            # ========== RECALCULATE DYNAMICALLY ==========
+            draft = db.query(models.PayrollDetail).filter(
+                models.PayrollDetail.employee_id == user.id,
+                models.PayrollDetail.month == dt_end_global.month,
+                models.PayrollDetail.year == dt_end_global.year
+            ).first()
+
+            payroll_details = calculate_dynamic_payroll_details(
+                user, dt_start, dt_end, db, holiday_dates, settings, draft
+            )
+
+            # Get manual overrides from form (these take precedence)
+            form_extra_income = parse_to_float_field(f"extra_income_{eid}")
+            form_extra_deduction = parse_to_float_field(f"extra_deduction_{eid}")
+            form_sso = parse_to_float_field(f"sso_{eid}")
+            form_tax = parse_to_float_field(f"tax_{eid}")
+            
+            # Allow form overrides for deductions (in case admin manually adjusted)
+            form_late = parse_to_float_field(f"late_deduct_{eid}")
+            form_early = parse_to_float_field(f"early_deduct_{eid}")
+            form_absent = parse_to_float_field(f"absent_deduct_{eid}")
+
+            # Use form values if provided, otherwise use calculated
+            late_deduct = form_late if form_late > 0 else payroll_details['calculated_late_deduction']
+            early_deduct = form_early if form_early > 0 else payroll_details['calculated_early_deduction']
+            absent_deduct = form_absent if form_absent > 0 else payroll_details['calculated_absent_deduction']
+            
+            # Recalculate net with potentially adjusted values
+            gross = payroll_details['display_income'] + payroll_details['approved_ot_pay'] + form_extra_income
+            total_deduct = late_deduct + early_deduct + absent_deduct + form_extra_deduction + form_sso + form_tax
+            net_total = gross - total_deduct
+
+            # Remove old draft for this employee
             db.query(models.PayrollDetail).filter(
                 models.PayrollDetail.employee_id == user.id,
                 models.PayrollDetail.month == dt_end_global.month,
@@ -2734,15 +2855,15 @@ async def process_payroll(
                 calc_end_date=dt_end,
                 salary=user.base_salary,
                 position_allowance=user.position_allowance,
-                ot_pay=parse_to_float_field(f"ot_{eid}"),
-                sso=parse_to_float_field(f"sso_{eid}"),
-                tax=parse_to_float_field(f"tax_{eid}"),
-                late_deduction=parse_to_float_field(f"late_deduct_{eid}"),
-                early_deduction=parse_to_float_field(f"early_deduct_{eid}"),
-                absence_deduction=parse_to_float_field(f"absent_deduct_{eid}"),
-                extra_income=parse_to_float_field(f"extra_income_{eid}"),
-                extra_deduction=parse_to_float_field(f"extra_deduction_{eid}"),
-                net_total=parse_to_float_field(f"net_{eid}"),
+                ot_pay=payroll_details['approved_ot_pay'],
+                sso=form_sso,
+                tax=form_tax,
+                late_deduction=late_deduct,
+                early_deduction=early_deduct,
+                absence_deduction=absent_deduct,
+                extra_income=form_extra_income,
+                extra_deduction=form_extra_deduction,
+                net_total=net_total,
                 status="Draft" if action == "save_draft" else "Finalized"
             )
             db.add(new_payroll)
@@ -2754,50 +2875,75 @@ async def process_payroll(
             )
 
     else:
-        # No specific selection: process all employees using per-employee fields from the form
-        employees = db.query(models.Employee).all()
-        dt_end = datetime.strptime(end_date, '%Y-%m-%d')
+        # No specific selection: process all employees
+        employees = db.query(models.Employee).filter(models.Employee.is_active).all()
 
         for emp in employees:
-            e_income = parse_to_float_field(f"extra_income_{emp.id}")
-            e_deduction = parse_to_float_field(f"extra_deduction_{emp.id}")
-            sso_val = parse_to_float_field(f"sso_{emp.id}")
-            tax_val = parse_to_float_field(f"tax_{emp.id}")
-            ot_pay_val = parse_to_float_field(f"ot_{emp.id}")
-            late_val = parse_to_float_field(f"late_deduct_{emp.id}")
-            early_val = parse_to_float_field(f"early_deduct_{emp.id}")
-            absent_val = parse_to_float_field(f"absent_deduct_{emp.id}")
-            net_val = parse_to_float_field(f"net_{emp.id}")
+            draft = db.query(models.PayrollDetail).filter(
+                models.PayrollDetail.employee_id == emp.id,
+                models.PayrollDetail.month == dt_end_global.month,
+                models.PayrollDetail.year == dt_end_global.year
+            ).first()
 
-            # remove old draft
+            # Determine date range for this employee
+            ind_start = form_data.get(f"start_{emp.id}") or start_date
+            ind_end = form_data.get(f"end_{emp.id}") or end_date
+            dt_start = datetime.strptime(ind_start, '%Y-%m-%d').date()
+            dt_end = datetime.strptime(ind_end, '%Y-%m-%d').date()
+
+            # Recalculate dynamically
+            payroll_details = calculate_dynamic_payroll_details(
+                emp, dt_start, dt_end, db, holiday_dates, settings, draft
+            )
+
+            # Get manual overrides from form
+            form_extra_income = parse_to_float_field(f"extra_income_{emp.id}")
+            form_extra_deduction = parse_to_float_field(f"extra_deduction_{emp.id}")
+            form_sso = parse_to_float_field(f"sso_{emp.id}")
+            form_tax = parse_to_float_field(f"tax_{emp.id}")
+            form_late = parse_to_float_field(f"late_deduct_{emp.id}")
+            form_early = parse_to_float_field(f"early_deduct_{emp.id}")
+            form_absent = parse_to_float_field(f"absent_deduct_{emp.id}")
+
+            late_deduct = form_late if form_late > 0 else payroll_details['calculated_late_deduction']
+            early_deduct = form_early if form_early > 0 else payroll_details['calculated_early_deduction']
+            absent_deduct = form_absent if form_absent > 0 else payroll_details['calculated_absent_deduction']
+            
+            gross = payroll_details['display_income'] + payroll_details['approved_ot_pay'] + form_extra_income
+            total_deduct = late_deduct + early_deduct + absent_deduct + form_extra_deduction + form_sso + form_tax
+            net_total = gross - total_deduct
+
+            # Remove old draft
             db.query(models.PayrollDetail).filter(
                 models.PayrollDetail.employee_id == emp.id,
-                models.PayrollDetail.month == dt_end.month,
-                models.PayrollDetail.year == dt_end.year
+                models.PayrollDetail.month == dt_end_global.month,
+                models.PayrollDetail.year == dt_end_global.year
             ).delete()
 
             new_record = models.PayrollDetail(
                 employee_id=emp.id,
-                month=dt_end.month,
-                year=dt_end.year,
+                month=dt_end_global.month,
+                year=dt_end_global.year,
+                calc_start_date=dt_start,
+                calc_end_date=dt_end,
                 salary=emp.base_salary,
                 position_allowance=emp.position_allowance,
-                ot_pay=ot_pay_val,
-                sso=sso_val,
-                tax=tax_val,
-                late_deduction=late_val,
-                early_deduction=early_val,
-                absence_deduction=absent_val,
-                extra_income=e_income,
-                extra_deduction=e_deduction,
-                net_total=net_val,
+                ot_pay=payroll_details['approved_ot_pay'],
+                sso=form_sso,
+                tax=form_tax,
+                late_deduction=late_deduct,
+                early_deduction=early_deduct,
+                absence_deduction=absent_deduct,
+                extra_income=form_extra_income,
+                extra_deduction=form_extra_deduction,
+                net_total=net_total,
                 status="Draft" if action == "save_draft" else "Finalized"
             )
             db.add(new_record)
 
         # single log for full-run
         log_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันเงินเดือน"
-        log_activity(db, current_user, log_name, f"งวด {dt_end.month}/{dt_end.year}", request)
+        log_activity(db, current_user, log_name, f"งวด {dt_end_global.month}/{dt_end_global.year}", request)
 
     db.commit()
 
@@ -3197,11 +3343,13 @@ async def view_payslip(request: Request, payroll_id: int,user: models.Employee =
     if not payroll:
         return "ไม่พบข้อมูลสลิปเงินเดือน"
     
+    company_logo = compute_logo_url(company)
     return templates.TemplateResponse("payslip_print.html", {
         "request": request, # บรรทัดนี้จะไม่ Error แล้ว
         "p": payroll,
         "texts": texts,
-        "company": company # ส่งค่าไปที่ Template
+        "company": company, # ส่งค่าไปที่ Template
+        "company_logo": company_logo,
     })
 
 # --- B & C. สรุปยอด SSO และ ภาษี (รายเดือน) ---
@@ -3286,12 +3434,14 @@ async def my_payslips(
     # ดึงข้อมูลบริษัทและพนักงานเพื่อไปแสดงในสลิป
     company = db.query(models.CompanySetting).first()
     employee = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
+    company_logo = compute_logo_url(company)
 
     return templates.TemplateResponse("my_payslips.html", {
         "request": request,
         "payslips": payslips,
         "employee": employee,
         "company": company,
+        "company_logo": company_logo,
         "current_month": target_month,
         "texts": texts,
         "current_year": target_year
