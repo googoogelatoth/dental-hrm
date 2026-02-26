@@ -15,11 +15,17 @@
                         
                         <div class="mb-3 position-relative d-inline-block">
                             {% if company and company.logo_path %}
-                                <img src="{% if company.logo_path.startswith('http') %}{{ company.logo_path }}{% else %}/static/uploads/{{ company.logo_path }}{% endif %}" 
+                            {# ensure we don\'t double-prefix a full URL #}
+                            {% set lp = company.logo_path.strip() %}
+                            {% if lp.startswith('http') %}
+                                <img src="{{ lp }}" 
+                            {% else %}
+                                <img src="/static/uploads/{{ lp }}" 
+                            {% endif %}
                                     class="img-thumbnail shadow-sm" 
                                     style="max-height: 180px; width: 180px; object-fit: contain;"
                                     onerror="this.src='/static/img/mini-hrm-logo.png'">
-                            {% else %}
+                        {% else %}
                                 <div class="bg-light border rounded d-flex align-items-center justify-content-center shadow-sm" style="height: 180px; width: 180px;">
                                     <i class="bi bi-image text-muted" style="font-size: 3rem;"></i>
                                 </div>
