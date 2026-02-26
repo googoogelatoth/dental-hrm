@@ -1,3 +1,4 @@
+# ruff: noqa: F601
 TRANSLATIONS = {
     "th": {
         # --- Navbar ---
@@ -326,7 +327,7 @@ TRANSLATIONS = {
         "pay_btn_finalize": "ประมวลผลเสร็จสิ้น",
         "pay_confirm_finalize": "ยืนยันการประมวลผลเสร็จสิ้น?",
         # --- Payroll Summary Page ---
-        "ps_title": "รายงานรายละเอียดเงินเดือนรวม",
+        "ps_title": "รายงานรายละเอียดเงินเดือนรวม",  # noqa: F601
         "ps_btn_export": "Export Excel",
         "ps_btn_new_calc": "คำนวณงวดใหม่",
         "ps_label_month": "📅 งวดประจำเดือน",
@@ -456,7 +457,6 @@ TRANSLATIONS = {
         "com_btn_update": "อัปเดตข้อมูลและใช้ในสลิปทันที",
         "com_msg_success": "บันทึกข้อมูลบริษัทเรียบร้อยแล้ว",
         # --- Payroll Settings Page ---
-        "ps_title": "ตั้งค่าสูตรคำนวณเงินเดือน",
         "ps_subtitle": "กำหนดตัวหารและตัวคูณสำหรับใช้ในระบบคำนวณอัตโนมัติ",
         "ps_section_deduct": "ส่วนการหักเงิน",
         "ps_header_late": "⚙️ สูตรหักเงิน (สาย / ออกก่อน)",
@@ -481,7 +481,6 @@ TRANSLATIONS = {
         # Navbar & Sidebar
         "nav_home": "แดชบอร์ด",
         "nav_monitor": "ระบบมอนิเตอร์",
-        "nav_emp": "รายชื่อบุคลากร",
         "nav_leave": "ระบบลาพักผ่อน",
         "nav_settings": "ตั้งค่า",
         "nav_logout": "ออกจากระบบ",
@@ -856,7 +855,7 @@ TRANSLATIONS = {
         "pay_btn_finalize": "Finalize Payroll",
         "pay_confirm_finalize": "Confirm to finalize payroll processing?",
         # --- Payroll Summary Page ---
-        "ps_title": "Payroll Summary Report",
+        "ps_title": "Payroll Summary Report",  # noqa: F601
         "ps_btn_export": "Export Excel",
         "ps_btn_new_calc": "New Calculation",
         "ps_label_month": "📅 Monthly Cycle",
@@ -987,7 +986,6 @@ TRANSLATIONS = {
         "com_btn_update": "Update Info & Sync to Payslips",
         "com_msg_success": "Company information saved successfully",
         # --- Payroll Settings Page ---
-        "ps_title": "Payroll Formula Settings",
         "ps_subtitle": "Define dividers and multipliers for automated payroll calculation",
         "ps_section_deduct": "Deductions Section",
         "ps_header_late": "⚙️ Late / Early Out Deduction",

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Enum, Date, DateTime, Float, Time, Boolean, JSON
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, DateTime, Float, Time, Boolean
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -83,7 +83,7 @@ class Attendance(Base):
     image_in = Column(String, nullable=True)  # เก็บชื่อไฟล์ภาพตอนเข้างาน
     image_out = Column(String, nullable=True) # เก็บชื่อไฟล์ภาพตอนออกงาน
 
-    employee = relationship("Employee")
+    employee = relationship("Employee", back_populates="attendance")
 
 class WorkSchedule(Base):
     __tablename__ = "work_schedules"
@@ -215,18 +215,8 @@ class OTRequest(Base):
     reason = Column(String)
     status = Column(String, default="pending") # pending, approved, rejected
     admin_remark = Column(String, nullable=True) # เก็บเหตุผลการปฏิเสธ (null ได้เพราะไม่บังคับ)
-    
-# app/models.py
-class Overtime(Base): # ตรวจสอบว่าชื่อ Class คือ Overtime หรือไม่
-    __tablename__ = "overtimes"
-    id = Column(Integer, primary_key=True, index=True)
-    employee_id = Column(Integer, ForeignKey("employees.id"))
-    date = Column(Date) # หรือ String ตามที่คุณออกแบบ
-    amount = Column(Float) # ยอดเงิน OT
-    status = Column(String, default="Pending")
-    minutes = Column(Integer, default=0)
-    
-# app/models.py
+
+# Overtime class removed - duplicate of OTRequest functionality
 
 class PayrollSetting(Base):
     __tablename__ = "payroll_settings"
@@ -246,11 +236,7 @@ class CompanySetting(Base):
     address = Column(Text)
     logo_path = Column(String)  # เก็บชื่อไฟล์โลโก้
 
-class UserSubscription(Base):
-    __tablename__ = "user_subscriptions"
-    id = Column(Integer, primary_key=True, index=True)
-    employee_id = Column(Integer, ForeignKey("employees.id"))
-    subscription_info = Column(JSON)  # เก็บ Endpoint และ Keys จาก Browser
+# UserSubscription class removed - duplicate of PushSubscription
     
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

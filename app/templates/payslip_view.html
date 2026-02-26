@@ -17,9 +17,9 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>เงินเดือน (Salary)</td><td class="text-end">{{ "{:,.2f}".format(p.salary) }}</td></tr>
-                    <tr><td>ค่าตำแหน่ง (Position Allowance)</td><td class="text-end">{{ position_allowance }}</td></tr>
-                    <tr><td>ค่าล่วงเวลา (OT Approved)</td><td class="text-end">{{ ot_pay }}</td></tr>
+                    <tr><td>เงินเดือน (Salary)</td><td class="text-end">{{ '{:,.2f}'|format(p.salary) }}</td></tr>
+                    <tr><td>ค่าตำแหน่ง (Position Allowance)</td><td class="text-end">{{ '{:,.2f}'|format(position_allowance | default(0)) }}</td></tr>
+                    <tr><td>ค่าล่วงเวลา (OT Approved)</td><td class="text-end">{{ '{:,.2f}'|format(ot_pay | default(0)) }}</td></tr>
                 </tbody>
                 <thead class="table-light">
                     <tr>
@@ -28,15 +28,15 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>ประกันสังคม (SSO)</td><td class="text-end text-danger">- {{ sso }}</td></tr>
-                    <tr><td>ภาษี (Tax)</td><td class="text-end text-danger">- {{ tax }}</td></tr>
-                    <tr><td>หักขาดงาน (Absence)</td><td class="text-end text-danger">- {{ absence }}</td></tr>
+                    <tr><td>ประกันสังคม (SSO)</td><td class="text-end text-danger">- {{ '{:,.2f}'|format(sso | default(0)) }}</td></tr>
+                    <tr><td>ภาษี (Tax)</td><td class="text-end text-danger">- {{ '{:,.2f}'|format(tax | default(0)) }}</td></tr>
+                    <tr><td>หักขาดงาน (Absence)</td><td class="text-end text-danger">- {{ '{:,.2f}'|format(absence | default(0)) }}</td></tr>
                 </tbody>
             </table>
             
             <div class="alert alert-success d-flex justify-content-between">
                 <strong>เงินเดือนสุทธิ (Net Pay):</strong>
-                <strong>{{ net_total }} บาท</strong>
+                <strong>{{ '{:,.2f}'|format(net_total | default(0)) }} บาท</strong>
             </div>
         </div>
     </div>

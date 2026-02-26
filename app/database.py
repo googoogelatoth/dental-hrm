@@ -1,11 +1,10 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # 🚩 เช็คว่าอยู่บน Cloud หรือเครื่องเรา
 # ถ้าอยู่บน Cloud จะมี DATABASE_URL มาให้ ถ้าไม่มีให้ใช้ SQLite เดิม
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./clinic_hrm.db")
 
 # แก้ไขปัญหา PostgreSQL ของ Render ที่มักจะขึ้นต้นด้วย postgres:// ให้เป็น postgresql://
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):

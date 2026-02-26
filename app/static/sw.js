@@ -11,11 +11,13 @@ self.addEventListener('push', function(event) {
         console.warn('Push event but no JSON data');
     }
 
+    // NOTE: update `icon` and `badge` to your hosted logo URL (Cloudinary or static).
+    // If you host the logo under the app's static files, the path below will work.
     const options = {
         body: data.body,
-        // ✨ แก้ตรงนี้: ใช้ลิงก์ Cloudinary ของโลโก้บริษัทนาย
-        icon: 'https://res.cloudinary.com/your_cloud_name/image/upload/v12345/hrm/company/company_logo.png',
-        badge: 'https://res.cloudinary.com/your_cloud_name/image/upload/v12345/hrm/company/company_logo.png',
+        // Replace with your Cloudinary URL if you prefer an external CDN image.
+        icon: '/static/img/mini-hrm-logo.png',
+        badge: '/static/img/mini-hrm-logo.png',
         vibrate: [100, 50, 100],
         data: {
             dateOfArrival: Date.now(),

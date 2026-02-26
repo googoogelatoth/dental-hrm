@@ -1,56 +1,64 @@
 import os
-import shutil
-from fastapi import Depends, HTTPException
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+import logging
+import builtins
+from datetime import date, datetime, timedelta
+import io
+import json
+import uuid
+import calendar
 from fastapi.templating import Jinja2Templates
+from passlib.context import CryptContext
+from typing import List
+from urllib.parse import urlparse
+
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    Request,
+    Form,
+    File,
+    UploadFile,
+    Response,
+    Query,
+    BackgroundTasks,
+)
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
+    FileResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, extract
 from .database import SessionLocal, engine
 from . import models
-from fastapi import FastAPI, Request, Form, File, UploadFile
-from typing import List
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.middleware.cors import CORSMiddleware
-import starlette.status as status
-from fastapi import Response
-from passlib.context import CryptContext
-from fastapi import Request
-from urllib.parse import quote
-from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
-from fastapi import Query 
-from fastapi.responses import FileResponse
-from fastapi import BackgroundTasks 
-import pandas as pd
-import base64
-import uuid
-import io
-from pywebpush import webpush, WebPushException
-import json
-from fastapi.staticfiles import StaticFiles
-from urllib.parse import urlparse
-from sqlalchemy import func, extract
-import calendar
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import joinedload
-from .security import encrypt_data
-from .security import decrypt_data
+from .security import encrypt_data, decrypt_data
 from .languages import TRANSLATIONS
-from fastapi import status
+
+import pandas as pd
+from pywebpush import webpush, WebPushException
 import cloudinary
 import cloudinary.uploader
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from dateutil.relativedelta import relativedelta
 import pytz
-from cryptography.fernet import Fernet
+
+import starlette.status as status
+from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
 
 app = FastAPI()
 
+# Configure structured logging for the application
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("clinic_hrm")
+
+# Redirect simple logger.info() calls to structured logging (INFO level)
+# This helps catch stray prints without changing every call site immediately.
+builtins.print = logger.info
+
 # --- ส่วนบนสุดของ main.py ---
-VAPID_PUBLIC_KEY = "BOgA23yQvhkjWnKvHE9PFcfV_Pf7UCLLR3s63u_PQUtEA8J06l310gkZF2m_MxBAiUkH43ziGd8P93XxLp-m5q4"
-VAPID_PRIVATE_KEY = "2200Y9KHaV65qsAhS9gdFbmINvTymrFcFJ10ROvXI6Y"
 
 UPLOAD_DIR = "uploads/leave_documents"
 # เช็คว่าถ้าไม่มีโฟลเดอร์ uploads ให้สร้างขึ้นมาใหม่
@@ -103,6 +111,13 @@ cloudinary.config(
 # ตั้งค่าตำแหน่งของไฟล์ HTML
 templates = Jinja2Templates(directory="app/templates")
 
+
+# Serve service worker at site root for full-origin scope
+@app.get("/service-worker.js", include_in_schema=False)
+async def service_worker() -> FileResponse:
+    sw_path = os.path.join(STATIC_DIR, "sw.js")
+    return FileResponse(sw_path, media_type="application/javascript")
+
 # ฟังก์ชันสำหรับดึง Database Session
 def get_db():
     db = SessionLocal()
@@ -125,7 +140,7 @@ async def get_current_active_user(request: Request, db: Session = Depends(get_db
     # 2. ดึงข้อมูล User จาก DB
     try:
         user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
-    except:
+    except Exception:
         raise HTTPException(status_code=401, detail="ข้อมูลผู้ใช้ไม่ถูกต้อง")
     
     # 3. 🛡️ เช็คว่ามีตัวตน และ สถานะพนักงาน
@@ -165,7 +180,7 @@ def upload_base64_to_cloudinary(base64_data, employee_code, suffix):
         )
         return upload_result.get("secure_url") # คืนค่าเป็นลิงก์ https://...
     except Exception as e:
-        print(f"❌ Cloudinary Error: {e}")
+        logger.info(f"❌ Cloudinary Error: {e}")
         return None
     
 def upload_file_to_cloudinary(file, folder_name):
@@ -179,38 +194,14 @@ def upload_file_to_cloudinary(file, folder_name):
         )
         return upload_result.get("secure_url")
     except Exception as e:
-        print(f"❌ Cloudinary Upload Error: {e}")
+        logger.info(f"❌ Cloudinary Upload Error: {e}")
         return None
 
 # ตั้งค่าการเข้ารหัสรหัสผ่าน
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', 'SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs=')
-
-if not ENCRYPTION_KEY or ENCRYPTION_KEY == 'ใส่รหัสคีย์ของนายตรงนี้ถ้าไม่ได้ใช้ env':
-    # 🚩 วางคีย์ที่นายใช้แล้วเลขขึ้นตะกี้ลงตรงนี้เลยครับนาย
-    ENCRYPTION_KEY = "SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs=" 
-
-cipher_suite = Fernet(ENCRYPTION_KEY.encode())
-
-# บังคับใช้ Key นี้ตัวเดียวเท่านั้น ทั้งรับและส่ง
-STATIC_KEY = "SjRlWO_BKmHUCmwFPbw8ExV4Dohh5lRPesjg8gqXWFs="
-cipher_suite = Fernet(STATIC_KEY.encode())
-
-def encrypt_data(data: str):
-    if not data: return None
-    # ใช้ cipher_suite ที่ประกาศไว้ข้างบน
-    return cipher_suite.encrypt(data.encode()).decode()
-
-def decrypt_data(data: str):
-    try:
-        if not data: return ""
-        # ถ้าไม่ใช่รหัส gAAAAA ให้คืนค่าเดิม
-        if not data.startswith("gAAAAA"): return data
-        return cipher_suite.decrypt(data.encode()).decode()
-    except Exception as e:
-        print(f"❌ Decrypt Error: {e}") # ดูว่า Error อะไร
-        return data
+# Encryption helpers are provided by `app/security.py` and the Fernet instance
+# is created from the `ENCRYPTION_KEY` environment variable in `app/config.py`.
 
 @app.on_event("startup")
 async def create_first_admin():
@@ -233,28 +224,25 @@ async def create_first_admin():
             )
             db.add(first_admin)
             db.commit()
-            print("--- Created Initial Admin User (User: admin / Pass: admin1234) ---")
+            logger.info("--- Created Initial Admin User (User: admin / Pass: admin1234) ---")
     finally:
         db.close()
+
+
+@app.on_event("startup")
+async def validate_required_env():
+    """Fail fast on startup when required environment variables are missing."""
+    missing = []
+    required = ["ENCRYPTION_KEY", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "DATABASE_URL"]
+    for name in required:
+        if not os.getenv(name):
+            missing.append(name)
+
+    if missing:
+        logger.error("Missing required environment variables on startup: %s", ",".join(missing))
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
         
-def send_push_to_user(employee_id: int, title: str, body: str, db: Session):
-    subscriptions = db.query(models.PushSubscription).filter(
-        models.PushSubscription.employee_id == employee_id
-    ).all()
-    
-    for sub in subscriptions:
-        try:
-            webpush(
-                subscription_info={
-                    "endpoint": sub.endpoint,
-                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-                },
-                data=json.dumps({"title": title, "body": body}),
-                vapid_private_key=VAPID_PRIVATE_KEY, # มั่นใจว่ามีตัวแปรนี้ใน config
-                vapid_claims={"sub": "mailto:admin@clinic.com"}
-            )
-        except WebPushException as ex:
-            print(f"Push failed: {ex}")
+# Consolidated: push notification moved to send_push_notification() function (see line ~2432)
 
 # ในไฟล์ app/main.py ฟังก์ชัน log_activity
 def log_activity(db, user, action, details, request):
@@ -362,7 +350,7 @@ async def monitor_page(
     company = db.query(models.CompanySetting).first()
 
     # 2. คำนวณสถิติ "วันนี้" (ข้อมูลจริง)
-    total_active_emp = db.query(models.Employee).filter(models.Employee.is_active == True).count()
+    total_active_emp = db.query(models.Employee).filter(models.Employee.is_active).count()
     
     # - มาทำงาน (เช็คอินแล้ว)
     present_today = db.query(models.Attendance).filter(models.Attendance.date == today).count()
@@ -482,7 +470,6 @@ async def dashboard(
 ):
     # 1. เช็คพื้นฐานว่ามีการ Login ไหม
     user_id = request.cookies.get("user_id")
-    cookie_session = request.cookies.get("session_id")
     company = db.query(models.CompanySetting).first()
     
     if not user_id:
@@ -499,8 +486,8 @@ async def dashboard(
 
     # 3. 🎯 ดึงข้อมูลพนักงานแยกกลุ่ม (🚩 แก้ไขตรงนี้)
     # เราต้องดึงมาทั้ง 2 กลุ่มเพื่อเอาไปโชว์ใน Tabs ของนายครับ
-    active_emps = db.query(models.Employee).filter(models.Employee.is_active == True).all()
-    resigned_emps = db.query(models.Employee).filter(models.Employee.is_active == False).all()
+    active_emps = db.query(models.Employee).filter(models.Employee.is_active).all()
+    resigned_emps = db.query(models.Employee).filter(~models.Employee.is_active).all()
     
     # 4. ส่งข้อมูลไปที่หน้า HTML
     return templates.TemplateResponse("dashboard.html", {
@@ -574,7 +561,7 @@ async def handle_add_employee(
             upload_result = cloudinary.uploader.upload(profile_picture.file, folder="hrm/profiles", public_id=f"emp_{employee_code}", overwrite=True)
             profile_url = upload_result.get("secure_url")
         except Exception as e:
-            print(f"Cloudinary Error: {e}")
+            logger.info(f"Cloudinary Error: {e}")
 
     # --- 4. สร้าง Object พนักงานใหม่ ---
     new_emp = models.Employee(
@@ -604,7 +591,7 @@ async def handle_add_employee(
                     new_doc = models.EmployeeDocument(file_path=doc_upload.get("secure_url"), file_name=doc.filename, employee_id=new_emp.id)
                     db.add(new_doc)
                 except Exception as e: 
-                    print(f"Doc Error: {e}")
+                    logger.info(f"Doc Error: {e}")
         db.commit()
 
     # --- 6. 🚩 บันทึก Log การเพิ่มพนักงาน ---
@@ -654,7 +641,7 @@ async def update_company_settings(
             )
             company.logo_path = upload_result.get("secure_url")
         except Exception as e: 
-            print(f"Logo Error: {e}")
+            logger.info(f"Logo Error: {e}")
 
     # --- 5. 🚩 บันทึก Log ก่อน Commit ---
     log_activity(
@@ -766,7 +753,7 @@ async def update_company_settings(
 #             employee.profile_picture = upload_result.get("secure_url")
 #             log_details_extra += " [อัปเดตรูปโปรไฟล์]"
 #         except Exception as e:
-#             print(f"Cloudinary Profile Upload Error: {e}")
+#             logger.info(f"Cloudinary Profile Upload Error: {e}")
 
 #     # --- 5. จัดการเอกสาร PDF ---
 #     if documents:
@@ -787,7 +774,7 @@ async def update_company_settings(
 #                     db.add(new_doc)
 #                     log_details_extra += f" [เพิ่มเอกสาร: {doc.filename}]"
 #                 except Exception as e:
-#                     print(f"Cloudinary Document Upload Error: {e}")
+#                     logger.info(f"Cloudinary Document Upload Error: {e}")
     
 #     # --- 6. บันทึก Log และ Commit ---
 #     new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}"
@@ -830,9 +817,9 @@ async def employee_detail(
     }
     
     # 🚩 เพิ่มบรรทัดนี้ครับนาย!
-    print(f"--- DEBUG EMPLOYEE {emp_id} ---")
-    print(f"Decrypted Data: {display_data}")
-    print(f"-------------------------------")
+    logger.info(f"--- DEBUG EMPLOYEE {emp_id} ---")
+    logger.info(f"Decrypted Data: {display_data}")
+    logger.info("-------------------------------")
 
     return templates.TemplateResponse("employee_detail_content.html", {
         "request": request,
@@ -1159,7 +1146,8 @@ async def handle_check_in(
                 total_late = int(diff.total_seconds() / 60)
                 # หักลบช่วงเวลา Grace Period (ถ้ามี)
                 late_min = max(0, total_late - (schedule.grace_period_late or 0))
-                if late_min > 0: status = "Late"
+                if late_min > 0:
+                    status = "Late"
 
         # สร้าง Record ใหม่ (มีแค่ Check-in)
         new_attendance = models.Attendance(
@@ -1204,8 +1192,10 @@ async def handle_check_in(
             attendance.status = "Normal"
             
         # อัปเดตพิกัดล่าสุดตอนออก
-        if lat: attendance.lat = lat
-        if lon: attendance.lon = lon
+        if lat:
+            attendance.lat = lat
+        if lon:
+            attendance.lon = lon
         msg = "checkout_success"
 
     # 4. บันทึกทุกอย่างลง Database
@@ -1266,7 +1256,7 @@ async def handle_check_in(
 #                     grace_period = schedule.grace_period_early_out or 0
 #                     early_min = max(0, total_early - grace_period)
 #             except Exception as e:
-#                 print(f"❌ Error calculating early out: {e}")
+#                 logger.info(f"❌ Error calculating early out: {e}")
 
 #         # --- 3. บันทึกค่าลง Database ---
 #         attendance.check_out = now 
@@ -1306,8 +1296,7 @@ async def save_schedules(request: Request,user: models.Employee = Depends(get_cu
     for emp in employees:
         
         # ดึงค่า checkbox ของพนักงานแต่ละคน (จะได้ออกมาเป็น list เช่น ['Sat', 'Sun'])
-        selected_days = form_data.getlist(f"weekly_off_{emp.id}")
-        
+            
         # 2. รับค่าวันทำงาน (Checkbox) ที่เราส่งมาเป็น days_{{ emp.id }}
         # ในระบบของคุณ ติ๊กถูก = วันทำงาน ดังนั้นวันที่ไม่ถูกติ๊ก = วันหยุด
         work_days_list = form_data.getlist(f"days_{emp.id}")
@@ -1562,14 +1551,14 @@ async def handle_leave_apply(
         
         for admin in admins:
             sender_info = user.employee_code if user else "ไม่ระบุรหัส"
-            send_push_to_user(
+            send_push_notification(
                 admin.id, 
                 "📢 มีคำขอลาใหม่", 
                 f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})", 
                 db
             )
     except Exception as e:
-        print(f"❌ Notification Error: {e}")
+        logger.info(f"❌ Notification Error: {e}")
 
     return RedirectResponse(url="/check-in-page?msg=leave_sent", status_code=303)
 
@@ -1609,7 +1598,7 @@ async def approve_leave(leave_id: int, status: str = Form(...),admin_remark: str
                     
                     # ตรรกะ: มากกว่า 4 ชั่วโมง = 1 วัน, ถ้าน้อยกว่าหรือเท่ากับ = 0.5 วัน
                     days_to_deduct = 1.0 if duration_hours > 4 else 0.5
-                except:
+                except Exception:
                     # กรณีไม่มีเวลา หรือเกิด Error ในการคำนวณ ให้ Default เป็น 1 วัน
                     days_to_deduct = 1.0
             else:
@@ -1641,14 +1630,14 @@ async def approve_leave(leave_id: int, status: str = Form(...),admin_remark: str
 
         # 🚩 3. ส่งแจ้งเตือน
         try:
-            send_push_to_user(
+            send_push_notification(
                 leave.employee_id, 
                 f"{icon} ผลการพิจารณาการลา", 
                 f"คำขอลาของคุณ{status_text}", 
                 db
             )
         except Exception as e:
-            print(f"Push Notification Error: {e}")
+            logger.info(f"Push Notification Error: {e}")
     
     # 🚩 4. บรรทัด return ต้องอยู่ล่างสุดเสมอ
     return RedirectResponse(url="/admin/leaves?msg=updated", status_code=303)
@@ -1683,11 +1672,9 @@ async def my_leaves_page(request: Request,user: models.Employee = Depends(get_cu
         
         # 2. ถ้ามีการระบุเวลา ให้คำนวณสัดส่วน (สมมติเวลาทำงานปกติคือ 9 ชั่วโมงรวมพัก)
         if leave.start_date and leave.end_date:
-            from datetime import datetime
-            fmt = '%H:%M'
             t1 = leave.start_date
             t2 = leave.end_date
-            
+
             # คำนวณชั่วโมงที่ลา
             diff_hours = (t2 - t1).seconds / 3600
             
@@ -1824,7 +1811,7 @@ async def handle_edit_employee(
             employee.profile_picture = upload_result.get("secure_url")
             log_extra += " [อัปเดตรูป]"
         except Exception as e:
-            print(f"Cloudinary Error: {e}")
+            logger.info(f"Cloudinary Error: {e}")
 
     # 7. บันทึก Log และ Commit
     new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}, โควตา: {sick_quota}/{personal_quota}/{vacation_quota}"
@@ -1908,9 +1895,12 @@ async def my_attendance(request: Request,user: models.Employee = Depends(get_cur
 
             is_work_day = emp.weekly_off and today_name in emp.weekly_off
             status = "ขาดงาน"
-            if leave: status = f"ลา ({leave.leave_type})"
-            elif is_holiday: status = f"วันหยุด ({is_holiday.holiday_name})"
-            elif not is_work_day: status = "วันหยุดประจำสัปดาห์"
+            if leave:
+                status = f"ลา ({leave.leave_type})"
+            elif is_holiday:
+                status = f"วันหยุด ({is_holiday.holiday_name})"
+            elif not is_work_day:
+                status = "วันหยุดประจำสัปดาห์"
 
             report_data.append({
                 "date": current_day,
@@ -2096,7 +2086,7 @@ async def submit_attendance_request(
         db.add(new_request)
         db.commit() # ✅ ยืนยันข้อมูลเข้า DB
     except Exception as e:
-        print(f"❌ Database Error: {e}")
+        logger.info(f"❌ Database Error: {e}")
         return RedirectResponse(url="/attendance-report?msg=error", status_code=303)
 
     # 🚩 3. ส่งแจ้งเตือนหา Admin (วางไว้ตรงนี้หลัง commit)
@@ -2108,15 +2098,15 @@ async def submit_attendance_request(
         ).all()
         
         for admin in admins:
-            send_push_to_user(
+            send_push_notification(
                 admin.id, 
                 "📢 คำขอลงเวลาย้อนหลัง", 
                 f"มีคำขอจาก {user.first_name} ({user.nickname}) รอการอนุมัติ", 
                 db
             )
-        print(f"🔔 Manual Attendance Notification sent to {len(admins)} admins")
+        logger.info(f"🔔 Manual Attendance Notification sent to {len(admins)} admins")
     except Exception as e:
-        print(f"❌ Notification Error: {e}")
+        logger.info(f"❌ Notification Error: {e}")
     
     return RedirectResponse(url="/attendance-report?msg=request_sent", status_code=303)
 
@@ -2129,12 +2119,11 @@ async def perform_approval_logic(request_id: int, status: str, admin_remark: str
         req.status = "Rejected"
         req.admin_remark = admin_remark
         db.commit()
-        send_push_to_user(req.employee_id, "❌ คำขอลงเวลาถูกปฏิเสธ", f"คำขอวันที่ {req.request_date} ไม่ได้รับอนุมัติ {admin_remark or ''}", db)
+        send_push_notification(req.employee_id, "❌ คำขอลงเวลาถูกปฏิเสธ", f"คำขอวันที่ {req.request_date} ไม่ได้รับอนุมัติ {admin_remark or ''}", db)
         return True
 
     # --- กรณี Admin กด "อนุมัติ" (Approved) ---
-    emp = db.query(models.Employee).get(req.employee_id)
-    sched = emp.schedule
+    # emp = db.query(models.Employee).get(req.employee_id)  # unused
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == req.employee_id,
         func.date(models.Attendance.date) == req.request_date
@@ -2157,7 +2146,7 @@ async def perform_approval_logic(request_id: int, status: str, admin_remark: str
     req.status = "Approved"
     req.admin_remark = admin_remark
     db.commit()
-    send_push_to_user(req.employee_id, "✅ อนุมัติการแก้ไขเวลา", f"คำขอวันที่ {req.request_date} อนุมัติเรียบร้อย", db)
+    send_push_notification(req.employee_id, "✅ อนุมัติการแก้ไขเวลา", f"คำขอวันที่ {req.request_date} อนุมัติเรียบร้อย", db)
     return True
 
 @app.get("/admin/attendance-requests", response_class=HTMLResponse)
@@ -2242,12 +2231,16 @@ async def import_attendance_upload(
                 
                 # ฟังก์ชันช่วยแกะเวลา
                 def parse_time_flexible(t_val):
-                    if pd.isna(t_val) or str(t_val).strip() in ('-', '', 'nan'): return None
-                    if hasattr(t_val, 'hour'): return t_val
+                    if pd.isna(t_val) or str(t_val).strip() in ('-', '', 'nan'):
+                        return None
+                    if hasattr(t_val, 'hour'):
+                        return t_val
                     t_str = str(t_val).strip()
                     for fmt in ("%H:%M:%S", "%H:%M"):
-                        try: return datetime.strptime(t_str, fmt).time()
-                        except: continue
+                        try:
+                            return datetime.strptime(t_str, fmt).time()
+                        except Exception:
+                            continue
                     return None
 
                 # 3. ดึงเวลาเข้า-ออก
@@ -2286,7 +2279,7 @@ async def import_attendance_upload(
         return RedirectResponse(url="/admin/attendance-requests?msg=import_success", status_code=303)
         
     except Exception as e:
-        print(f"🚩 Import Error: {e}")
+        logger.info(f"🚩 Import Error: {e}")
         # บันทึก Log กรณีล้มเหลวด้วยเพื่อตรวจสอบปัญหา
         log_activity(db, user, "Import ล้มเหลว", f"เกิดข้อผิดพลาดขณะนำเข้าไฟล์ {file.filename}: {str(e)}", request)
         db.commit()
@@ -2298,10 +2291,9 @@ async def import_attendance_page(request: Request):
     # หน้าจอนี้สำหรับ Admin เข้าไปเพื่อ Upload ไฟล์ Excel
     return templates.TemplateResponse("import_attendance.html", {"request": request})
 
-# กุญแจ VAPID ที่คุณเจนเนอเรตไว้ (เก็บเป็นความลับ)
-VAPID_PRIVATE_KEY = "2200Y9KHaV65qsAhS9gdFbmINvTymrFcFJ10ROvXI6Y"
+# VAPID configuration is loaded from `app.config` via environment variables.
 VAPID_CLAIMS = {
-    "sub": "mailto:your-email@example.com" # ใส่ Email ของคุณเพื่อระบุตัวตนกับผู้ให้บริการ Push
+    "sub": os.getenv("VAPID_CLAIMS_SUB", "mailto:your-email@example.com")
 }
 
 @app.post("/api/save-subscription")
@@ -2331,7 +2323,7 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
         existing.employee_id = user.id 
         
         action_type = "UPDATE NOTIFICATION"
-        log_detail = f"อัปเดตข้อมูลการแจ้งเตือน (Device/Browser เดิม)"
+        log_detail = "อัปเดตข้อมูลการแจ้งเตือน (Device/Browser เดิม)"
     else:
         # ✅ บันทึกอันใหม่ (เปิดครั้งแรก)
         new_sub = models.PushSubscription(
@@ -2377,7 +2369,7 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
 #                 vapid_claims=VAPID_CLAIMS
 #             )
 #         except WebPushException as ex:
-#             print(f"Push failed: {ex}")
+#             logger.info(f"Push failed: {ex}")
 #             # ถ้า Token หมดอายุ (410 Gone) ให้ลบออกจาก DB
 #             if ex.response and ex.response.status_code == 410:
 #                 db.delete(sub)
@@ -2426,10 +2418,6 @@ async def get_service_worker():
         
     return FileResponse(sw_path, media_type="application/javascript")
 
-@app.get("/manifest.json")
-async def get_manifest():
-    # ชี้ไปที่ Path จริงของ manifest.json
-    return FileResponse("app/static/manifest.json", media_type="application/json")
 
 def send_push_notification(employee_id: int, title: str, message: str, db: Session):
     subs = db.query(models.PushSubscription).filter(
@@ -2456,7 +2444,7 @@ def send_push_notification(employee_id: int, title: str, message: str, db: Sessi
                 vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
             )
         except WebPushException as ex:
-            print(f"Push failed: {ex}")
+            logger.info(f"Push failed: {ex}")
             if ex.response and ex.response.status_code == 410:
                 db.delete(sub)
                 db.commit()
@@ -2572,7 +2560,7 @@ async def calculate_payroll_page(
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}", status_code=303)
 
     settings = get_payroll_settings(db)
-    employees = db.query(models.Employee).filter(models.Employee.is_active == True).all()
+    employees = db.query(models.Employee).filter(models.Employee.is_active).all()
 
     # ดึงวันหยุดนักขัตฤกษ์ในช่วงเวลาที่เลือก
     holidays = db.query(models.Holiday).filter(
@@ -2701,8 +2689,8 @@ def get_payroll_settings(db: Session):
 async def process_payroll(
     request: Request,
     action: str = Form(...),
-    start_date: str = Form(...), # วันที่ Global
-    end_date: str = Form(...),   # วันที่ Global
+    start_date: str = Form(...),
+    end_date: str = Form(...),
     db: Session = Depends(get_db),
     current_user: models.Employee = Depends(get_current_active_user)
 ):
@@ -2710,68 +2698,113 @@ async def process_payroll(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     form_data = await request.form()
-    # 🚩 ดึง ID พนักงานทุกคนที่ถูกติ๊กเลือกจาก Checkbox (name="emp_ids")
-    emp_ids = form_data.getlist("emp_ids") 
-
+    emp_ids = form_data.getlist("emp_ids")
     dt_end_global = datetime.strptime(end_date, '%Y-%m-%d').date()
 
-    for eid in emp_ids:
-        # 1. ดึงวันที่รายคนจากฟอร์ม (ถ้าคนไหนไม่ได้แก้ จะใช้ค่า Global)
-        ind_start = form_data.get(f"start_{eid}") or start_date
-        ind_end = form_data.get(f"end_{eid}") or end_date
-        
-        dt_start = datetime.strptime(ind_start, '%Y-%m-%d').date()
-        dt_end = datetime.strptime(ind_end, '%Y-%m-%d').date()
+    def parse_to_float_field(field_name, default_form=form_data):
+        val = default_form.get(field_name, "0")
+        if val and str(val).strip() != "":
+            return float(str(val).replace(',', ''))
+        return 0.0
 
-        user = db.query(models.Employee).filter(models.Employee.id == int(eid)).first()
-        if not user: continue
+    # If specific employees selected, process those (preserve per-employee date ranges)
+    if emp_ids:
+        for eid in emp_ids:
+            ind_start = form_data.get(f"start_{eid}") or start_date
+            ind_end = form_data.get(f"end_{eid}") or end_date
+            dt_start = datetime.strptime(ind_start, '%Y-%m-%d').date()
+            dt_end = datetime.strptime(ind_end, '%Y-%m-%d').date()
 
-        # ฟังก์ชันช่วยแปลงค่าตัวเลข ป้องกัน Comma ทำงานพัง
-        def parse_to_float(field_name):
-            val = form_data.get(field_name, "0")
-            return float(str(val).replace(',', '')) if val else 0.0
+            user = db.query(models.Employee).filter(models.Employee.id == int(eid)).first()
+            if not user:
+                continue
 
-        # 2. ล้าง Draft เก่าของคนนี้ในงวดนี้ทิ้งก่อนบันทึกใหม่
-        db.query(models.PayrollDetail).filter(
-            models.PayrollDetail.employee_id == user.id,
-            models.PayrollDetail.month == dt_end_global.month,
-            models.PayrollDetail.year == dt_end_global.year
-        ).delete()
+            # remove old draft for this employee
+            db.query(models.PayrollDetail).filter(
+                models.PayrollDetail.employee_id == user.id,
+                models.PayrollDetail.month == dt_end_global.month,
+                models.PayrollDetail.year == dt_end_global.year
+            ).delete()
 
-        # 3. สร้าง Record ใหม่ (เก็บทั้งเงินและ "วันที่" ที่ใช้คำนวณ)
-        new_payroll = models.PayrollDetail(
-            employee_id=user.id,
-            month=dt_end_global.month,
-            year=dt_end_global.year,
-            calc_start_date=dt_start, # 🚩 บันทึกวันที่เริ่ม
-            calc_end_date=dt_end,     # 🚩 บันทึกวันที่จบ
-            salary=user.base_salary,
-            position_allowance=user.position_allowance,
-            ot_pay=parse_to_float(f"ot_{eid}"),
-            sso=parse_to_float(f"sso_{eid}"),
-            tax=parse_to_float(f"tax_{eid}"),
-            late_deduction=parse_to_float(f"late_deduct_{eid}"),
-            early_deduction=parse_to_float(f"early_deduct_{eid}"),
-            absence_deduction=parse_to_float(f"absent_deduct_{eid}"),
-            extra_income=parse_to_float(f"extra_income_{eid}"),
-            extra_deduction=parse_to_float(f"extra_deduction_{eid}"),
-            net_total=parse_to_float(f"net_{eid}"),
-            status="Draft" if action == "save_draft" else "Finalized"
-        )
-        db.add(new_payroll)
+            new_payroll = models.PayrollDetail(
+                employee_id=user.id,
+                month=dt_end_global.month,
+                year=dt_end_global.year,
+                calc_start_date=dt_start,
+                calc_end_date=dt_end,
+                salary=user.base_salary,
+                position_allowance=user.position_allowance,
+                ot_pay=parse_to_float_field(f"ot_{eid}"),
+                sso=parse_to_float_field(f"sso_{eid}"),
+                tax=parse_to_float_field(f"tax_{eid}"),
+                late_deduction=parse_to_float_field(f"late_deduct_{eid}"),
+                early_deduction=parse_to_float_field(f"early_deduct_{eid}"),
+                absence_deduction=parse_to_float_field(f"absent_deduct_{eid}"),
+                extra_income=parse_to_float_field(f"extra_income_{eid}"),
+                extra_deduction=parse_to_float_field(f"extra_deduction_{eid}"),
+                net_total=parse_to_float_field(f"net_{eid}"),
+                status="Draft" if action == "save_draft" else "Finalized"
+            )
+            db.add(new_payroll)
 
-        # บันทึก Log รายคน
-        log_activity(
-            db, current_user, "บันทึกเงินเดือน", 
-            f"คำนวณงวด {dt_end_global.month}/{dt_end_global.year} ของ {user.first_name} (ช่วง {ind_start} ถึง {ind_end})", 
-            request
-        )
+            log_activity(
+                db, current_user, "บันทึกเงินเดือน",
+                f"คำนวณงวด {dt_end_global.month}/{dt_end_global.year} ของ {user.first_name} (ช่วง {ind_start} ถึง {ind_end})",
+                request
+            )
+
+    else:
+        # No specific selection: process all employees using per-employee fields from the form
+        employees = db.query(models.Employee).all()
+        dt_end = datetime.strptime(end_date, '%Y-%m-%d')
+
+        for emp in employees:
+            e_income = parse_to_float_field(f"extra_income_{emp.id}")
+            e_deduction = parse_to_float_field(f"extra_deduction_{emp.id}")
+            sso_val = parse_to_float_field(f"sso_{emp.id}")
+            tax_val = parse_to_float_field(f"tax_{emp.id}")
+            ot_pay_val = parse_to_float_field(f"ot_{emp.id}")
+            late_val = parse_to_float_field(f"late_deduct_{emp.id}")
+            early_val = parse_to_float_field(f"early_deduct_{emp.id}")
+            absent_val = parse_to_float_field(f"absent_deduct_{emp.id}")
+            net_val = parse_to_float_field(f"net_{emp.id}")
+
+            # remove old draft
+            db.query(models.PayrollDetail).filter(
+                models.PayrollDetail.employee_id == emp.id,
+                models.PayrollDetail.month == dt_end.month,
+                models.PayrollDetail.year == dt_end.year
+            ).delete()
+
+            new_record = models.PayrollDetail(
+                employee_id=emp.id,
+                month=dt_end.month,
+                year=dt_end.year,
+                salary=emp.base_salary,
+                position_allowance=emp.position_allowance,
+                ot_pay=ot_pay_val,
+                sso=sso_val,
+                tax=tax_val,
+                late_deduction=late_val,
+                early_deduction=early_val,
+                absence_deduction=absent_val,
+                extra_income=e_income,
+                extra_deduction=e_deduction,
+                net_total=net_val,
+                status="Draft" if action == "save_draft" else "Finalized"
+            )
+            db.add(new_record)
+
+        # single log for full-run
+        log_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันเงินเดือน"
+        log_activity(db, current_user, log_name, f"งวด {dt_end.month}/{dt_end.year}", request)
 
     db.commit()
-    
-    # 4. Redirect กลับหน้าเดิมพร้อมรักษาช่วงวันที่ Global ไว้
-    msg = "draft_saved" if action == "save_draft" else "finalized"
-    return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg={msg}", status_code=303)
+
+    if action == "save_draft":
+        return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", status_code=303)
+
+    return RedirectResponse(url=f"/admin/payroll-summary?month={dt_end_global.month}&year={dt_end_global.year}", status_code=303)
 
 @app.post("/admin/save-payroll-settings")
 async def save_payroll_settings(
@@ -2814,77 +2847,7 @@ async def save_payroll_settings(
     db.commit()
     return RedirectResponse(url="/admin/payroll-settings?msg=success", status_code=303)
 
-@app.post("/admin/process-payroll")
-async def process_payroll(
-    request: Request,
-    action: str = Form(...),
-    start_date: str = Form(...),
-    end_date: str = Form(...),
-    db: Session = Depends(get_db),
-    user: models.Employee = Depends(get_current_active_user)
-):
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
 
-    form_data = await request.form()
-    employees = db.query(models.Employee).all()
-    dt_end = datetime.strptime(end_date, '%Y-%m-%d')
-
-    for emp in employees:
-        def parse_to_float(field_name):
-            val = form_data.get(field_name, "0")
-            if val and str(val).strip() != "":
-                # ลบ comma ออกก่อนแปลงเป็น float เพื่อป้องกัน Error
-                return float(str(val).replace(',', ''))
-            return 0.0
-        
-        # ✅ ดึงค่าทุกช่องจากหน้าเว็บ (รวมถึง 1,250 ของนายด้วย)
-        e_income = parse_to_float(f"extra_income_{emp.id}")
-        e_deduction = parse_to_float(f"extra_deduction_{emp.id}") # นี่คือเงินลดพิเศษ
-        sso_val = parse_to_float(f"sso_{emp.id}")
-        tax_val = parse_to_float(f"tax_{emp.id}")
-        ot_pay_val = parse_to_float(f"ot_{emp.id}")
-        late_val = parse_to_float(f"late_deduct_{emp.id}")
-        early_val = parse_to_float(f"early_deduct_{emp.id}")
-        absent_val = parse_to_float(f"absent_deduct_{emp.id}")
-        net_val = parse_to_float(f"net_{emp.id}")
-
-        # 1. ล้างข้อมูลเก่าของงวดนี้ออกก่อน
-        db.query(models.PayrollDetail).filter(
-            models.PayrollDetail.employee_id == emp.id,
-            models.PayrollDetail.month == dt_end.month,
-            models.PayrollDetail.year == dt_end.year
-        ).delete()
-
-        # 2. สร้าง Record ใหม่ (เก็บค่าที่นายกรอกไว้ครบถ้วน)
-        new_record = models.PayrollDetail(
-            employee_id=emp.id,
-            month=dt_end.month,
-            year=dt_end.year,
-            salary=emp.base_salary,
-            position_allowance=emp.position_allowance,
-            ot_pay=ot_pay_val,
-            sso=sso_val,
-            tax=tax_val,
-            late_deduction=late_val,
-            early_deduction=early_val,
-            absence_deduction=absent_val,
-            extra_income=e_income,
-            extra_deduction=e_deduction, # ✅ บันทึกค่า 1,250 ลง DB แล้ว
-            net_total=net_val,
-            status="Draft" if action == "save_draft" else "Finalized"
-        )
-        db.add(new_record)
-
-    # 3. บันทึก Log
-    log_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันเงินเดือน"
-    log_activity(db, user, log_name, f"งวด {dt_end.month}/{dt_end.year}", request)
-    db.commit()
-
-    if action == "save_draft":
-        return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", status_code=303)
-    
-    return RedirectResponse(url=f"/admin/payroll-summary?month={dt_end.month}&year={dt_end.year}", status_code=303)
 
 @app.post("/admin/save-payroll")
 async def save_payroll(
@@ -2935,8 +2898,10 @@ async def payroll_summary(
 ):
     # 1. กำหนดค่าเริ่มต้น (ถ้าไม่เลือก ให้เอาเดือนปัจจุบัน)
     now = datetime.now()
-    if month is None: month = now.month
-    if year is None: year = now.year
+    if month is None:
+        month = now.month
+    if year is None:
+        year = now.year
 
     # 2. ดึงข้อมูลพนักงานตามเดือน/ปี ที่เลือก
     raw_data = db.query(models.PayrollDetail).options(
@@ -3064,15 +3029,15 @@ async def handle_request_ot(
                 (models.Employee.employee_code == "admin")
             ).all()
             for admin in admins:
-                send_push_to_user(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name if user else user_id} ยื่นขอ OT", db)
+                send_push_notification(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name if user else user_id} ยื่นขอ OT", db)
         except Exception as e:
-            print(f"❌ Notification Error: {e}")
+            logger.info(f"❌ Notification Error: {e}")
 
         return RedirectResponse(url="/my-ot-requests?msg=success", status_code=303)
 
     except Exception as e:
         db.rollback()
-        print(f"🚩 Error: {e}")
+        logger.info(f"🚩 Error: {e}")
         return RedirectResponse(url="/request-ot?msg=error", status_code=303)
 
 @app.get("/admin/approve-ot")
@@ -3116,14 +3081,14 @@ async def process_ot(
         
         # 🚩 ส่งแจ้งเตือนหาพนักงาน
         try:
-            send_push_to_user(
+            send_push_notification(
                 ot_req.employee_id, 
                 f"{icon} ผลการอนุมัติ OT", 
                 f"คำขอ OT ของคุณ{msg_text}", 
                 db
             )
         except Exception as e:
-            print(f"Push Notification Error: {e}")
+            logger.info(f"Push Notification Error: {e}")
             
     return RedirectResponse(url="/admin/approve-ot?msg=updated", status_code=303)
 
@@ -3216,7 +3181,7 @@ async def approve_all_requests(db: Session = Depends(get_db)):
             # ส่งค่า db เข้าไปตรงๆ ได้เลย ไม่ต้องผ่าน Depends อีกรอบ
             await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
         except Exception as e:
-            print(f"🚩 Error: {e}")
+            logger.info(f"🚩 Error: {e}")
             continue
             
     return RedirectResponse(url="/admin/attendance-requests?msg=all_approved_success", status_code=303)
@@ -3249,8 +3214,10 @@ async def payroll_tax_sso_report(
 ):
     # กำหนดค่าปัจจุบันหากไม่ได้เลือกเดือน/ปีมา
     now = datetime.now()
-    if not month: month = now.month
-    if not year: year = now.year
+    if not month:
+        month = now.month
+    if not year:
+        year = now.year
 
     data = db.query(models.PayrollDetail).filter(
         models.PayrollDetail.month == month,
@@ -3272,38 +3239,8 @@ async def payroll_tax_sso_report(
         "years_range": range(now.year - 1, now.year + 2)
     })
     
-@app.post("/admin/settings/company/update")
-async def update_company_settings(
-    company_name: str = Form(...),
-    address: str = Form(...),
-    logo: UploadFile = File(None),
-    db: Session = Depends(get_db)
-):
-    company = db.query(models.CompanySetting).first()
-    if not company:
-        company = models.CompanySetting()
-        db.add(company)
 
-    company.company_name = company_name
-    company.address = address
 
-    # --- ☁️ แก้ไขจุดนี้: ส่งโลโก้ไป Cloudinary แทนการเซฟลงเครื่อง ---
-    if logo and logo.filename:
-        try:
-            # อัปโหลดไปที่โฟลเดอร์ hrm/company และตั้งชื่อ public_id ว่า company_logo
-            upload_result = cloudinary.uploader.upload(
-                logo.file,
-                folder="hrm/company",
-                public_id="company_logo",
-                overwrite=True
-            )
-            # ✅ บันทึก URL เต็มจาก Cloudinary ลง Database
-            company.logo_path = upload_result.get("secure_url")
-        except Exception as e:
-            print(f"Cloudinary Logo Upload Error: {e}")
-
-    db.commit()
-    return RedirectResponse(url="/admin/settings?msg=success", status_code=303)
 
 @app.get("/admin/settings")
 async def settings_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
