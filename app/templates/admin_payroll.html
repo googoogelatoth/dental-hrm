@@ -78,7 +78,8 @@
                                 </td>
                                 <td class="text-center small">
                                     <span class="badge bg-secondary mb-1">{{ emp.paid_days }} วัน</span><br>
-                                    <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span>
+                                    <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span><br>
+                                    <span class="text-danger">ขาด: {{ emp.absent_days or 0 }} วัน</span>
                                 </td>
                                 <td class="text-end salary-cell fw-bold text-success" data-val="{{ emp.display_income }}">
                                     {{ "{:,.2f}".format(emp.display_income) }}

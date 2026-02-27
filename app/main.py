@@ -2609,7 +2609,12 @@ def calculate_dynamic_payroll_details(
     
     calculated_late_deduction = round(rate_min * total_late_mins, 2)
     calculated_early_deduction = round(rate_min * total_early_mins, 2)
-    calculated_absent_deduction = 0.0
+
+    # calculate absent days (total days minus paid days)
+    total_days = (end_date - start_date).days + 1
+    absent_days = max(0, total_days - paid_days)
+    # absence deduction uses daily rate (salary + allowance) / 30 per day
+    calculated_absent_deduction = round(absent_days * (base_calc / 30), 2)
 
     # ========== 4. OT PAY (Dynamic from OTRequest Approved) ==========
     approved_ot_pay = calculate_ot_pay(emp.id, end_date.month, end_date.year, db)
@@ -2651,6 +2656,7 @@ def calculate_dynamic_payroll_details(
         'paid_days': paid_days,
         'late_minutes': total_late_mins,
         'early_minutes': total_early_mins,
+        'absent_days': absent_days,
         # Deductions
         'calculated_late_deduction': calculated_late_deduction,
         'calculated_early_deduction': calculated_early_deduction,
@@ -2751,6 +2757,8 @@ async def calculate_payroll_page(
         emp.draft_tax = payroll_details['draft_tax']
         emp.display_income = payroll_details['display_income']
         emp.net_salary = payroll_details['net_salary']
+        emp.absent_days = payroll_details.get('absent_days', 0)
+
 
     return templates.TemplateResponse("admin_payroll.html", {
         "request": request,
