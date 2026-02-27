@@ -2574,6 +2574,11 @@ def calculate_dynamic_payroll_details(
         is_holiday = curr in holiday_dates
         is_weekly_off = emp.weekly_off and day_name in emp.weekly_off
         
+        # Skip weekend/weekly off - don't count any income
+        if is_weekly_off:
+            curr += timedelta(days=1)
+            continue
+        
         att = db.query(models.Attendance).filter(
             models.Attendance.employee_id == emp.id,
             models.Attendance.date == curr
@@ -2586,7 +2591,8 @@ def calculate_dynamic_payroll_details(
             models.LeaveRequest.end_date >= curr
         ).first()
 
-        if att or is_holiday or is_weekly_off or leave:
+        # Count paid days: working day with attendance/leave/holiday
+        if att or is_holiday or leave:
             paid_days += 1
             if att:
                 total_late_mins += (att.late_minutes or 0)
@@ -2604,9 +2610,18 @@ def calculate_dynamic_payroll_details(
     display_income = base_calc
 
     # ========== 3. DEDUCTIONS: ABSENCE (Dynamic from Attendance) ==========
-    # calculate absent days (total days minus paid days)
-    total_days = (end_date - start_date).days + 1
-    absent_days = max(0, total_days - paid_days)
+    # Count total working days (excluding weekends/weekoff)
+    total_working_days = 0
+    curr_check = start_date
+    while curr_check <= end_date:
+        day_name = curr_check.strftime('%a')
+        is_weekly_off = emp.weekly_off and day_name in emp.weekly_off
+        if not is_weekly_off:
+            total_working_days += 1
+        curr_check += timedelta(days=1)
+    
+    # calculate absent days (working days minus paid days)
+    absent_days = max(0, total_working_days - paid_days)
     # absence deduction uses daily rate (salary + allowance) / 30 per day
     calculated_absent_deduction = round(absent_days * daily_rate, 2)
 
