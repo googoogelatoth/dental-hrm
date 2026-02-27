@@ -46,13 +46,13 @@
                             <tr>
                                 <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
                                 <th style="min-width: 220px;">{{ texts.pay_col_name }} / ช่วงวัน</th>
-                                <th class="text-end">{{ texts.pay_col_base }}</th>
-                                <th class="text-center">สถิติ (วัน/สาย)</th>
-                                <th class="text-end">เงินเดือนตามจริง</th>
+                                <th class="text-end">ฐาน (เดือน)</th>
+                                <th class="text-center">สถิติ (วัน/สาย/ขาด)</th>
+                                <th class="text-end">ฐานเงินเดือน</th>
                                 <th class="text-end">OT</th>
-                                <th style="min-width: 120px;">หักสาย/ออกก่อน</th>
-                                <th style="min-width: 100px;">หักขาดงาน</th>
-                                <th style="min-width: 100px;">เงินเพิ่ม/ลดพิเศษ</th>
+                                <th style="min-width: 120px;">หักสาย/ออก</th>
+                                <th style="min-width: 100px;">หักขาด</th>
+                                <th style="min-width: 100px;">เงินเพิ่ม/ลด</th>
                                 <th style="min-width: 120px;">SSO / Tax</th>
                                 <th class="text-end">{{ texts.pay_col_net }}</th>
                             </tr>
@@ -81,8 +81,8 @@
                                     <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span><br>
                                     <span class="text-danger">ขาด: {{ emp.absent_days or 0 }} วัน</span>
                                 </td>
-                                <td class="text-end salary-cell fw-bold text-success" data-val="{{ emp.display_income }}">
-                                    {{ "{:,.2f}".format(emp.display_income) }}
+                                <td class="text-end salary-cell fw-bold text-info" data-val="{{ emp.display_income }}">
+                                    <strong>{{ "{:,.2f}".format(emp.display_income) }}</strong>
                                 </td>
 
                                 <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
