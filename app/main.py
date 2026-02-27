@@ -2572,7 +2572,7 @@ def calculate_dynamic_payroll_details(
     while curr <= end_date:
         day_name = curr.strftime('%a')
         is_holiday = curr in holiday_dates
-        is_weekly_off = emp.weekly_off and day_name not in emp.weekly_off
+        is_weekly_off = emp.weekly_off and day_name in emp.weekly_off
         
         att = db.query(models.Attendance).filter(
             models.Attendance.employee_id == emp.id,

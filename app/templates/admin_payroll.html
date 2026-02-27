@@ -184,11 +184,12 @@ function calculateRow(element) {
     };
 
     // ========== DYNAMIC CALCULATION LOGIC ==========
-    // Base income from attendance calculation
-    const baseIncome = getVal('.salary-cell', true);
+    // Base income from "ฐาน (เดือน)" column - extract from 3rd TD
+    const baseTd = row.querySelectorAll('td')[2];
+    const baseIncome = baseTd ? parseFloat(baseTd.innerText.replace(/,/g, '').trim()) || 0 : 0;
     
-    // OT pay (from apprbase salary + position allowance (from "ฐาน (เดือน)" column)
-    const baseIncome = parseFloat(row.querySelectorAll('td')[2].innerText.replace(/,/g, '')) || 0
+    // OT pay (from approved OT requests)
+    const otPay = getVal('.ot-cell', true);
     
     // Manual additions
     const extraIncome = getVal('.extra-income-input');
@@ -209,9 +210,11 @@ function calculateRow(element) {
     // Net salary = Gross - Total Deductions
     const netSalary = grossIncome - totalDeductions;
     
-    // Update display
-    row.querySelector('.net-salary-cell').innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 });
-    row.querySelector('.net-hidden-input').value = netSalary.toFixed(2);
+    // Update display with safeguards
+    if (!isNaN(netSalary)) {
+        row.querySelector('.net-salary-cell').innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 });
+        row.querySelector('.net-hidden-input').value = netSalary.toFixed(2);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
