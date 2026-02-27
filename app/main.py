@@ -1460,13 +1460,14 @@ async def attendance_report(
                     models.LeaveRequest.end_date >= current_day
                 ).first()
                 
-                is_work_day = emp.weekly_off and today_name in emp.weekly_off
+                # Check if today is a weekly off day (e.g., Sun, Sat)
+                is_weekly_off = emp.weekly_off and today_name in emp.weekly_off
                 
                 if leave:
                     status = f"ลา ({leave.leave_type})" 
                 elif is_holiday:
                     status = f"วันหยุด ({is_holiday.holiday_name})"
-                elif emp.weekly_off and not is_work_day:
+                elif is_weekly_off:
                     status = "วันหยุดประจำสัปดาห์"
                 else:
                     status = "ขาดงาน"
@@ -1908,13 +1909,14 @@ async def my_attendance(request: Request,user: models.Employee = Depends(get_cur
                 models.LeaveRequest.end_date >= current_day
             ).first()
 
-            is_work_day = emp.weekly_off and today_name in emp.weekly_off
+            # Check if today is a weekly off day (e.g., Sun, Sat)
+            is_weekly_off = emp.weekly_off and today_name in emp.weekly_off
             status = "ขาดงาน"
             if leave:
                 status = f"ลา ({leave.leave_type})"
             elif is_holiday:
                 status = f"วันหยุด ({is_holiday.holiday_name})"
-            elif not is_work_day:
+            elif is_weekly_off:
                 status = "วันหยุดประจำสัปดาห์"
 
             report_data.append({
@@ -2614,7 +2616,7 @@ def calculate_dynamic_payroll_details(
     display_income = base_calc
 
     # ========== 3. DEDUCTIONS: ABSENCE (Dynamic from Attendance) ==========
-    # Count total working days (excluding weekends/weekoff)
+    # Count total working days (excluding weekends/weekoff and holidays)
     total_working_days = 0
     curr_check = start_date
     while curr_check <= end_date:
@@ -2624,7 +2626,10 @@ def calculate_dynamic_payroll_details(
         # Split weekly_off by comma and check if current day is in the list
         weekly_off_list = [d.strip() for d in weekly_off.split(',')]
         is_weekly_off = day_name in weekly_off_list
-        if not is_weekly_off:
+        # Check if current day is a holiday
+        is_holiday_day = db.query(models.Holiday).filter(models.Holiday.holiday_date == curr_check).first()
+        # Only count as working day if it's not a weekly off and not a holiday
+        if not is_weekly_off and not is_holiday_day:
             total_working_days += 1
         curr_check += timedelta(days=1)
     
