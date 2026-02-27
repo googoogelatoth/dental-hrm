@@ -2574,7 +2574,9 @@ def calculate_dynamic_payroll_details(
         is_holiday = curr in holiday_dates
         # Default weekend is Sunday if not specified
         weekly_off = emp.weekly_off if emp.weekly_off else "Sun"
-        is_weekly_off = day_name in weekly_off
+        # Split weekly_off by comma and check if current day is in the list
+        weekly_off_list = [d.strip() for d in weekly_off.split(',')]
+        is_weekly_off = day_name in weekly_off_list
         
         # Skip weekend/weekly off - don't count any income
         if is_weekly_off:
@@ -2619,7 +2621,9 @@ def calculate_dynamic_payroll_details(
         day_name = curr_check.strftime('%a')
         # Default weekend is Sunday if not specified
         weekly_off = emp.weekly_off if emp.weekly_off else "Sun"
-        is_weekly_off = day_name in weekly_off
+        # Split weekly_off by comma and check if current day is in the list
+        weekly_off_list = [d.strip() for d in weekly_off.split(',')]
+        is_weekly_off = day_name in weekly_off_list
         if not is_weekly_off:
             total_working_days += 1
         curr_check += timedelta(days=1)
