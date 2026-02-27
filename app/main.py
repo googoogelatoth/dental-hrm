@@ -1460,8 +1460,9 @@ async def attendance_report(
                     models.LeaveRequest.end_date >= current_day
                 ).first()
                 
-                # Check if today is a weekly off day (e.g., Sun, Sat)
-                is_weekly_off = emp.weekly_off and today_name in emp.weekly_off
+                # Note: weekly_off stores WORKING days, not holidays!
+                # So weekend/holiday = day NOT in weekly_off
+                is_weekly_off = emp.weekly_off and today_name not in emp.weekly_off
                 
                 if leave:
                     status = f"ลา ({leave.leave_type})" 
@@ -1909,8 +1910,9 @@ async def my_attendance(request: Request,user: models.Employee = Depends(get_cur
                 models.LeaveRequest.end_date >= current_day
             ).first()
 
-            # Check if today is a weekly off day (e.g., Sun, Sat)
-            is_weekly_off = emp.weekly_off and today_name in emp.weekly_off
+            # Note: weekly_off stores WORKING days, not holidays!
+            # So weekend/holiday = day NOT in weekly_off
+            is_weekly_off = emp.weekly_off and today_name not in emp.weekly_off
             status = "ขาดงาน"
             if leave:
                 status = f"ลา ({leave.leave_type})"
@@ -2577,8 +2579,9 @@ def calculate_dynamic_payroll_details(
         # Default weekend is Sunday if not specified
         weekly_off = emp.weekly_off if emp.weekly_off else "Sun"
         # Split weekly_off by comma and check if current day is in the list
+        # Note: weekly_off stores WORKING days, not holidays!
         weekly_off_list = [d.strip() for d in weekly_off.split(',')]
-        is_weekly_off = day_name in weekly_off_list
+        is_weekly_off = day_name not in weekly_off_list
         
         # Skip weekend/weekly off - don't count any income
         if is_weekly_off:
@@ -2624,12 +2627,13 @@ def calculate_dynamic_payroll_details(
         # Default weekend is Sunday if not specified
         weekly_off = emp.weekly_off if emp.weekly_off else "Sun"
         # Split weekly_off by comma and check if current day is in the list
+        # Note: weekly_off stores WORKING days, not holidays!
         weekly_off_list = [d.strip() for d in weekly_off.split(',')]
-        is_weekly_off = day_name in weekly_off_list
-        # Check if current day is a holiday
-        is_holiday_day = db.query(models.Holiday).filter(models.Holiday.holiday_date == curr_check).first()
-        # Only count as working day if it's not a weekly off and not a holiday
-        if not is_weekly_off and not is_holiday_day:
+        is_work_day = day_name in weekly_off_list
+        # Check if current day is a holiday (use the same holiday_dates set)
+        is_holiday_day = curr_check in holiday_dates
+        # Only count as working day if it's a work day and not a holiday
+        if is_work_day and not is_holiday_day:
             total_working_days += 1
         curr_check += timedelta(days=1)
     
@@ -2637,6 +2641,13 @@ def calculate_dynamic_payroll_details(
     absent_days = max(0, total_working_days - paid_days)
     # absence deduction uses daily rate (salary + allowance) / 30 per day
     calculated_absent_deduction = round(absent_days * daily_rate, 2)
+    
+    # Debug logging for holiday calculation (remove after verification)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Payroll Debug] Employee: {emp.employee_code}, Period: {start_date} to {end_date}")
+    logger.info(f"  Holiday dates in range: {sorted(holiday_dates)}")
+    logger.info(f"  Total working days: {total_working_days}, Paid days: {paid_days}, Absent days: {absent_days}")
 
     # ========== 4. DEDUCTIONS: LATE/EARLY (Dynamic from Attendance) ==========
     late_conf = settings.get('late')
