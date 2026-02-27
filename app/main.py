@@ -2599,9 +2599,18 @@ def calculate_dynamic_payroll_details(
     position_allowance = emp.position_allowance or 0
     base_calc = base_salary + position_allowance
     daily_rate = base_calc / 30
-    display_income = round(daily_rate * paid_days, 2)
+    
+    # Display income starts from base salary (full amount)
+    display_income = base_calc
 
-    # ========== 3. DEDUCTIONS: LATE/EARLY (Dynamic from Attendance) ==========
+    # ========== 3. DEDUCTIONS: ABSENCE (Dynamic from Attendance) ==========
+    # calculate absent days (total days minus paid days)
+    total_days = (end_date - start_date).days + 1
+    absent_days = max(0, total_days - paid_days)
+    # absence deduction uses daily rate (salary + allowance) / 30 per day
+    calculated_absent_deduction = round(absent_days * daily_rate, 2)
+
+    # ========== 4. DEDUCTIONS: LATE/EARLY (Dynamic from Attendance) ==========
     late_conf = settings.get('late')
     l_days = late_conf.divider_days if late_conf else 30
     l_hours = late_conf.divider_hours if late_conf else 8
@@ -2610,16 +2619,10 @@ def calculate_dynamic_payroll_details(
     calculated_late_deduction = round(rate_min * total_late_mins, 2)
     calculated_early_deduction = round(rate_min * total_early_mins, 2)
 
-    # calculate absent days (total days minus paid days)
-    total_days = (end_date - start_date).days + 1
-    absent_days = max(0, total_days - paid_days)
-    # absence deduction uses daily rate (salary + allowance) / 30 per day
-    calculated_absent_deduction = round(absent_days * (base_calc / 30), 2)
-
-    # ========== 4. OT PAY (Dynamic from OTRequest Approved) ==========
+    # ========== 5. OT PAY (Dynamic from OTRequest Approved) ==========
     approved_ot_pay = calculate_ot_pay(emp.id, end_date.month, end_date.year, db)
 
-    # ========== 5. DRAFT VALUES (Manual overrides from DB) ==========
+    # ========== 6. DRAFT VALUES (Manual overrides from DB) ==========
     if draft:
         draft_extra_income = draft.extra_income or 0
         draft_extra_deduction = draft.extra_deduction or 0
@@ -2639,7 +2642,20 @@ def calculate_dynamic_payroll_details(
         draft_sso = min(base_salary * 0.05, 750)
         draft_tax = 0
 
-    # ========== 6. NET SALARY (Final Calculation) ==========
+    # ========== 7. NET SALARY (Final Calculation) ==========
+    # Formula: Base Salary - Absences - Late - Early + OT + Extra Income - Extra Deduction - SSO - Tax = NET
+    # 
+    # Example:
+    #   Base Salary: 12,000
+    #   Less: Absent 3 days (3 x 400): -1,200
+    #   Less: Late penalties: -100
+    #   Plus: OT pay: +500
+    #   Plus: Extra income: +200
+    #   Less: Extra deductions: -300
+    #   Less: SSO: -600
+    #   Less: Tax: 0
+    #   = Net Salary: 10,500
+    #
     gross_income = display_income + approved_ot_pay + draft_extra_income
     total_deductions = (
         calculated_late_deduction +
