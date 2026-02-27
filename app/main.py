@@ -2630,11 +2630,12 @@ def calculate_dynamic_payroll_details(
         draft_sso = draft.sso or 0
         
         # If draft has manual overrides for computed fields, use those instead
-        if draft.late_deduction is not None and draft.late_deduction >= 0:
+        # Only use draft value if it's > 0 (not just 0 placeholder)
+        if draft.late_deduction is not None and draft.late_deduction > 0:
             calculated_late_deduction = draft.late_deduction
-        if draft.early_deduction is not None and draft.early_deduction >= 0:
+        if draft.early_deduction is not None and draft.early_deduction > 0:
             calculated_early_deduction = draft.early_deduction
-        if draft.absence_deduction is not None and draft.absence_deduction >= 0:
+        if draft.absence_deduction is not None and draft.absence_deduction > 0:
             calculated_absent_deduction = draft.absence_deduction
     else:
         draft_extra_income = 0

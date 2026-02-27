@@ -48,7 +48,6 @@
                                 <th style="min-width: 220px;">{{ texts.pay_col_name }} / ช่วงวัน</th>
                                 <th class="text-end">ฐาน (เดือน)</th>
                                 <th class="text-center">สถิติ (วัน/สาย/ขาด)</th>
-                                <th class="text-end">ฐานเงินเดือน</th>
                                 <th class="text-end">OT</th>
                                 <th style="min-width: 120px;">หักสาย/ออก</th>
                                 <th style="min-width: 100px;">หักขาด</th>
@@ -80,9 +79,6 @@
                                     <span class="badge bg-secondary mb-1">{{ emp.paid_days }} วัน</span><br>
                                     <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span><br>
                                     <span class="text-danger">ขาด: {{ emp.absent_days or 0 }} วัน</span>
-                                </td>
-                                <td class="text-end salary-cell fw-bold text-info" data-val="{{ emp.display_income }}">
-                                    <strong>{{ "{:,.2f}".format(emp.display_income) }}</strong>
                                 </td>
 
                                 <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
@@ -191,8 +187,8 @@ function calculateRow(element) {
     // Base income from attendance calculation
     const baseIncome = getVal('.salary-cell', true);
     
-    // OT pay (from approved OT requests)
-    const otPay = getVal('.ot-cell', true);
+    // OT pay (from apprbase salary + position allowance (from "ฐาน (เดือน)" column)
+    const baseIncome = parseFloat(row.querySelectorAll('td')[2].innerText.replace(/,/g, '')) || 0
     
     // Manual additions
     const extraIncome = getVal('.extra-income-input');
