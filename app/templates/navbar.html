@@ -1,9 +1,9 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 shadow no-print">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center fw-bold" href="/monitor">
-            {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก request.state หรือ context --- #}
-            {% set logo = company_logo if company_logo is defined else get_company_logo(request) %}
-            {% set name = company_name if company_name is defined else get_company_name(request) %}
+            {# --- ✨ จุดแสดงโลโก้จาก global function (ทำงานทุกหน้าอัตโนมัติ) --- #}
+            {% set logo = get_company_logo(request) %}
+            {% set name = get_company_name(request) %}
             
             {% if logo and logo != '/static/img/mini-hrm-logo.png' %}
                 <img src="{{ logo }}" 
