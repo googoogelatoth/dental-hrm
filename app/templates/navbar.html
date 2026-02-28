@@ -1,17 +1,20 @@
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 shadow no-print">
     <div class="container">
         <a class="navbar-brand d-flex align-items-center fw-bold" href="/monitor">
-            {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก Cloudinary --- #}
-            {% if company_logo %}
-                <img src="{% if company_logo and company_logo.startswith('http') %}{{ company_logo }}{% else %}/static/img/mini-hrm-logo.png{% endif %}" 
+            {# --- ✨ จุดแสดงโลโก้ที่ดึงมาจาก request.state หรือ context --- #}
+            {% set logo = company_logo if company_logo is defined else get_company_logo(request) %}
+            {% set name = company_name if company_name is defined else get_company_name(request) %}
+            
+            {% if logo and logo != '/static/img/mini-hrm-logo.png' %}
+                <img src="{{ logo }}" 
                     alt="Logo" height="35" class="me-2" 
                     onerror="this.src='/static/img/mini-hrm-logo.png'">
             {% else %}
                 <i class="bi bi-hospital me-2"></i>
             {% endif %}
     
-            {# --- แสดงชื่อบริษัท ถ้าไม่มีให้ใช้ชื่อระบบ --- #}
-            {{ company_name or 'Mini-HRM' }}
+            {# --- แสดงชื่อบริษัท --- #}
+            {{ name }}
         </a>
         
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">

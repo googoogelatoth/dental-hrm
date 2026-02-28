@@ -129,6 +129,30 @@ cloudinary.config(
 # ตั้งค่าตำแหน่งของไฟล์ HTML
 templates = Jinja2Templates(directory="app/templates")
 
+# เพิ่ม global functions สำหรับ template ให้สามารถดึงข้อมูลบริษัทได้อัตโนมัติ
+def get_company_context():
+    """ดึงข้อมูลบริษัทสำหรับแสดงใน navbar"""
+    db = SessionLocal()
+    try:
+        company = db.query(models.CompanySetting).first()
+        return {
+            'company_logo': compute_logo_url(company) or "/static/img/mini-hrm-logo.png",
+            'company_name': company.company_name if company else "Mini-HRM"
+        }
+    except:
+        return {
+            'company_logo': "/static/img/mini-hrm-logo.png",
+            'company_name': "Mini-HRM"
+        }
+    finally:
+        db.close()
+
+# เพิ่ม context processor ให้ Jinja2 สามารถเรียกใช้ได้
+templates.env.globals.update({
+    'get_company_logo': lambda request: get_company_context()['company_logo'],
+    'get_company_name': lambda request: get_company_context()['company_name']
+})
+
 
 # Serve service worker at site root for full-origin scope
 @app.get("/service-worker.js", include_in_schema=False)
@@ -285,6 +309,15 @@ def log_activity(db, user, action, details, request):
     )
     db.add(new_log)
 
+# Dependency function เพื่อดึงข้อมูลบริษัทสำหรับแสดงใน navbar
+def get_company_info(db: Session = Depends(get_db)):
+    """ดึงข้อมูลบริษัทเพื่อแสดงโลโก้และชื่อใน navbar"""
+    company = db.query(models.CompanySetting).first()
+    return {
+        "company_logo": compute_logo_url(company) or "/static/img/mini-hrm-logo.png",
+        "company_name": company.company_name if company else "Mini-HRM"
+    }
+
 # แก้ไขจากของเดิม ให้เป็นแบบนี้ครับ
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -357,7 +390,8 @@ async def monitor_page(
     request: Request,
     user: models.Employee = Depends(get_current_active_user),
     texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    company_info: dict = Depends(get_company_info)
 ):
     # 1. ข้อมูลพื้นฐานและเวลาปัจจุบัน
     now_th = get_now_th()
@@ -419,6 +453,7 @@ async def monitor_page(
     return templates.TemplateResponse("monitor.html", {
         "request": request,
         "texts": texts,
+        **company_info,  # company_logo และ company_name สำหรับ navbar
         "user": user,
         "stat_total": total_active_emp,
         "stat_present": present_today,
@@ -481,7 +516,8 @@ async def dashboard(
     request: Request,
     user: models.Employee = Depends(get_current_active_user),
     texts: dict = Depends(get_lang), 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    company_info: dict = Depends(get_company_info)
 ):
     # 1. เช็คพื้นฐานว่ามีการ Login ไหม
     user_id = request.cookies.get("user_id")
@@ -512,8 +548,7 @@ async def dashboard(
         "public_vapid_key": VAPID_PUBLIC_KEY,
         "user_role": user.role, 
         "user": user,
-        "company_name": company.company_name if company else None,
-        "company_logo": compute_logo_url(company),
+        **company_info,  # เพิ่ม company_logo และ company_name
         "texts": texts
     })
 
@@ -802,9 +837,15 @@ async def update_company_settings(
 
 # --- 3. ฟังก์ชันลบข้อมูล ---
 @app.get("/delete-employee/{emp_id}")
-async def delete_employee(emp_id: int, db: Session = Depends(get_db)):
+async def delete_employee(emp_id: int, request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if employee:
+        emp_name = f"{employee.first_name} {employee.last_name}"
+        emp_code = employee.employee_code
+        
+        # บันทึก log ก่อนลบ
+        log_activity(db, user, "ลบพนักงาน", f"ลบพนักงาน: {emp_name} (รหัส: {emp_code}) ออกจากระบบอย่างถาวร", request)
+        
         db.delete(employee)
         db.commit()
     return RedirectResponse(url="/dashboard?msg=deleted", status_code=status.HTTP_303_SEE_OTHER)
@@ -946,7 +987,9 @@ async def handle_login(
     if user and pwd_context.verify(password.encode('utf-8')[:72], user.hashed_password):
         
         # --- [ส่วนที่เพิ่มใหม่: Single Device Login] ---
-        new_session_id = str(uuid.uuid4())
+        # ใช้ secrets สำหรับ session ID ที่ปลอดภัยกว่า
+        import secrets
+        new_session_id = secrets.token_urlsafe(32)  # 256-bit cryptographically secure
         user.current_session_id = new_session_id
         
         # 🚩 บันทึก Log: Login สำเร็จ (ใช้ตัวแปร user จริงจาก DB)
@@ -964,13 +1007,30 @@ async def handle_login(
         # กำหนดหน้าปลายทาง
         res = RedirectResponse(url="/monitor", status_code=status.HTTP_303_SEE_OTHER)
         
-        # 3. ตั้งค่า Cookie
+        # 3. ตั้งค่า Cookie (ปรับปรุง security)
         max_age = 60 * 60 * 24 * 30  # 30 วัน
-        res.set_cookie(key="session_id", value=new_session_id, max_age=max_age, httponly=True)
-        res.set_cookie(key="is_logged_in", value="true", max_age=max_age)
-        res.set_cookie(key="user_name", value=user.employee_code, max_age=max_age) 
-        res.set_cookie(key="user_role", value=user.role, max_age=max_age)
-        res.set_cookie(key="user_id", value=str(user.id), max_age=max_age) 
+        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        
+        res.set_cookie(
+            key="session_id", value=new_session_id, max_age=max_age, 
+            httponly=True, secure=is_production, samesite="Lax"
+        )
+        res.set_cookie(
+            key="is_logged_in", value="true", max_age=max_age,
+            secure=is_production, samesite="Lax"
+        )
+        res.set_cookie(
+            key="user_name", value=user.employee_code, max_age=max_age,
+            secure=is_production, samesite="Lax"
+        )
+        res.set_cookie(
+            key="user_role", value=user.role, max_age=max_age,
+            secure=is_production, samesite="Lax"
+        )
+        res.set_cookie(
+            key="user_id", value=str(user.id), max_age=max_age,
+            secure=is_production, samesite="Lax"
+        ) 
         
         return res
     
@@ -1001,11 +1061,27 @@ async def handle_login(
 
 # 3. ฟังก์ชันออกจากระบบ
 @app.get("/logout")
-async def logout():
+async def logout(request: Request, db: Session = Depends(get_db)):
+    # บันทึก log ก่อนลบ cookie
+    user_name = request.cookies.get("user_name")
+    user_id = request.cookies.get("user_id")
+    
+    if user_name and user_id:
+        try:
+            user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
+            if user:
+                log_activity(db, user, "ออกจากระบบ", f"พนักงาน {user.first_name} ออกจากระบบ", request)
+                db.commit()
+        except:
+            pass
+    
     res = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     # ลบ Cookie ทั้งหมดที่เกี่ยวกับ Session
     res.delete_cookie("is_logged_in")
     res.delete_cookie("user_name")
+    res.delete_cookie("session_id")
+    res.delete_cookie("user_role")
+    res.delete_cookie("user_id")
     return res
 
 # --- หน้าแสดงฟอร์มเปลี่ยนรหัสผ่าน ---
@@ -1213,7 +1289,13 @@ async def handle_check_in(
             attendance.lon = lon
         msg = "checkout_success"
 
-    # 4. บันทึกทุกอย่างลง Database
+    # 4. บันทึก log activity
+    if not attendance:
+        log_activity(db, user, "เช็คอิน", f"เช็คอินเวลา {now.strftime('%H:%M')} สถานะ: {status} (สาย {late_min} นาที)", request)
+    else:
+        log_activity(db, user, "เช็คเอาท์", f"เช็คเอาท์เวลา {now.strftime('%H:%M')} (ออกก่อน {early_min} นาที)", request)
+    
+    # 5. บันทึกทุกอย่างลง Database
     db.commit()
     
     # ส่งกลับไปยังหน้าเช็คอินพร้อมข้อความแจ้งเตือน
@@ -1335,6 +1417,9 @@ async def save_schedules(request: Request,user: models.Employee = Depends(get_cu
         schedule.grace_period_late = int(late) if late else 0
         schedule.work_end_time = end
         schedule.grace_period_early_out = int(early) if early else 0
+
+    # บันทึก log
+    log_activity(db, user, "บันทึกตารางเวลา", "บันทึกตารางเวลาทำงานของพนักงานทั้งหมด", request)
 
     db.commit()
     return RedirectResponse(url="/schedules?msg=success", status_code=303)
@@ -1557,6 +1642,10 @@ async def handle_leave_apply(
         status="Pending"
     )
     db.add(new_leave)
+    
+    # บันทึก log
+    log_activity(db, user, "ยื่นขอลา", f"ยื่นคำขอ{leave_type} ตั้งแต่ {start_date} ถึง {end_date}", request)
+    
     db.commit()
 
     # 🚩 ส่วนส่งแจ้งเตือนหา Admin
@@ -1595,7 +1684,7 @@ async def admin_leave_management(request: Request,user: models.Employee = Depend
     })
     
 @app.post("/admin/leave/approve/{leave_id}")
-async def approve_leave(leave_id: int, status: str = Form(...),admin_remark: str = Form(None),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def approve_leave(request: Request, leave_id: int, status: str = Form(...),admin_remark: str = Form(None),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     # 1. ค้นหาใบลา
     leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.id == leave_id).first()
     
@@ -1637,6 +1726,13 @@ async def approve_leave(leave_id: int, status: str = Form(...),admin_remark: str
         # --- [อัปเดตสถานะและแจ้งเตือน] ---
         leave.status = status 
         leave.admin_remark = admin_remark # ✅ บันทึกลง DB
+        
+        # บันทึก log
+        employee = db.query(models.Employee).filter(models.Employee.id == leave.employee_id).first()
+        if employee:
+            action_text = "อนุมัติการลา" if status.lower() == "approved" else "ปฏิเสธการลา"
+            log_activity(db, user, action_text, f"{action_text}ของ {employee.first_name} {employee.last_name} ({leave.leave_type})", request)
+        
         db.commit() # บันทึกทั้งสถานะและยอดโควตาที่ถูกหัก
         
         # 2. เตรียมข้อความแจ้งเตือนตามสถานะจริง
@@ -1965,6 +2061,9 @@ async def update_schedules(request: Request,user: models.Employee = Depends(get_
         schedule.grace_period_early_out = int(early_grace)
         schedule.work_days = work_days_str
 
+    # บันทึก log
+    log_activity(db, user, "อัปเดตตารางเวลา", "อัปเดตตารางเวลาทำงานของพนักงานทั้งหมด", request)
+
     db.commit()
     return RedirectResponse(url="/schedules", status_code=303)
 
@@ -1974,6 +2073,30 @@ async def holiday_page(request: Request,user: models.Employee = Depends(get_curr
     return templates.TemplateResponse("holidays.html", {"texts": texts,"request": request, "holidays": holidays})
 
 @app.post("/add-holiday")
+async def add_holiday(request: Request, holiday_name: str = Form(...), holiday_date: str = Form(...),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    new_holiday = models.Holiday(holiday_name=holiday_name, holiday_date=datetime.strptime(holiday_date, "%Y-%m-%d").date())
+    db.add(new_holiday)
+    
+    # บันทึก log
+    log_activity(db, user, "เพิ่มวันหยุด", f"เพิ่มวันหยุดเข้าระบบ: {holiday_name} ({holiday_date})", request)
+    
+    db.commit()
+    return RedirectResponse(url="/holidays", status_code=303)
+
+@app.get("/delete-holiday/{holiday_id}")
+async def delete_holiday(holiday_id: int, request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    holiday = db.query(models.Holiday).filter(models.Holiday.id == holiday_id).first()
+    if holiday:
+        holiday_name = holiday.holiday_name
+        holiday_date = holiday.holiday_date
+        
+        db.delete(holiday)
+        
+        # บันทึก log
+        log_activity(db, user, "ลบวันหยุด", f"ลบวันหยุด: {holiday_name} ({holiday_date})", request)
+        
+        db.commit()
+    return RedirectResponse(url="/holidays", status_code=303)
 async def add_holiday(holiday_date: date = Form(...), holiday_name: str = Form(...),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     new_holiday = models.Holiday(holiday_date=holiday_date, holiday_name=holiday_name)
     db.add(new_holiday)
@@ -2103,6 +2226,10 @@ async def submit_attendance_request(
         )
         
         db.add(new_request)
+        
+        # บันทึก log
+        log_activity(db, user, "ขอแก้ไขลงเวลา", f"ยื่นคำขอแก้ไขลงเวลาวันที่ {request_date} (เวลาเข้า: {check_in or '-'}, ออก: {check_out or '-'})", request)
+        
         db.commit() # ✅ ยืนยันข้อมูลเข้า DB
     except Exception as e:
         logger.info(f"❌ Database Error: {e}")
@@ -2411,6 +2538,8 @@ async def broadcast_page(request: Request,user: models.Employee = Depends(get_cu
 
 @app.post("/admin/send-broadcast")
 async def send_broadcast(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
     title: str = Form(...), 
     message: str = Form(...), 
     db: Session = Depends(get_db)
@@ -2419,6 +2548,9 @@ async def send_broadcast(
     all_employees = db.query(models.Employee).all()
     for emp in all_employees:
         send_push_notification(emp.id, title, message, db)
+    
+    # บันทึก log
+    log_activity(db, user, "ส่งประกาศ", f"ส่งประกาศถึงพนักงานทุกคน: {title}", request)
         
     # 2. แก้ไขส่วนสุดท้าย: แทนที่ "return {"status": "success", ...}" ด้วยบรรทัดนี้ครับ:
     # ระบบจะพาส่งกลับไปที่หน้า Dashboard ทันทีหลังจากส่งครบทุกคน
@@ -3021,6 +3153,7 @@ async def process_payroll(
 @app.post("/admin/save-payroll-settings")
 async def save_payroll_settings(
     request: Request,
+    user: models.Employee = Depends(get_current_active_user),
     late_days: int = Form(...),
     late_hours: int = Form(...),
     absent_days: int = Form(...),
@@ -3055,6 +3188,9 @@ async def save_payroll_settings(
         else:
             new_set = models.PayrollSetting(**item)
             db.add(new_set)
+    
+    # บันทึก log
+    log_activity(db, user, "ตั้งค่าเงินเดือน", "อัปเดตการตั้งค่าคำนวณเงินเดือน", request)
     
     db.commit()
     return RedirectResponse(url="/admin/payroll-settings?msg=success", status_code=303)
@@ -3232,6 +3368,10 @@ async def handle_request_ot(
         )
         
         db.add(new_ot)
+        
+        # บันทึก log
+        log_activity(db, user, "ขอ OT", f"ยื่นคำขอทำงานล่วงเวลาวันที่ {ot_date} ({total_minutes} นาที)", request)
+        
         db.commit()
 
         # 🚩 3. ส่งแจ้งเตือนหา Admin
@@ -3268,9 +3408,11 @@ async def approve_ot_page(request: Request,user: models.Employee = Depends(get_c
 
 @app.post("/admin/process-ot/{ot_id}")
 async def process_ot(
+    request: Request,
     ot_id: int, 
     action: str = Form(...), 
     admin_remark: str = Form(None), # ✅ 1. เพิ่มให้รับค่าเหตุผล (None = ไม่บังคับ)
+    user: models.Employee = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     ot_req = db.query(models.OTRequest).filter(models.OTRequest.id == ot_id).first()
@@ -3289,6 +3431,13 @@ async def process_ot(
             
         # ✅ 3. บันทึกเหตุผลลงในฐานข้อมูล
         ot_req.admin_remark = admin_remark
+        
+        # บันทึก log
+        employee = db.query(models.Employee).filter(models.Employee.id == ot_req.employee_id).first()
+        if employee:
+            action_text = "อนุมัติ OT" if action == "approve" else "ปฏิเสธ OT"
+            log_activity(db, user, action_text, f"{action_text}ของ {employee.first_name} {employee.last_name} ({ot_req.total_minutes} นาที)", request)
+        
         db.commit() 
         
         # 🚩 ส่งแจ้งเตือนหาพนักงาน
@@ -3383,18 +3532,24 @@ async def download_attendance_template():
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.post("/admin/approve-all-requests")
-async def approve_all_requests(db: Session = Depends(get_db)):
+async def approve_all_requests(request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     pending_list = db.query(models.ManualAttendanceRequest).filter(
         models.ManualAttendanceRequest.status == "Pending"
     ).all()
+    
+    approved_count = 0
     
     for req in pending_list:
         try:
             # ส่งค่า db เข้าไปตรงๆ ได้เลย ไม่ต้องผ่าน Depends อีกรอบ
             await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
+            approved_count += 1
         except Exception as e:
             logger.info(f"🚩 Error: {e}")
             continue
+    
+    # บันทึก log
+    log_activity(db, user, "อนุมัติแก้ไขลงเวลาทั้งหมด", f"อนุมัติคำขอแก้ไขลงเวลาทั้งหมด {approved_count} รายการ", request)
             
     return RedirectResponse(url="/admin/attendance-requests?msg=all_approved_success", status_code=303)
 
