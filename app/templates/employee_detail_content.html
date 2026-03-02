@@ -86,19 +86,39 @@
     const msgError = "{{ texts.pro_notif_error }}";
 
     function urlBase64ToUint8Array(base64String) {
-        if (!base64String) return new Uint8Array(0);
-        let cleanString = base64String.replace(/['"]+/g, '').trim();
-        while (cleanString.length % 4 !== 0) { cleanString += '='; }
-        const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
-        try {
-            const rawData = window.atob(base64);
-            const outputArray = new Uint8Array(rawData.length);
-            for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-            return outputArray;
-        } catch (e) {
-            console.error("DEBUG - Final Base64 sent to atob:", base64);
-            throw e;
-        }
+            if (!base64String) {
+                console.error('ERROR: Base64 string is empty');
+                return new Uint8Array(0);
+            }
+        
+            try {
+                let cleanString = base64String.replace(/['"]+/g, '').trim();
+                console.log('Step 1 - Cleaned string length:', cleanString.length);
+            
+                while (cleanString.length % 4 !== 0) { 
+                    cleanString += '='; 
+                }
+                console.log('Step 2 - After padding length:', cleanString.length);
+            
+                const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
+                console.log('Step 3 - Standard base64 length:', base64.length);
+            
+                const rawData = window.atob(base64);
+                console.log('Step 4 - Raw data length:', rawData.length);
+            
+                const outputArray = new Uint8Array(rawData.length);
+                for (let i = 0; i < rawData.length; ++i) { 
+                    outputArray[i] = rawData.charCodeAt(i); 
+                }
+            
+                console.log('✅ Successfully converted VAPID key to Uint8Array, length:', outputArray.length);
+                return outputArray;
+            } catch (e) {
+                console.error("❌ ERROR: Failed to convert VAPID key:");
+                console.error("  Message:", e.message);
+                console.error("  Input length:", base64String.length);
+                throw new Error(`Invalid VAPID key format: ${e.message}`);
+            }
     }
 
     async function enableNotification() {
@@ -131,9 +151,24 @@
             }
             const subscribeOptions = {
                 userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(vapidKey)
+                applicationServerKey: (() => {
+                    try {
+                        const keyArray = urlBase64ToUint8Array(vapidKey);
+                        console.log('✅ applicationServerKey prepared, length:', keyArray.length);
+                        if (keyArray.length === 0) {
+                            throw new Error('VAPID key converted to empty array');
+                        }
+                        return keyArray;
+                    } catch (err) {
+                        console.error('❌ Failed to prepare applicationServerKey:', err);
+                        throw err;
+                    }
+                })()
             };
             const subscription = await registration.pushManager.subscribe(subscribeOptions);
+            console.log('✅ Push subscription successful');
+            console.log('Subscription object:', {endpoint: subscription.endpoint, keys: Object.keys(subscription.getKey('p256dh') ? {p256dh: true, auth: true} : {})});
+            
             const response = await fetch('/api/save-subscription', {
                 method: 'POST',
                 body: JSON.stringify(subscription),
@@ -146,8 +181,21 @@
                 throw new Error(errorData.message || msgError);
             }
         } catch (error) {
-            console.error('Notification Error:', error);
-            alert(msgError + ": " + error.message);
+            console.error('❌ Notification Error:', error);
+            console.error('Error type:', error.name);
+            console.error('Error message:', error.message);
+            console.error('Error stack:', error.stack);
+            
+            let userMessage = msgError;
+            if (error.message.includes('applicationServerKey')) {
+                userMessage = "⚠️ Error: Invalid VAPID configuration. Please contact administrator.";
+            } else if (error.message.includes('VAPID key')) {
+                userMessage = "⚠️ Error: VAPID key is not properly configured.";
+            } else if (error.message.includes('ServiceWorker')) {
+                userMessage = "⚠️ Error: Service Worker registration failed.";
+            }
+            
+            alert(userMessage + ": " + error.message);
         }
     }
 </script>

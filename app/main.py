@@ -286,6 +286,20 @@ async def validate_required_env():
     if missing:
         logger.error("Missing required environment variables on startup: %s", ",".join(missing))
         raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+    
+    # Additional validation for VAPID keys
+    vapid_pub = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+    vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+    
+    if vapid_pub:
+        logger.info(f"✅ VAPID_PUBLIC_KEY loaded: {len(vapid_pub)} characters")
+        if len(vapid_pub) < 100:
+            logger.warning(f"⚠️ VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~136+)")
+    
+    if vapid_priv:
+        logger.info(f"✅ VAPID_PRIVATE_KEY loaded: {len(vapid_priv)} characters")
+        if len(vapid_priv) < 80:
+            logger.warning(f"⚠️ VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~88+)")
         
 # Consolidated: push notification moved to send_push_notification() function (see line ~2432)
 

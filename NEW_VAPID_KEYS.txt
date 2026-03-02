@@ -1,0 +1,5 @@
+VAPID_PUBLIC_KEY=BIKKyizoycHgtCcMNcW6CX8aM1Q1719y68sxoFDkxzpuAwxzBfhcUUGMMmp14i4mqXP_SbHisIZ69NZKWrDl-68
+VAPID_PRIVATE_KEY=mkdg7clsuXnt8LdcJ-WHs4wDNm7gBrpaT4hHxnq7lLY
+VAPID_CLAIMS_SUB=mailto:hr.architech@gmail.com
+
+# Generated at: 2026-03-02 20:24:12.300525

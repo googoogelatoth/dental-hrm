@@ -19,7 +19,21 @@ except Exception as e:
 CIPHER_SUITE = Fernet(ENCRYPTION_KEY.encode())
 
 # VAPID keys for Web Push
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY")
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY")
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+
+# Validate VAPID keys (optional in dev, but warn if missing)
+if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+    import sys
+    print("⚠️  WARNING: VAPID keys are not configured!")
+    print("   Push notifications will not work.")
+    print("   Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY environment variables.")
+    print("   Generate keys with: npx web-push generate-vapid-keys")
+else:
+    # Summary check for key format
+    if len(VAPID_PUBLIC_KEY) < 100:
+        print(f"⚠️  WARNING: VAPID_PUBLIC_KEY may be too short ({len(VAPID_PUBLIC_KEY)} chars, expected ~136+)")
+    if len(VAPID_PRIVATE_KEY) < 80:
+        print(f"⚠️  WARNING: VAPID_PRIVATE_KEY may be too short ({len(VAPID_PRIVATE_KEY)} chars, expected ~88+)")
 
 # Cloudinary configuration is read directly where needed (main.py uses env vars)
