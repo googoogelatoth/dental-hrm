@@ -157,12 +157,23 @@
         try {
             const oldRegs = await navigator.serviceWorker.getRegistrations();
             for(let reg of oldRegs) {
+                // Unsubscribe any existing push subscriptions first (to allow new VAPID key)
+                if (reg.pushManager) {
+                    const existingSub = await reg.pushManager.getSubscription();
+                    if (existingSub) {
+                        console.log('🗑️ Unsubscribing old push subscription...');
+                        await existingSub.unsubscribe();
+                        console.log('✅ Old subscription removed');
+                    }
+                }
                 // Unregister old service worker if it exists (for cleanup)
                 if (reg.active && (reg.active.scriptURL.includes('static') || reg.active.scriptURL.includes('sw.js'))) { 
                     await reg.unregister(); 
                 }
             }
             const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+            await navigator.serviceWorker.ready; // Wait for SW to be ready
+            
             const permission = await Notification.requestPermission();
             if (permission !== 'granted') {
                 alert(msgDenied);
