@@ -25,11 +25,13 @@ try:
         )
         
         # Convert to base64url format (URL-safe)
+        # IMPORTANT: Keep padding (=) for maximum compatibility
+        # Expected lengths: Public ~86-90 chars (P-256 uncompressed), Private ~42-48 chars (32-byte value)
         private_key_b64 = base64.urlsafe_b64encode(
             vapid.private_key.private_numbers().private_value.to_bytes(32, 'big')
-        ).decode('utf-8').rstrip('=')
+        ).decode('utf-8')
         
-        public_key_b64 = base64.urlsafe_b64encode(public_key).decode('utf-8').rstrip('=')
+        public_key_b64 = base64.urlsafe_b64encode(public_key).decode('utf-8')
         
         print("=" * 70)
         print("🔔 VAPID KEYS GENERATED FOR WEB PUSH")
@@ -86,9 +88,9 @@ except ImportError:
         private_numbers = private_key.private_numbers()
         private_key_bytes = private_numbers.private_value.to_bytes(32, 'big')
         
-        # Convert to base64url format (URL-safe, no padding)
-        public_key_b64 = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8').rstrip('=')
-        private_key_b64 = base64.urlsafe_b64encode(private_key_bytes).decode('utf-8').rstrip('=')
+        # Convert to base64url format (URL-safe, keep padding for compatibility)
+        public_key_b64 = base64.urlsafe_b64encode(public_key_bytes).decode('utf-8')
+        private_key_b64 = base64.urlsafe_b64encode(private_key_bytes).decode('utf-8')
         
         print("=" * 70)
         print("🔔 VAPID KEYS GENERATED FOR WEB PUSH")

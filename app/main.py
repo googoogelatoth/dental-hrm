@@ -294,19 +294,17 @@ async def validate_required_env():
     if vapid_pub:
         logger.info(f"✅ VAPID_PUBLIC_KEY loaded: {len(vapid_pub)} characters")
         logger.info(f"   First 30 chars: {vapid_pub[:30]}...")
-        if len(vapid_pub) < 85:
-            logger.warning(f"⚠️  VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~87)")
-        if len(vapid_pub) != 136:
-            logger.warning(f"⚠️  VAPID_PUBLIC_KEY length is {len(vapid_pub)}, expected exactly 136")
+        # Standard VAPID public key is ~86-90 chars (P-256 uncompressed point, base64url encoded with padding)
+        if len(vapid_pub) < 85 or len(vapid_pub) > 92:
+            logger.warning(f"⚠️  VAPID_PUBLIC_KEY length is {len(vapid_pub)}, expected 85-92 characters")
     else:
         logger.error("❌ VAPID_PUBLIC_KEY is empty or not loaded!")
     
     if vapid_priv:
         logger.info(f"✅ VAPID_PRIVATE_KEY loaded: {len(vapid_priv)} characters")
-        if len(vapid_priv) < 42:
-            logger.warning(f"⚠️  VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~43)")
-        if len(vapid_priv) != 88:
-            logger.warning(f"⚠️  VAPID_PRIVATE_KEY length is {len(vapid_priv)}, expected exactly 88")
+        # Standard VAPID private key is ~42-48 chars (32-byte value, base64url encoded with padding)
+        if len(vapid_priv) < 42 or len(vapid_priv) > 48:
+            logger.warning(f"⚠️  VAPID_PRIVATE_KEY length is {len(vapid_priv)}, expected 42-48 characters")
     else:
         logger.error("❌ VAPID_PRIVATE_KEY is empty or not loaded!")
         
@@ -337,13 +335,13 @@ async def debug_vapid_status(request: Request):
         <hr>
         <h2>Expected Lengths:</h2>
         <ul>
-            <li>VAPID_PUBLIC_KEY: 136 characters</li>
-            <li>VAPID_PRIVATE_KEY: 88 characters</li>
+            <li>VAPID_PUBLIC_KEY: 85-92 characters (standard Base64url encoded P-256 uncompressed point)</li>
+            <li>VAPID_PRIVATE_KEY: 42-48 characters (standard Base64url encoded 32-byte value)</li>
         </ul>
         <h2>✅ Health Check:</h2>
         <ol>
-            <li>VAPID_PUBLIC_KEY: {'✅ OK' if len(vapid_pub) == 136 else '❌ FAILED - ' + str(len(vapid_pub)) + ' chars'}</li>
-            <li>VAPID_PRIVATE_KEY: {'✅ OK' if len(vapid_priv) == 88 else '❌ FAILED - ' + str(len(vapid_priv)) + ' chars'}</li>
+            <li>VAPID_PUBLIC_KEY: {'✅ OK' if 85 <= len(vapid_pub) <= 92 else '❌ FAILED - ' + str(len(vapid_pub)) + ' chars'}</li>
+            <li>VAPID_PRIVATE_KEY: {'✅ OK' if 42 <= len(vapid_priv) <= 48 else '❌ FAILED - ' + str(len(vapid_priv)) + ' chars'}</li>
         </ol>
     </body>
     </html>
