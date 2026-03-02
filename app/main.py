@@ -288,20 +288,67 @@ async def validate_required_env():
         raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
     
     # Additional validation for VAPID keys
-    vapid_pub = os.getenv("VAPID_PUBLIC_KEY", "").strip()
-    vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+    vapid_pub = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
+    vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'")
     
     if vapid_pub:
         logger.info(f"✅ VAPID_PUBLIC_KEY loaded: {len(vapid_pub)} characters")
+        logger.info(f"   First 30 chars: {vapid_pub[:30]}...")
         if len(vapid_pub) < 85:
-            logger.warning(f"⚠️ VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~87)")
+            logger.warning(f"⚠️  VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~87)")
+        if len(vapid_pub) != 136:
+            logger.warning(f"⚠️  VAPID_PUBLIC_KEY length is {len(vapid_pub)}, expected exactly 136")
+    else:
+        logger.error("❌ VAPID_PUBLIC_KEY is empty or not loaded!")
     
     if vapid_priv:
         logger.info(f"✅ VAPID_PRIVATE_KEY loaded: {len(vapid_priv)} characters")
         if len(vapid_priv) < 42:
-            logger.warning(f"⚠️ VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~43)")
+            logger.warning(f"⚠️  VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~43)")
+        if len(vapid_priv) != 88:
+            logger.warning(f"⚠️  VAPID_PRIVATE_KEY length is {len(vapid_priv)}, expected exactly 88")
+    else:
+        logger.error("❌ VAPID_PRIVATE_KEY is empty or not loaded!")
         
 # Consolidated: push notification moved to send_push_notification() function (see line ~2432)
+
+# Debug endpoint to check VAPID key status (remove in production)
+@app.get("/debug/vapid-status", response_class=HTMLResponse)
+async def debug_vapid_status(request: Request):
+    """Debug endpoint to verify VAPID keys are loaded correctly."""
+    vapid_pub = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
+    vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'")
+    
+    status = {
+        "vapid_public_key_loaded": len(vapid_pub) > 0,
+        "vapid_public_key_length": len(vapid_pub),
+        "vapid_public_key_first_20": vapid_pub[:20] if vapid_pub else "NOT SET",
+        "vapid_private_key_loaded": len(vapid_priv) > 0,
+        "vapid_private_key_length": len(vapid_priv),
+        "vapid_private_key_first_20": vapid_priv[:20] if vapid_priv else "NOT SET",
+    }
+    
+    html_content = f"""
+    <html>
+    <head><title>VAPID Status Debug</title></head>
+    <body style="font-family: monospace; padding: 20px;">
+        <h1>🔔 VAPID Configuration Status</h1>
+        <pre>{json.dumps(status, indent=2)}</pre>
+        <hr>
+        <h2>Expected Lengths:</h2>
+        <ul>
+            <li>VAPID_PUBLIC_KEY: 136 characters</li>
+            <li>VAPID_PRIVATE_KEY: 88 characters</li>
+        </ul>
+        <h2>✅ Health Check:</h2>
+        <ol>
+            <li>VAPID_PUBLIC_KEY: {'✅ OK' if len(vapid_pub) == 136 else '❌ FAILED - ' + str(len(vapid_pub)) + ' chars'}</li>
+            <li>VAPID_PRIVATE_KEY: {'✅ OK' if len(vapid_priv) == 88 else '❌ FAILED - ' + str(len(vapid_priv)) + ' chars'}</li>
+        </ol>
+    </body>
+    </html>
+    """
+    return html_content
 
 # ในไฟล์ app/main.py ฟังก์ชัน log_activity
 def log_activity(db, user, action, details, request):
@@ -557,12 +604,15 @@ async def dashboard(
     active_emps = db.query(models.Employee).filter(models.Employee.is_active).all()
     resigned_emps = db.query(models.Employee).filter(~models.Employee.is_active).all()
     
+    # Get VAPID key with proper stripping
+    vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
+    
     # 4. ส่งข้อมูลไปที่หน้า HTML
     return templates.TemplateResponse("dashboard.html", {
         "request": request, 
         "active_emps": active_emps,     # ✅ ส่งตัวแปรที่เพิ่ง Query มา
         "resigned_emps": resigned_emps,   # ✅ ส่งตัวแปรที่เพิ่ง Query มา
-        "public_vapid_key": VAPID_PUBLIC_KEY,
+        "public_vapid_key": vapid_key if vapid_key else "", 
         "user_role": user.role, 
         "user": user,
         **company_info,  # เพิ่ม company_logo และ company_name
@@ -894,12 +944,15 @@ async def employee_detail(
     logger.info(f"Decrypted Data: {display_data}")
     logger.info("-------------------------------")
 
+    # Get VAPID key with proper stripping
+    vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
+
     return templates.TemplateResponse("employee_detail_content.html", {
         "request": request,
         "texts": texts, 
         "employee": employee,
         "decrypted": display_data,  # ส่งค่าที่ถอดรหัสแล้วแยกไป
-        "public_vapid_key": VAPID_PUBLIC_KEY  # เพิ่มสำหรับระบบ Push Notification
+        "public_vapid_key": vapid_key if vapid_key else ""  # เพิ่มสำหรับระบบ Push Notification
     })
 
 # --- 🚩 ฟังก์ชันแจ้งลาออก ---
@@ -1615,10 +1668,13 @@ async def my_profile_page(
         "bank_account_number": decrypt_data(user.bank_account_number) if user.bank_account_number else ""
     }
 
+    # Get VAPID key with proper stripping
+    vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
+
     return templates.TemplateResponse("my_profile.html", {
         "request": request, 
         "employee": user,
-        "public_vapid_key": VAPID_PUBLIC_KEY,
+        "public_vapid_key": vapid_key if vapid_key else "",
         "texts": texts, 
         "decrypted": display_data,  # ✅ นายต้องเพิ่มบรรทัดนี้ครับ! ปัญหาอยู่ตรงนี้เลย
         "is_staff_view": True 

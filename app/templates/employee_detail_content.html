@@ -86,14 +86,15 @@
     const msgError = "{{ texts.pro_notif_error }}";
 
     function urlBase64ToUint8Array(base64String) {
-            if (!base64String) {
-                console.error('ERROR: Base64 string is empty');
-                return new Uint8Array(0);
+            if (!base64String || base64String.trim() === '') {
+                console.error('❌ ERROR: Base64 string is empty or whitespace-only');
+                throw new Error('VAPID key is empty');
             }
         
             try {
                 let cleanString = base64String.replace(/['"]+/g, '').trim();
                 console.log('Step 1 - Cleaned string length:', cleanString.length);
+                console.log('Step 1 - First 30 chars:', cleanString.substring(0, 30));
             
                 while (cleanString.length % 4 !== 0) { 
                     cleanString += '='; 
@@ -105,6 +106,13 @@
             
                 const rawData = window.atob(base64);
                 console.log('Step 4 - Raw data length:', rawData.length);
+                
+                if (rawData.length === 0) {
+                    throw new Error('Key decoded to empty data');
+                }
+                if (rawData.length !== 65) {
+                    console.warn('⚠️ WARNING: Key length is', rawData.length, 'but expected 65');
+                }
             
                 const outputArray = new Uint8Array(rawData.length);
                 for (let i = 0; i < rawData.length; ++i) { 
@@ -117,6 +125,7 @@
                 console.error("❌ ERROR: Failed to convert VAPID key:");
                 console.error("  Message:", e.message);
                 console.error("  Input length:", base64String.length);
+                console.error("  Input first 30 chars:", base64String.substring(0, 30));
                 throw new Error(`Invalid VAPID key format: ${e.message}`);
             }
     }
@@ -129,9 +138,15 @@
         
         // เช็ค VAPID Key ก่อน
         const vapidKey = '{{ public_vapid_key or '' }}';
-        if (!vapidKey || vapidKey.includes('{')) {
-            console.error('ERROR: VAPID Public Key is not configured');
-            alert('⚠️ Error: Push notification configuration is missing. Please contact administrator.');
+        
+        console.log('[DEBUG] Raw VAPID Key from template:', vapidKey);
+        console.log('[DEBUG] VAPID Key length:', vapidKey.length);
+        console.log('[DEBUG] VAPID Key first 20 chars:', vapidKey.substring(0, 20));
+        
+        if (!vapidKey || vapidKey.trim() === '' || vapidKey.includes('{')) {
+            console.error('❌ ERROR: VAPID Public Key is not configured');
+            console.error('[DEBUG] VAPID_PUBLIC_KEY value:', vapidKey);
+            alert('⚠️ Error: Push notification configuration is missing. The server VAPID key is empty or not set. Please:\n1. Ensure .env file has VAPID_PUBLIC_KEY\n2. Restart the application\n3. Contact administrator if problem persists');
             return;
         }
         

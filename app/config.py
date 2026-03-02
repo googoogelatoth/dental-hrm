@@ -25,8 +25,9 @@ except Exception as e:
 CIPHER_SUITE = Fernet(ENCRYPTION_KEY.encode())
 
 # VAPID keys for Web Push
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+# Strip aggressively to handle quotes and whitespace in environment variables
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'").strip()
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'").strip()
 
 # Validate VAPID keys (optional in dev, but warn if missing)
 if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
@@ -35,11 +36,17 @@ if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
     print("   Push notifications will not work.")
     print("   Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY environment variables.")
     print("   Generate keys with: npx web-push generate-vapid-keys")
+    print(f"   VAPID_PUBLIC_KEY length: {len(VAPID_PUBLIC_KEY)}")
+    print(f"   VAPID_PRIVATE_KEY length: {len(VAPID_PRIVATE_KEY)}")
 else:
     # Summary check for key format (base64url, no padding)
     if len(VAPID_PUBLIC_KEY) < 85:
         print(f"⚠️  WARNING: VAPID_PUBLIC_KEY may be too short ({len(VAPID_PUBLIC_KEY)} chars, expected ~87)")
+    else:
+        print(f"✅ VAPID_PUBLIC_KEY loaded: {len(VAPID_PUBLIC_KEY)} characters")
     if len(VAPID_PRIVATE_KEY) < 42:
         print(f"⚠️  WARNING: VAPID_PRIVATE_KEY may be too short ({len(VAPID_PRIVATE_KEY)} chars, expected ~43)")
+    else:
+        print(f"✅ VAPID_PRIVATE_KEY loaded: {len(VAPID_PRIVATE_KEY)} characters")
 
 # Cloudinary configuration is read directly where needed (main.py uses env vars)
