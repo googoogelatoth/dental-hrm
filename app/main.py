@@ -293,13 +293,13 @@ async def validate_required_env():
     
     if vapid_pub:
         logger.info(f"✅ VAPID_PUBLIC_KEY loaded: {len(vapid_pub)} characters")
-        if len(vapid_pub) < 100:
-            logger.warning(f"⚠️ VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~136+)")
+        if len(vapid_pub) < 85:
+            logger.warning(f"⚠️ VAPID_PUBLIC_KEY may be invalid: {len(vapid_pub)} chars (expected ~87)")
     
     if vapid_priv:
         logger.info(f"✅ VAPID_PRIVATE_KEY loaded: {len(vapid_priv)} characters")
-        if len(vapid_priv) < 80:
-            logger.warning(f"⚠️ VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~88+)")
+        if len(vapid_priv) < 42:
+            logger.warning(f"⚠️ VAPID_PRIVATE_KEY may be invalid: {len(vapid_priv)} chars (expected ~43)")
         
 # Consolidated: push notification moved to send_push_notification() function (see line ~2432)
 

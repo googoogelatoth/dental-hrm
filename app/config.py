@@ -2,8 +2,14 @@ import os
 import base64
 from cryptography.fernet import Fernet
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+except Exception:
+    pass
+
 # Load encryption key from environment; required for production.
-ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+ENCRYPTION_KEY = (os.getenv("ENCRYPTION_KEY") or "").strip().strip('"').strip("'")
 if not ENCRYPTION_KEY:
     raise RuntimeError("ENCRYPTION_KEY environment variable is not set. Set it to a valid Fernet key.")
 
@@ -30,10 +36,10 @@ if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
     print("   Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY environment variables.")
     print("   Generate keys with: npx web-push generate-vapid-keys")
 else:
-    # Summary check for key format
-    if len(VAPID_PUBLIC_KEY) < 100:
-        print(f"⚠️  WARNING: VAPID_PUBLIC_KEY may be too short ({len(VAPID_PUBLIC_KEY)} chars, expected ~136+)")
-    if len(VAPID_PRIVATE_KEY) < 80:
-        print(f"⚠️  WARNING: VAPID_PRIVATE_KEY may be too short ({len(VAPID_PRIVATE_KEY)} chars, expected ~88+)")
+    # Summary check for key format (base64url, no padding)
+    if len(VAPID_PUBLIC_KEY) < 85:
+        print(f"⚠️  WARNING: VAPID_PUBLIC_KEY may be too short ({len(VAPID_PUBLIC_KEY)} chars, expected ~87)")
+    if len(VAPID_PRIVATE_KEY) < 42:
+        print(f"⚠️  WARNING: VAPID_PRIVATE_KEY may be too short ({len(VAPID_PRIVATE_KEY)} chars, expected ~43)")
 
 # Cloudinary configuration is read directly where needed (main.py uses env vars)
