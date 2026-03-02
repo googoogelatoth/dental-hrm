@@ -881,7 +881,8 @@ async def employee_detail(
         "request": request,
         "texts": texts, 
         "employee": employee,
-        "decrypted": display_data  # ส่งค่าที่ถอดรหัสแล้วแยกไป
+        "decrypted": display_data,  # ส่งค่าที่ถอดรหัสแล้วแยกไป
+        "public_vapid_key": VAPID_PUBLIC_KEY  # เพิ่มสำหรับระบบ Push Notification
     })
 
 # --- 🚩 ฟังก์ชันแจ้งลาออก ---
@@ -2444,58 +2445,74 @@ VAPID_CLAIMS = {
 
 @app.post("/api/save-subscription")
 async def save_subscription(request: Request, db: Session = Depends(get_db)):
-    subscription_data = await request.json()
-    # ดึงข้อมูลผู้ใช้จาก Cookie
-    user_code = request.cookies.get("employee_code") or request.cookies.get("user_name")
-    
-    user = db.query(models.Employee).filter(models.Employee.employee_code == user_code).first()
-    
-    if not user:
-        return {"status": "error", "message": "User not found"}
-
-    # ค้นหาว่าเครื่องนี้/Browser นี้เคยลงทะเบียนหรือยัง
-    existing = db.query(models.PushSubscription).filter(
-        models.PushSubscription.endpoint == subscription_data['endpoint']
-    ).first()
-    
-    now_th = get_now_th() # ใช้เวลาไทยที่นายทำไว้
-    action_type = ""
-    log_detail = ""
-
-    if existing:
-        # 🚩 อัปเดตข้อมูลให้เป็นปัจจุบัน
-        existing.p256dh = subscription_data['keys']['p256dh']
-        existing.auth = subscription_data['keys']['auth']
-        existing.employee_id = user.id 
+    try:
+        subscription_data = await request.json()
         
-        action_type = "UPDATE NOTIFICATION"
-        log_detail = "อัปเดตข้อมูลการแจ้งเตือน (Device/Browser เดิม)"
-    else:
-        # ✅ บันทึกอันใหม่ (เปิดครั้งแรก)
-        new_sub = models.PushSubscription(
-            employee_id=user.id,
-            endpoint=subscription_data['endpoint'],
-            p256dh=subscription_data['keys']['p256dh'],
-            auth=subscription_data['keys']['auth']
+        # ตรวจสอบข้อมูล subscription ครบถ้วน
+        if not subscription_data.get('endpoint') or not subscription_data.get('keys'):
+            return {"status": "error", "message": "Invalid subscription data"}
+        
+        # ดึงข้อมูลผู้ใช้จาก Cookie
+        user_code = request.cookies.get("employee_code") or request.cookies.get("user_name")
+        
+        user = db.query(models.Employee).filter(models.Employee.employee_code == user_code).first()
+        
+        if not user:
+            return {"status": "error", "message": "User not found"}
+
+        # ค้นหาว่าเครื่องนี้/Browser นี้เคยลงทะเบียนหรือยัง
+        existing = db.query(models.PushSubscription).filter(
+            models.PushSubscription.endpoint == subscription_data['endpoint']
+        ).first()
+        
+        now_th = get_now_th() # ใช้เวลาไทยที่นายทำไว้
+        action_type = ""
+        log_detail = ""
+
+        if existing:
+            # 🚩 อัปเดตข้อมูลให้เป็นปัจจุบัน
+            existing.p256dh = subscription_data['keys']['p256dh']
+            existing.auth = subscription_data['keys']['auth']
+            existing.employee_id = user.id 
+            
+            action_type = "UPDATE NOTIFICATION"
+            log_detail = "อัปเดตข้อมูลการแจ้งเตือน (Device/Browser เดิม)"
+        else:
+            # ✅ บันทึกอันใหม่ (เปิดครั้งแรก)
+            new_sub = models.PushSubscription(
+                employee_id=user.id,
+                endpoint=subscription_data['endpoint'],
+                p256dh=subscription_data['keys']['p256dh'],
+                auth=subscription_data['keys']['auth']
+            )
+            db.add(new_sub)
+            
+            action_type = "ENABLE NOTIFICATION"
+            log_detail = f"เปิดการแจ้งเตือนครั้งแรก (Device: {subscription_data['endpoint'][:40]}...)"
+
+        # ✅ เพิ่มการบันทึก Activity Log ลงใน Database
+        new_log = models.ActivityLog(
+            user_id=user.id,
+            user_name=f"{user.first_name} {user.last_name}",
+            action=action_type,
+            details=log_detail,
+            ip_address=request.client.host if request.client else "Unknown",
+            timestamp=now_th
         )
-        db.add(new_sub)
+        db.add(new_log)
         
-        action_type = "ENABLE NOTIFICATION"
-        log_detail = f"เปิดการแจ้งเตือนครั้งแรก (Device: {subscription_data['endpoint'][:40]}...)"
+        db.commit()
+        logger.info(f"✅ Push Subscription {action_type} for user {user.employee_code}")
+        return {"status": "success", "message": "Subscription saved successfully"}
+        
+    except KeyError as e:
+        logger.error(f"❌ Missing key in subscription data: {e}")
+        return {"status": "error", "message": f"Invalid subscription data structure: {str(e)}"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error saving subscription: {e}")
+        return {"status": "error", "message": f"Server error: {str(e)}"}
 
-    # ✅ เพิ่มการบันทึก Activity Log ลงใน Database
-    new_log = models.ActivityLog(
-        user_id=user.id,
-        user_name=f"{user.first_name} {user.last_name}",
-        action=action_type,
-        details=log_detail,
-        ip_address=request.client.host if request.client else "Unknown",
-        timestamp=now_th
-    )
-    db.add(new_log)
-    
-    db.commit()
-    return {"status": "success"}
 
 # def send_push_notification(employee_id: int, title: str, message: str, db: Session):
 #     # ดึง Subscription ทั้งหมดของพนักงานคนนี้ (เขาอาจจะมีหลายเครื่อง)
