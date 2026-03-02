@@ -111,7 +111,10 @@
                     throw new Error('Key decoded to empty data');
                 }
                 if (rawData.length !== 65) {
-                    console.warn('⚠️ WARNING: Key length is', rawData.length, 'but expected 65');
+                    console.error(`❌ INVALID KEY LENGTH: Key decoded to ${rawData.length} bytes, but MUST be exactly 65 bytes!`);
+                    console.error(`   This means your VAPID_PUBLIC_KEY is invalid or corrupted`);
+                    console.error(`   Check: http://localhost:8000/debug/vapid-status`);
+                    throw new Error(`Invalid key length: ${rawData.length} bytes (must be 65)`);
                 }
             
                 const outputArray = new Uint8Array(rawData.length);
@@ -126,6 +129,7 @@
                 console.error("  Message:", e.message);
                 console.error("  Input length:", base64String.length);
                 console.error("  Input first 30 chars:", base64String.substring(0, 30));
+                console.error("  Full error:", e);
                 throw new Error(`Invalid VAPID key format: ${e.message}`);
             }
     }
