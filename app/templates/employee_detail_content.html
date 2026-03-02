@@ -118,9 +118,12 @@
         try {
             const oldRegs = await navigator.serviceWorker.getRegistrations();
             for(let reg of oldRegs) {
-                if (reg.active && reg.active.scriptURL.includes('static')) { await reg.unregister(); }
+                // Unregister old service worker if it exists (for cleanup)
+                if (reg.active && (reg.active.scriptURL.includes('static') || reg.active.scriptURL.includes('sw.js'))) { 
+                    await reg.unregister(); 
+                }
             }
-            const registration = await navigator.serviceWorker.register('/static/sw.js', { scope: '/' });
+            const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
             const permission = await Notification.requestPermission();
             if (permission !== 'granted') {
                 alert(msgDenied);

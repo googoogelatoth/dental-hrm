@@ -154,11 +154,14 @@ templates.env.globals.update({
 })
 
 
-# Serve service worker at site root for full-origin scope
+# Serve service worker at root for full-origin scope
 @app.get("/service-worker.js", include_in_schema=False)
 async def service_worker() -> FileResponse:
     sw_path = os.path.join(STATIC_DIR, "sw.js")
-    return FileResponse(sw_path, media_type="application/javascript")
+    response = FileResponse(sw_path, media_type="application/javascript")
+    # Allow Service Worker to control root scope (/)
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
 
 # ฟังก์ชันสำหรับดึง Database Session
 def get_db():
@@ -2575,17 +2578,6 @@ async def send_broadcast(
 
 # หาตำแหน่งโฟลเดอร์ app
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-@app.get("/service-worker.js")
-async def get_service_worker():
-    # แก้ Path ให้ชี้ไปที่ app/static/sw.js ตามภาพ
-    sw_path = os.path.join(BASE_DIR, "static", "sw.js")
-    
-    if not os.path.exists(sw_path):
-        return {"error": f"ไม่พบไฟล์ที่: {sw_path}"}
-        
-    return FileResponse(sw_path, media_type="application/javascript")
-
 
 def send_push_notification(employee_id: int, title: str, message: str, db: Session):
     subs = db.query(models.PushSubscription).filter(
