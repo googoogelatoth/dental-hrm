@@ -7,6 +7,25 @@
         <span class="badge bg-info text-dark">{{ texts.pay_subtitle }} (ICT Timezone)</span>
     </div>
 
+    <!-- Success/Error Messages -->
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const msg = urlParams.get('msg');
+        const error = urlParams.get('error');
+        
+        if (msg === 'recalculated') {
+            const div = document.createElement('div');
+            div.className = 'alert alert-success alert-dismissible fade show';
+            div.innerHTML = '<i class="bi bi-check-circle me-2"></i>✅ รีคำนวณค่า Late/Early เรียบร้อยแล้ว! กรุณากดปุ่ม "คำนวณใหม่" เพื่อดูผลลัพธ์ <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            document.querySelector('.container-fluid').insertBefore(div, document.querySelector('.card'));
+        } else if (error === 'recalculate_failed') {
+            const div = document.createElement('div');
+            div.className = 'alert alert-danger alert-dismissible fade show';
+            div.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>❌ เกิดข้อผิดพลาดในการรีคำนวณ <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            document.querySelector('.container-fluid').insertBefore(div, document.querySelector('.card'));
+        }
+    </script>
+
     <div class="card shadow-sm border-0">
         <div class="card-body">
             <div class="card mb-4 border-primary bg-light bg-opacity-10">
@@ -21,15 +40,20 @@
                                 <input type="date" name="end_date" id="global_end" class="form-control" value="{{ end_date }}" required>
                             </div>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-2">
                             <button type="submit" class="btn btn-primary w-100 shadow-sm">
-                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่ตามรอบวันที่เลือก
+                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่
+                            </button>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-warning w-100 shadow-sm" onclick="recalculateLatEarly()">
+                                <i class="bi bi-clock-history me-1"></i> รีคำนวณ Late/Early
                             </button>
                         </div>
                         <div class="col-md-3">
                             <button type="submit" name="reset" value="true" class="btn btn-outline-danger w-100 shadow-sm" 
                                 onclick="return confirm('ยืนยันการรีเซ็ตสถิติใหม่? ระบบจะล้างข้อมูลที่คุณเคยบันทึกร่างไว้ และนับนาที สาย/ขาด/ออกก่อน ใหม่ทั้งหมดตามจริง')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> ล้าง Draft และเริ่มใหม่
+                                <i class="bi bi-arrow-clockwise me-1"></i> ล้าง Draft
                             </button>
                         </div>
                     </form>
@@ -215,6 +239,40 @@ function calculateRow(element) {
         row.querySelector('.net-salary-cell').innerText = netSalary.toLocaleString('en-US', { minimumFractionDigits: 2 });
         row.querySelector('.net-hidden-input').value = netSalary.toFixed(2);
     }
+}
+
+function recalculateLatEarly() {
+    if (!confirm('⚠️ ต้องการรีคำนวณค่าเวลาสายและออกก่อนใหม่หรือไม่?\n\nระบบจะคำนวณใหม่ตามตารางเวลาปัจจุบันของพนักงาน')) {
+        return;
+    }
+    
+    const startDate = document.getElementById('global_start').value;
+    const endDate = document.getElementById('global_end').value;
+    
+    if (!startDate || !endDate) {
+        alert('กรุณาเลือกช่วงวันที่ก่อน');
+        return;
+    }
+    
+    // สร้าง form และส่งไป
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/admin/recalculate-attendance';
+    
+    const startInput = document.createElement('input');
+    startInput.type = 'hidden';
+    startInput.name = 'start_date';
+    startInput.value = startDate;
+    form.appendChild(startInput);
+    
+    const endInput = document.createElement('input');
+    endInput.type = 'hidden';
+    endInput.name = 'end_date';
+    endInput.value = endDate;
+    form.appendChild(endInput);
+    
+    document.body.appendChild(form);
+    form.submit();
 }
 
 document.addEventListener('DOMContentLoaded', function() {

@@ -2979,6 +2979,97 @@ def calculate_dynamic_payroll_details(
         'net_salary': net_salary,
     }
 
+@app.post("/admin/recalculate-attendance")
+async def recalculate_attendance(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """
+    รีคำนวณค่า late_minutes และ early_minutes ทั้งหมดในช่วงเวลาที่กำหนด
+    """
+    try:
+        s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # ดึงข้อมูล Attendance ในช่วงเวลาที่กำหนด
+        attendances = db.query(models.Attendance).filter(
+            models.Attendance.date >= s_date,
+            models.Attendance.date <= e_date
+        ).all()
+        
+        updated_count = 0
+        
+        for attendance in attendances:
+            # ดึงข้อมูลพนักงานและตารางเวลา
+            emp = db.query(models.Employee).get(attendance.employee_id)
+            if not emp or not emp.schedule:
+                continue
+            
+            sched = emp.schedule
+            current_day = attendance.date
+            
+            # เก็บค่าเก่า
+            old_late = attendance.late_minutes
+            old_early = attendance.early_minutes
+            
+            # รีเซ็ตค่า
+            attendance.late_minutes = 0
+            attendance.early_minutes = 0
+            attendance.status = "ปกติ"
+            
+            # คำนวณใหม่
+            # --- กรณี: ไม่ลงเวลาเข้า ---
+            if not attendance.check_in and attendance.check_out:
+                attendance.status = "ไม่ลงเวลาเข้า"
+            
+            # --- กรณี: สาย (Late) ---
+            elif attendance.check_in and sched.work_start_time:
+                target_in = datetime.strptime(sched.work_start_time[:5], "%H:%M").time()
+                actual_in = attendance.check_in.time()
+                if actual_in > target_in:
+                    diff_in = datetime.combine(current_day, actual_in) - datetime.combine(current_day, target_in)
+                    late_mins = int(diff_in.total_seconds() / 60)
+                    if late_mins > (sched.grace_period_late or 0):
+                        attendance.late_minutes = late_mins
+                        attendance.status = "สาย"
+
+            # --- กรณี: ออกก่อนเวลา (Early Out) ---
+            if attendance.check_out and sched.work_end_time:
+                target_out = datetime.strptime(sched.work_end_time[:5], "%H:%M").time()
+                actual_out = attendance.check_out.time()
+                if actual_out < target_out:
+                    diff_out = datetime.combine(current_day, target_out) - datetime.combine(current_day, actual_out)
+                    early_mins = int(diff_out.total_seconds() / 60)
+                    if early_mins > (sched.grace_period_early_out or 0):
+                        attendance.early_minutes = early_mins
+                        if attendance.status == "สาย":
+                            attendance.status = "สาย/ออกก่อน"
+                        else:
+                            attendance.status = "ออกก่อนเวลา"
+
+            # กรณีลืมลงเวลาออก
+            if attendance.check_in and not attendance.check_out:
+                attendance.status = "ยังไม่ลงเวลาออก"
+            
+            # นับรายการที่มีการเปลี่ยนแปลง
+            if old_late != attendance.late_minutes or old_early != attendance.early_minutes:
+                updated_count += 1
+        
+        # บันทึกการเปลี่ยนแปลง
+        db.commit()
+        
+        # บันทึก log
+        log_activity(db, user, "รีคำนวณเวลาสาย/ออกก่อน", f"รีคำนวณข้อมูล {len(attendances)} รายการ อัพเดท {updated_count} รายการ ช่วง {start_date} ถึง {end_date}", request)
+        
+        return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=recalculated", status_code=303)
+        
+    except Exception as e:
+        logger.error(f"❌ Recalculate error: {e}")
+        return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&error=recalculate_failed", status_code=303)
+
 @app.get("/admin/calculate-payroll")
 async def calculate_payroll_page(
     request: Request, 
