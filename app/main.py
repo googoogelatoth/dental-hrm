@@ -2356,11 +2356,48 @@ async def perform_approval_logic(request_id: int, status: str, admin_remark: str
     if req.check_out_time: 
         attendance.check_out = datetime.combine(req.request_date, req.check_out_time)
 
-    # ... (ก๊อป Logic การเช็ค Late/Early Out ของนายมาใส่ตรงนี้เหมือนเดิมเป๊ะ) ...
-    is_abnormal = False
-    # (โค้ดเช็คสายและออกก่อนเหมือนที่นายส่งมา)
+    # --- 🚀 คำนวณเวลาสายและออกก่อน ตามตารางเวลาของพนักงาน ---
+    emp = db.query(models.Employee).get(req.employee_id)
+    attendance.late_minutes = 0
+    attendance.early_minutes = 0
+    attendance.status = "ปกติ"  # ค่าเริ่มต้น
     
-    attendance.status = "ผิดปกติ" if is_abnormal else "ปกติ"
+    if emp and emp.schedule:
+        sched = emp.schedule
+        
+        # --- 🚩 กรณี: ไม่ลงเวลาเข้า ---
+        if not attendance.check_in and attendance.check_out:
+            attendance.status = "ไม่ลงเวลาเข้า"
+        
+        # --- 🚩 กรณี: สาย (Late) ---
+        elif attendance.check_in and sched.work_start_time:
+            target_in = datetime.strptime(sched.work_start_time[:5], "%H:%M").time()
+            actual_in = attendance.check_in.time()
+            if actual_in > target_in:
+                diff_in = datetime.combine(req.request_date, actual_in) - datetime.combine(req.request_date, target_in)
+                late_mins = int(diff_in.total_seconds() / 60)
+                if late_mins > (sched.grace_period_late or 0):
+                    attendance.late_minutes = late_mins
+                    attendance.status = "สาย"
+
+        # --- 🚩 กรณี: ออกก่อนเวลา (Early Out) ---
+        if attendance.check_out and sched.work_end_time:
+            target_out = datetime.strptime(sched.work_end_time[:5], "%H:%M").time()
+            actual_out = attendance.check_out.time()
+            if actual_out < target_out:
+                diff_out = datetime.combine(req.request_date, target_out) - datetime.combine(req.request_date, actual_out)
+                early_mins = int(diff_out.total_seconds() / 60)
+                if early_mins > (sched.grace_period_early_out or 0):
+                    attendance.early_minutes = early_mins
+                    # ถ้าเดิมสถานะคือ "สาย" อยู่แล้ว ให้รวมเป็น "สาย/ออกก่อน"
+                    if attendance.status == "สาย":
+                        attendance.status = "สาย/ออกก่อน"
+                    else:
+                        attendance.status = "ออกก่อนเวลา"
+
+        # กรณีลืมลงเวลาออก (แต่มีเวลาเข้า)
+        if attendance.check_in and not attendance.check_out:
+            attendance.status = "ยังไม่ลงเวลาออก"
     req.status = "Approved"
     req.admin_remark = admin_remark
     db.commit()

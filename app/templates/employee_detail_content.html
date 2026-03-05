@@ -195,7 +195,26 @@
                     }
                 })()
             };
-            const subscription = await registration.pushManager.subscribe(subscribeOptions);
+            
+            let subscription;
+            try {
+                subscription = await registration.pushManager.subscribe(subscribeOptions);
+            } catch (subscribeError) {
+                // If subscription fails due to different VAPID key, unsubscribe and retry
+                if (subscribeError.message && subscribeError.message.includes('different applicationServerKey')) {
+                    console.warn('⚠️ Detected old subscription with different key, removing...');
+                    const oldSub = await registration.pushManager.getSubscription();
+                    if (oldSub) {
+                        await oldSub.unsubscribe();
+                        console.log('✅ Old subscription removed, retrying...');
+                    }
+                    // Retry subscription
+                    subscription = await registration.pushManager.subscribe(subscribeOptions);
+                } else {
+                    throw subscribeError;
+                }
+            }
+            
             console.log('✅ Push subscription successful');
             console.log('Subscription object:', {endpoint: subscription.endpoint, keys: Object.keys(subscription.getKey('p256dh') ? {p256dh: true, auth: true} : {})});
             
@@ -217,15 +236,17 @@
             console.error('Error stack:', error.stack);
             
             let userMessage = msgError;
-            if (error.message.includes('applicationServerKey')) {
+            if (error.message && error.message.includes('different applicationServerKey')) {
+                userMessage = "⚠️ กรุณา Hard Refresh (Ctrl+Shift+R) แล้วลองอีกครั้ง หรือ Clear browser cache";
+            } else if (error.message && error.message.includes('applicationServerKey')) {
                 userMessage = "⚠️ Error: Invalid VAPID configuration. Please contact administrator.";
-            } else if (error.message.includes('VAPID key')) {
+            } else if (error.message && error.message.includes('VAPID key')) {
                 userMessage = "⚠️ Error: VAPID key is not properly configured.";
-            } else if (error.message.includes('ServiceWorker')) {
+            } else if (error.message && error.message.includes('ServiceWorker')) {
                 userMessage = "⚠️ Error: Service Worker registration failed.";
             }
             
-            alert(userMessage + ": " + error.message);
+            alert(userMessage + (error.message ? ": " + error.message : ""));
         }
     }
 </script>
