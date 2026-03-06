@@ -24,6 +24,25 @@ except Exception as e:
 # Create a single Fernet instance for the application
 CIPHER_SUITE = Fernet(ENCRYPTION_KEY.encode())
 
+# Optional fallback keys for decrypting data encrypted with previous keys
+# Comma-separated list, e.g. PREVIOUS_ENCRYPTION_KEYS="key1,key2"
+PREVIOUS_ENCRYPTION_KEYS = (os.getenv("PREVIOUS_ENCRYPTION_KEYS") or "").strip()
+FALLBACK_CIPHER_SUITES = []
+
+if PREVIOUS_ENCRYPTION_KEYS:
+    for raw_key in PREVIOUS_ENCRYPTION_KEYS.split(","):
+        key = raw_key.strip().strip('"').strip("'")
+        if not key:
+            continue
+        try:
+            decoded_prev_key = base64.urlsafe_b64decode(key)
+            if len(decoded_prev_key) != 32:
+                raise ValueError("Key must be 32 bytes")
+            if key != ENCRYPTION_KEY:
+                FALLBACK_CIPHER_SUITES.append(Fernet(key.encode()))
+        except Exception as e:
+            print(f"⚠️  WARNING: Skipping invalid previous encryption key: {e}")
+
 # VAPID keys for Web Push
 # Strip aggressively to handle quotes and whitespace in environment variables
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'").strip()

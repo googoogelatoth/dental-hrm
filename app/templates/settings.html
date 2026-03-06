@@ -68,6 +68,112 @@
     </div>
 </div>
 
+{% if user and user.role == 'Admin' %}
+<div class="container mt-4">
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-4">
+            <h5 class="mb-3"><i class="bi bi-shield-lock text-warning me-2"></i>Encryption Maintenance</h5>
+            <p class="text-muted mb-3" style="font-size: 0.9rem;">
+                ใช้สำหรับตรวจสถานะข้อมูลส่วนตัวที่เข้ารหัส และย้ายข้อมูลเก่าให้เข้ารหัสด้วยคีย์ปัจจุบัน
+            </p>
+
+            <div class="d-flex flex-wrap gap-2 mb-3">
+                <button id="encAuditBtn" type="button" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-search me-1"></i> Audit
+                </button>
+                <button id="encDryRunBtn" type="button" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-check2-square me-1"></i> Dry Run
+                </button>
+                <button id="encMigrateBtn" type="button" class="btn btn-warning btn-sm">
+                    <i class="bi bi-arrow-repeat me-1"></i> Migrate
+                </button>
+            </div>
+
+            <div id="encSummary" class="alert alert-light border mb-3" style="display:none;"></div>
+            <pre id="encOutput" class="bg-dark text-light rounded p-3 mb-0" style="max-height: 360px; overflow:auto; font-size: 0.8rem;">กดปุ่มเพื่อเริ่มตรวจสอบ...</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const auditBtn = document.getElementById('encAuditBtn');
+    const dryRunBtn = document.getElementById('encDryRunBtn');
+    const migrateBtn = document.getElementById('encMigrateBtn');
+    const output = document.getElementById('encOutput');
+    const summary = document.getElementById('encSummary');
+
+    if (!auditBtn || !dryRunBtn || !migrateBtn || !output || !summary) {
+        return;
+    }
+
+    const setBusy = (busy) => {
+        auditBtn.disabled = busy;
+        dryRunBtn.disabled = busy;
+        migrateBtn.disabled = busy;
+    };
+
+    const renderSummary = (data) => {
+        if (!data || typeof data !== 'object') {
+            summary.style.display = 'none';
+            return;
+        }
+
+        const scanned = data.scanned_employees ?? 0;
+        const migrated = data.migrated_fields ?? 0;
+        const unreadable = data.unreadable_fields ?? (Array.isArray(data.unreadable_entries) ? data.unreadable_entries.length : 0);
+        const needsMigration = data.needs_migration_fields ?? 0;
+
+        summary.innerHTML = `
+            <strong>Scanned:</strong> ${scanned} records &nbsp;|&nbsp;
+            <strong>Needs migration:</strong> ${needsMigration} fields &nbsp;|&nbsp;
+            <strong>Migrated:</strong> ${migrated} fields &nbsp;|&nbsp;
+            <strong>Unreadable:</strong> ${unreadable} fields
+        `;
+        summary.style.display = 'block';
+    };
+
+    const callApi = async (url, method) => {
+        setBusy(true);
+        output.textContent = `Calling ${method} ${url} ...`;
+        summary.style.display = 'none';
+
+        try {
+            const response = await fetch(url, { method });
+            const data = await response.json().catch(() => ({ message: 'Invalid JSON response' }));
+
+            if (!response.ok) {
+                output.textContent = JSON.stringify({ error: true, status: response.status, data }, null, 2);
+                renderSummary(null);
+                return;
+            }
+
+            output.textContent = JSON.stringify(data, null, 2);
+            renderSummary(data);
+        } catch (error) {
+            output.textContent = JSON.stringify({
+                error: true,
+                message: error?.message || 'Unexpected error'
+            }, null, 2);
+            renderSummary(null);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    auditBtn.addEventListener('click', () => callApi('/admin/encryption-audit', 'GET'));
+    dryRunBtn.addEventListener('click', () => callApi('/admin/encryption-migrate?dry_run=true', 'POST'));
+    migrateBtn.addEventListener('click', () => {
+        const ok = confirm('ยืนยันทำ Migration จริง? ระบบจะบันทึกข้อมูลเข้ารหัสใหม่ด้วยคีย์ปัจจุบัน');
+        if (!ok) {
+            return;
+        }
+        callApi('/admin/encryption-migrate?dry_run=false', 'POST');
+    });
+})();
+</script>
+{% endif %}
+
 {% if request.query_params.get('msg') == 'success' %}
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div class="toast show align-items-center text-white bg-success border-0" role="alert">

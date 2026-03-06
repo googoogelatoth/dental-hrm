@@ -28,13 +28,14 @@ from fastapi.responses import (
     RedirectResponse,
     FileResponse,
     StreamingResponse,
+    JSONResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, extract
 from .database import SessionLocal, engine
 from . import models
-from .security import encrypt_data, decrypt_data
+from .security import encrypt_data, decrypt_data, decrypt_data_with_status
 from .languages import TRANSLATIONS
 
 import pandas as pd
@@ -370,6 +371,129 @@ def log_activity(db, user, action, details, request):
         timestamp=now_th
     )
     db.add(new_log)
+
+
+SENSITIVE_EMPLOYEE_FIELDS = [
+    "phone_number",
+    "id_card_number",
+    "bank_account_number",
+]
+
+
+def inspect_employee_sensitive_fields(employee: models.Employee):
+    statuses = {}
+    values = {}
+    for field in SENSITIVE_EMPLOYEE_FIELDS:
+        status_label, plain_value = decrypt_data_with_status(getattr(employee, field))
+        statuses[field] = status_label
+        values[field] = plain_value
+    return statuses, values
+
+
+@app.get("/admin/encryption-audit")
+async def admin_encryption_audit(
+    request: Request,
+    limit: int = Query(500, ge=1, le=5000),
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    employees = db.query(models.Employee).order_by(models.Employee.id.asc()).limit(limit).all()
+
+    status_kinds = ["empty", "current_key", "old_key", "plaintext", "unreadable"]
+    summary = {
+        field: {state: 0 for state in status_kinds}
+        for field in SENSITIVE_EMPLOYEE_FIELDS
+    }
+
+    rows = []
+    for employee in employees:
+        statuses, _ = inspect_employee_sensitive_fields(employee)
+        for field, state in statuses.items():
+            summary[field][state] += 1
+
+        rows.append({
+            "employee_id": employee.id,
+            "employee_code": employee.employee_code,
+            "name": f"{employee.first_name} {employee.last_name}".strip(),
+            "field_status": statuses,
+        })
+
+    needs_migration = sum(
+        summary[field]["old_key"] + summary[field]["plaintext"]
+        for field in SENSITIVE_EMPLOYEE_FIELDS
+    )
+    unreadable_total = sum(summary[field]["unreadable"] for field in SENSITIVE_EMPLOYEE_FIELDS)
+
+    return JSONResponse({
+        "scanned_employees": len(employees),
+        "field_status_summary": summary,
+        "needs_migration_fields": needs_migration,
+        "unreadable_fields": unreadable_total,
+        "next_step": "POST /admin/encryption-migrate?dry_run=false to migrate old_key/plaintext values to current key",
+        "employees": rows,
+    })
+
+
+@app.post("/admin/encryption-migrate")
+async def admin_encryption_migrate(
+    request: Request,
+    dry_run: bool = Query(True),
+    limit: int = Query(5000, ge=1, le=20000),
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    employees = db.query(models.Employee).order_by(models.Employee.id.asc()).limit(limit).all()
+
+    updated_employees = 0
+    migrated_fields = 0
+    unreadable_entries = []
+
+    for employee in employees:
+        row_changed = False
+        for field in SENSITIVE_EMPLOYEE_FIELDS:
+            raw_value = getattr(employee, field)
+            status_label, plain_value = decrypt_data_with_status(raw_value)
+
+            if status_label in ["old_key", "plaintext"] and plain_value:
+                setattr(employee, field, encrypt_data(plain_value))
+                migrated_fields += 1
+                row_changed = True
+            elif status_label == "unreadable":
+                unreadable_entries.append({
+                    "employee_id": employee.id,
+                    "employee_code": employee.employee_code,
+                    "field": field,
+                })
+
+        if row_changed:
+            updated_employees += 1
+
+    if dry_run:
+        db.rollback()
+    else:
+        log_activity(
+            db,
+            user,
+            "Encryption Migration",
+            f"Re-encrypted {migrated_fields} fields across {updated_employees} employees (limit={limit})",
+            request,
+        )
+        db.commit()
+
+    return JSONResponse({
+        "dry_run": dry_run,
+        "scanned_employees": len(employees),
+        "updated_employees": updated_employees,
+        "migrated_fields": migrated_fields,
+        "unreadable_entries": unreadable_entries,
+        "message": "No database changes were committed" if dry_run else "Migration committed successfully",
+    })
 
 # Dependency function เพื่อดึงข้อมูลบริษัทสำหรับแสดงใน navbar
 def get_company_info(db: Session = Depends(get_db)):
@@ -1885,6 +2009,7 @@ async def my_leaves_page(request: Request,user: models.Employee = Depends(get_cu
     })
     
 @app.get("/admin/edit-employee/{emp_id}", response_class=HTMLResponse)
+@app.get("/edit-employee/{emp_id}", response_class=HTMLResponse)
 async def edit_employee_page(
     emp_id: int, 
     request: Request,

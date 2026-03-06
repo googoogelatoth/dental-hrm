@@ -1,4 +1,4 @@
-from .config import CIPHER_SUITE
+from .config import CIPHER_SUITE, FALLBACK_CIPHER_SUITES
 import logging
 
 logger = logging.getLogger("clinic_hrm")
@@ -18,14 +18,32 @@ def encrypt_data(data: str) -> str:
         logger.error(f"Encryption failed: {type(e).__name__}")
         raise
 
-def decrypt_data(data: str) -> str:
-    """Decrypt sensitive data - returns empty string on failure"""
+
+def decrypt_data_with_status(data: str):
+    """Return tuple(status, value) where status is one of:
+    empty, current_key, old_key, plaintext, unreadable.
+    """
     if not data:
-        return ""
-    
+        return "empty", ""
+
+    token = data.strip()
     try:
-        return CIPHER_SUITE.decrypt(data.encode()).decode()
-    except Exception as e:
-        # Log error without exposing details to user
-        logger.error(f"Decryption failed: {type(e).__name__}")
-        return ""  # Return empty instead of error message
+        return "current_key", CIPHER_SUITE.decrypt(token.encode()).decode()
+    except Exception as current_exc:
+        for fallback_cipher in FALLBACK_CIPHER_SUITES:
+            try:
+                return "old_key", fallback_cipher.decrypt(token.encode()).decode()
+            except Exception:
+                continue
+
+        if token.startswith("gAAAA"):
+            logger.error(f"Decryption failed: {type(current_exc).__name__}")
+            return "unreadable", ""
+
+        logger.warning("Sensitive data appears to be stored as plaintext; returning raw value")
+        return "plaintext", data
+
+def decrypt_data(data: str) -> str:
+    """Decrypt sensitive data with fallback support for key rotation and legacy plaintext."""
+    _, value = decrypt_data_with_status(data)
+    return value
