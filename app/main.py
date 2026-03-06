@@ -46,7 +46,7 @@ from dateutil.relativedelta import relativedelta
 import pytz
 
 import starlette.status as status
-from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_CLAIMS_SUB
 
 app = FastAPI()
 
@@ -2548,7 +2548,7 @@ async def import_attendance_page(request: Request):
 
 # VAPID configuration is loaded from `app.config` via environment variables.
 VAPID_CLAIMS = {
-    "sub": os.getenv("VAPID_CLAIMS_SUB", "mailto:your-email@example.com")
+    "sub": VAPID_CLAIMS_SUB
 }
 
 @app.post("/api/save-subscription")
@@ -2685,34 +2685,37 @@ async def send_broadcast(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def send_push_notification(employee_id: int, title: str, message: str, db: Session):
-    subs = db.query(models.PushSubscription).filter(
-        models.PushSubscription.employee_id == employee_id
-    ).all()
-    
-    for sub in subs:
-        try:
-            # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
-            parsed_url = urlparse(sub.endpoint)
-            audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
-            
-            # เพิ่ม audience เข้าไปใน VAPID Claims
-            claims = VAPID_CLAIMS.copy()
-            claims["aud"] = audience # <--- จุดที่ต้องเพิ่มครับ
+    try:
+        subs = db.query(models.PushSubscription).filter(
+            models.PushSubscription.employee_id == employee_id
+        ).all()
+        
+        for sub in subs:
+            try:
+                # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
+                parsed_url = urlparse(sub.endpoint)
+                audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                
+                # เพิ่ม audience เข้าไปใน VAPID Claims
+                claims = VAPID_CLAIMS.copy()
+                claims["aud"] = audience # <--- จุดที่ต้องเพิ่มครับ
 
-            webpush(
-                subscription_info={
-                    "endpoint": sub.endpoint,
-                    "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-                },
-                data=json.dumps({"title": title, "body": message}),
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
-            )
-        except WebPushException as ex:
-            logger.info(f"Push failed: {ex}")
-            if ex.response and ex.response.status_code == 410:
-                db.delete(sub)
-                db.commit()
+                webpush(
+                    subscription_info={
+                        "endpoint": sub.endpoint,
+                        "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                    },
+                    data=json.dumps({"title": title, "body": message}),
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
+                )
+            except WebPushException as ex:
+                logger.info(f"Push failed: {ex}")
+                if ex.response and ex.response.status_code == 410:
+                    db.delete(sub)
+                    db.commit()
+    except Exception as ex:
+        logger.info(f"Error sending push notifications: {ex}")
 
 def calculate_ot_pay(emp_id: int, month: int, year: int, db: Session):
     # 1. ดึงข้อมูลพนักงานเพื่อเอาฐานเงินเดือนมาคำนวณ Rate ต่อชั่วโมง
@@ -3058,11 +3061,24 @@ async def recalculate_attendance(
             if old_late != attendance.late_minutes or old_early != attendance.early_minutes:
                 updated_count += 1
         
-        # บันทึกการเปลี่ยนแปลง
+        # บันทึกการเปลี่ยนแปลง Attendance
+        db.commit()
+        
+        # ล้างค่า late_deduction และ early_deduction ใน PayrollDetail (Draft) ที่อาจบันทึกไว้
+        # เพื่อให้ระบบคำนวณใหม่จากข้อมูล Attendance ที่อัพเดทแล้ว
+        draft_count = db.query(models.PayrollDetail).filter(
+            models.PayrollDetail.month == e_date.month,
+            models.PayrollDetail.year == e_date.year,
+            models.PayrollDetail.status == "Draft"
+        ).update({
+            models.PayrollDetail.late_deduction: None,
+            models.PayrollDetail.early_deduction: None
+        }, synchronize_session=False)
+        
         db.commit()
         
         # บันทึก log
-        log_activity(db, user, "รีคำนวณเวลาสาย/ออกก่อน", f"รีคำนวณข้อมูล {len(attendances)} รายการ อัพเดท {updated_count} รายการ ช่วง {start_date} ถึง {end_date}", request)
+        log_activity(db, user, "รีคำนวณเวลาสาย/ออกก่อน", f"รีคำนวณข้อมูล {len(attendances)} รายการ อัพเดท {updated_count} รายการ และล้าง Draft {draft_count} รายการ ช่วง {start_date} ถึง {end_date}", request)
         
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=recalculated", status_code=303)
         

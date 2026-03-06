@@ -29,6 +29,14 @@ CIPHER_SUITE = Fernet(ENCRYPTION_KEY.encode())
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'").strip()
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'").strip()
 
+# VAPID Claims Subject (must be a valid mailto: link or admin email)
+VAPID_CLAIMS_SUB = os.getenv("VAPID_CLAIMS_SUB", "").strip().strip('"').strip("'")
+if not VAPID_CLAIMS_SUB or VAPID_CLAIMS_SUB == "mailto:your-email@example.com":
+    # Try to use a fallback admin email if VAPID_CLAIMS_SUB is not configured
+    VAPID_CLAIMS_SUB = os.getenv("ADMIN_EMAIL", "mailto:admin@example.com").strip()
+    if not VAPID_CLAIMS_SUB.startswith("mailto:"):
+        VAPID_CLAIMS_SUB = f"mailto:{VAPID_CLAIMS_SUB}"
+
 # Validate VAPID keys (optional in dev, but warn if missing)
 if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
     import sys
@@ -48,5 +56,6 @@ else:
         print(f"⚠️  WARNING: VAPID_PRIVATE_KEY may be too short ({len(VAPID_PRIVATE_KEY)} chars, expected ~43)")
     else:
         print(f"✅ VAPID_PRIVATE_KEY loaded: {len(VAPID_PRIVATE_KEY)} characters")
+    print(f"✅ VAPID_CLAIMS_SUB loaded: {VAPID_CLAIMS_SUB}")
 
 # Cloudinary configuration is read directly where needed (main.py uses env vars)
