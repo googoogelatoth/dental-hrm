@@ -42,18 +42,18 @@
                         </div>
                         <div class="col-md-2">
                             <button type="submit" class="btn btn-primary w-100 shadow-sm">
-                                <i class="bi bi-arrow-repeat me-1"></i> คำนวณใหม่
+                                <i class="bi bi-arrow-repeat me-1"></i> {{ texts.pay_recalc_new }}
                             </button>
                         </div>
                         <div class="col-md-2">
                             <button type="button" class="btn btn-warning w-100 shadow-sm" onclick="recalculateLatEarly()">
-                                <i class="bi bi-clock-history me-1"></i> รีคำนวณ Late/Early
+                                <i class="bi bi-clock-history me-1"></i> {{ texts.pay_recalc_late }}
                             </button>
                         </div>
                         <div class="col-md-3">
                             <button type="submit" name="reset" value="true" class="btn btn-outline-danger w-100 shadow-sm" 
-                                onclick="return confirm('ยืนยันการรีเซ็ตสถิติใหม่? ระบบจะล้างข้อมูลที่คุณเคยบันทึกร่างไว้ และนับนาที สาย/ขาด/ออกก่อน ใหม่ทั้งหมดตามจริง')">
-                                <i class="bi bi-arrow-clockwise me-1"></i> ล้าง Draft
+                                onclick="return confirm('{{ texts.pay_confirm_clear }}')">
+                                <i class="bi bi-arrow-clockwise me-1"></i> {{ texts.pay_clear_draft }}
                             </button>
                         </div>
                     </form>
@@ -69,14 +69,14 @@
                         <thead class="table-dark text-nowrap">
                             <tr>
                                 <th style="width: 40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
-                                <th style="min-width: 220px;">{{ texts.pay_col_name }} / ช่วงวัน</th>
-                                <th class="text-end">ฐาน (เดือน)</th>
-                                <th class="text-center">สถิติ (วัน/สาย/ขาด)</th>
+                                <th style="min-width: 220px;">{{ texts.pay_col_name }} / {{ texts.pay_period_info }}</th>
+                                <th class="text-end">{{ texts.pay_base_salary }}</th>
+                                <th class="text-center">{{ texts.pay_stats }}</th>
                                 <th class="text-end">OT</th>
-                                <th style="min-width: 120px;">หักสาย/ออก</th>
-                                <th style="min-width: 100px;">หักขาด</th>
-                                <th style="min-width: 100px;">เงินเพิ่ม/ลด</th>
-                                <th style="min-width: 120px;">SSO / Tax</th>
+                                <th style="min-width: 120px;">{{ texts.pay_late_early }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_absent }}</th>
+                                <th style="min-width: 100px;">{{ texts.pay_bonus }}</th>
+                                <th style="min-width: 120px;">{{ texts.pay_sso_tax }}</th>
                                 <th class="text-end">{{ texts.pay_col_net }}</th>
                             </tr>
                         </thead>
@@ -100,9 +100,9 @@
                                     {{ "{:,.2f}".format((emp.base_salary or 0) + (emp.position_allowance or 0)) }}
                                 </td>
                                 <td class="text-center small">
-                                    <span class="badge bg-secondary mb-1">{{ emp.paid_days }} วัน</span><br>
-                                    <span class="text-warning">สาย: {{ emp.late_minutes }} น.</span><br>
-                                    <span class="text-danger">ขาด: {{ emp.absent_days or 0 }} วัน</span>
+                                    <span class="badge bg-secondary mb-1">{{ emp.paid_days }} {{ texts.unit_day|default('days') }}</span><br>
+                                    <span class="text-warning">{{ texts.pay_stat_late }}: {{ emp.late_minutes }} {{ texts.unit_min|default('min') }}</span><br>
+                                    <span class="text-danger">{{ texts.pay_stat_absent }}: {{ emp.absent_days or 0 }} {{ texts.unit_day|default('days') }}</span>
                                 </td>
 
                                 <td class="text-end ot-cell text-success fw-semibold" data-val="{{ emp.approved_ot_pay or 0 }}">
@@ -112,38 +112,38 @@
                                 
                                 <td>
                                     <div class="mb-1">
-                                        <label class="x-small text-muted">สาย:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_late }}:</label>
                                         <input type="number" name="late_deduct_{{ emp.id }}" class="form-control form-control-sm late-deduct text-end" value="{{ emp.calculated_late_deduction }}" oninput="calculateRow(this)" step="0.01">
                                     </div>
                                     <div>
-                                        <label class="x-small text-muted">ออกก่อน:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_early }}:</label>
                                         <input type="number" name="early_deduct_{{ emp.id }}" class="form-control form-control-sm early-deduct text-end" value="{{ emp.calculated_early_deduction }}" oninput="calculateRow(this)" step="0.01">
                                     </div>
                                 </td>
 
                                 <td>
-                                    <label class="x-small text-muted">ขาดงาน:</label>
+                                    <label class="x-small text-muted">{{ texts.pay_label_absent }}:</label>
                                     <input type="number" name="absent_deduct_{{ emp.id }}" class="form-control form-control-sm absent-deduct text-end" value="{{ emp.calculated_absent_deduction }}" oninput="calculateRow(this)" step="0.01">
                                 </td>
                                 
                                 <td>
                                     <div class="mb-1">
-                                        <label class="x-small text-muted">เพิ่ม:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_extra }}:</label>
                                         <input type="number" name="extra_income_{{ emp.id }}" value="{{ emp.draft_extra_income|default(0) }}" class="form-control form-control-sm extra-income-input text-end" oninput="calculateRow(this)">
                                     </div>
                                     <div>
-                                        <label class="x-small text-muted">ลด:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_deduct }}:</label>
                                         <input type="number" name="extra_deduction_{{ emp.id }}" value="{{ emp.draft_extra_deduction|default(0) }}" class="form-control form-control-sm extra-deduction-input text-end" oninput="calculateRow(this)" step="0.01">
                                     </div>
                                 </td>
                                 
                                 <td>
                                     <div class="mb-1">
-                                        <label class="x-small text-muted">SSO:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_sso }}:</label>
                                         <input type="number" name="sso_{{ emp.id }}" class="form-control form-control-sm sso-input text-end" value="{{ emp.draft_sso }}" oninput="calculateRow(this)" step="0.01">
                                     </div>
                                     <div>
-                                        <label class="x-small text-muted">TAX:</label>
+                                        <label class="x-small text-muted">{{ texts.pay_label_tax }}:</label>
                                         <input type="number" name="tax_{{ emp.id }}" class="form-control form-control-sm tax-input text-end" value="{{ emp.draft_tax|default(0) }}" oninput="calculateRow(this)" step="0.01">
                                     </div>
                                 </td>
@@ -160,14 +160,14 @@
 
                 <div class="d-flex justify-content-between align-items-center mt-4 mb-5">
                     <div class="text-muted small">
-                        <i class="bi bi-info-circle me-1"></i> แถบสีเหลือง = คำนวณวันที่ต่างจากรอบปกติของเดือน
+                        <i class="bi bi-info-circle me-1"></i> {{ texts.pay_yellow_note }}
                     </div>
                     <div class="d-flex gap-3">
                         <button type="submit" name="action" value="save_draft" class="btn btn-outline-primary btn-lg px-4">
-                            <i class="bi bi-save me-1"></i> บันทึกร่าง (Draft)
+                            <i class="bi bi-save me-1"></i> {{ texts.pay_save_draft }}
                         </button>
-                        <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('ยืนยันยอดเงินเดือนทั้งหมด? พนักงานจะสามารถดูสลิปได้ทันที')">
-                            <i class="bi bi-check-all me-1"></i> ยืนยันจ่ายเงินเดือน
+                        <button type="submit" name="action" value="finalize" class="btn btn-success btn-lg px-5 shadow" onclick="return confirm('{{ texts.pay_confirm_finalize }}')">
+                            <i class="bi bi-check-all me-1"></i> {{ texts.pay_finalize }}
                         </button>
                     </div>
                 </div>

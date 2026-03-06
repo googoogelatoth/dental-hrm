@@ -27,17 +27,13 @@
                     <td><strong>{{ leave.owner.first_name }} {{ leave.owner.last_name }}</strong></td>
                     
                     <td>
-                        {% set leave_type_map = {
-                            'ลาป่วย': 'Sick Leave',
-                            'ลากิจ': 'Personal Leave',
-                            'ลาพักร้อน': 'Vacation Leave'
+                        {% set leave_type_key_map = {
+                            'ลาป่วย': 'leave_type_sick',
+                            'ลากิจ': 'leave_type_personal',
+                            'ลาพักร้อน': 'leave_type_vacation'
                         } %}
                         <span class="badge bg-info text-dark">
-                            {% if request.cookies.get('lang') == 'en' %}
-                                {{ leave_type_map.get(leave.leave_type, leave.leave_type) }}
-                            {% else %}
-                                {{ leave.leave_type }}
-                            {% endif %}
+                            {{ texts.get(leave_type_key_map.get(leave.leave_type, leave.leave_type), leave.leave_type) }}
                         </span>
                     </td>
 

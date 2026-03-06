@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container mt-4 mb-5">
-    <h3 class="mb-4"><i class="bi bi-bar-chart-line-fill"></i> สรุปข้อมูลค่าล่วงเวลา (OT)</h3>
+    <h3 class="mb-4"><i class="bi bi-bar-chart-line-fill"></i> {{ texts.ot_sum_title }}</h3>
     
     <!-- ฟอร์มค้นหาและกรองข้อมูล -->
     <div class="card shadow-sm mb-4">
@@ -9,25 +9,25 @@
             <form id="filterForm" method="get" action="/admin/ot-summary-report">
                 <div class="row">
                     <div class="col-md-3">
-                        <label for="start_date" class="form-label">วันที่เริ่มต้น</label>
+                        <label for="start_date" class="form-label">{{ texts.ot_sum_start_date }}</label>
                         <input type="date" id="start_date" name="start_date" class="form-control" value="{{ start_date }}" required>
                     </div>
                     <div class="col-md-3">
-                        <label for="end_date" class="form-label">วันที่สิ้นสุด</label>
+                        <label for="end_date" class="form-label">{{ texts.ot_sum_end_date }}</label>
                         <input type="date" id="end_date" name="end_date" class="form-control" value="{{ end_date }}" required>
                     </div>
                     <div class="col-md-3">
-                        <label for="status" class="form-label">สถานะ</label>
+                        <label for="status" class="form-label">{{ texts.ot_sum_status }}</label>
                         <select id="status" name="status" class="form-select">
-                            <option value="all" {% if current_status == "all" %}selected{% endif %}>ทั้งหมด</option>
-                            <option value="pending" {% if current_status == "pending" %}selected{% endif %}>รอการอนุมัติ</option>
-                            <option value="approved" {% if current_status == "approved" %}selected{% endif %}>อนุมัติแล้ว</option>
-                            <option value="rejected" {% if current_status == "rejected" %}selected{% endif %}>ปฏิเสธ</option>
+                            <option value="all" {% if current_status == "all" %}selected{% endif %}>{{ texts.ot_sum_all }}</option>
+                            <option value="pending" {% if current_status == "pending" %}selected{% endif %}>{{ texts.ot_sum_pending }}</option>
+                            <option value="approved" {% if current_status == "approved" %}selected{% endif %}>{{ texts.ot_sum_approved }}</option>
+                            <option value="rejected" {% if current_status == "rejected" %}selected{% endif %}>{{ texts.ot_sum_rejected }}</option>
                         </select>
                     </div>
                     <div class="col-md-3 d-flex align-items-end gap-2">
                         <button type="submit" class="btn btn-primary w-100">
-                            <i class="bi bi-search"></i> ค้นหา
+                            <i class="bi bi-search"></i> {{ texts.ot_sum_search }}
                         </button>
                         <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()">
                             <i class="bi bi-arrow-clockwise"></i>
@@ -43,36 +43,36 @@
         <div class="col-md-3">
             <div class="card text-center shadow-sm border-start border-primary border-5">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">รวมทั้งหมด</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_header_total }}</h6>
                     <h2 class="text-primary">{{ total_ots }}</h2>
-                    <small class="text-muted">รายการ</small>
+                    <small class="text-muted">{{ texts.ot_sum_items }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm border-start border-success border-5">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">รวมชั่วโมง OT</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_total_hours }}</h6>
                     <h2 class="text-success">{{ "%.1f"|format(total_minutes / 60) }}</h2>
-                    <small class="text-muted">ชั่วโมง</small>
+                    <small class="text-muted">{{ texts.ot_sum_hours }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm border-start border-info border-5">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">อนุมัติแล้ว</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_approved }}</h6>
                     <h2 class="text-info">{{ status_count.approved }}</h2>
-                    <small class="text-muted">รายการ</small>
+                    <small class="text-muted">{{ texts.ot_sum_items }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm border-start border-warning border-5">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">รอการอนุมัติ</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_pending }}</h6>
                     <h2 class="text-warning">{{ status_count.pending }}</h2>
-                    <small class="text-muted">รายการ</small>
+                    <small class="text-muted">{{ texts.ot_sum_items }}</small>
                 </div>
             </div>
         </div>
