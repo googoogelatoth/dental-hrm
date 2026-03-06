@@ -726,6 +726,49 @@ async def dashboard(
     active_emps = db.query(models.Employee).filter(models.Employee.is_active).all()
     resigned_emps = db.query(models.Employee).filter(~models.Employee.is_active).all()
     
+    # Calculate attendance statistics for pie chart (current month)
+    today = get_now_th().date()
+    first_day_of_month = today.replace(day=1)
+    
+    # Count attendance by status
+    normal_count = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today,
+        models.Attendance.status == 'Normal'
+    ).count()
+    
+    late_count = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today,
+        models.Attendance.status == 'Late'
+    ).count()
+    
+    # Count approved leaves
+    leave_count = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.start_date <= today,
+        models.LeaveRequest.end_date >= first_day_of_month,
+        models.LeaveRequest.status == 'Approved'
+    ).count()
+    
+    # Count absents (no attendance record on working days)
+    # Get total working days in month
+    total_days_in_month = (today - first_day_of_month).days + 1
+    total_attendance = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today
+    ).count()
+    
+    # Rough calculation: working days minus attendance records
+    expected_working_days = total_days_in_month * len(active_emps) * 5 / 7  # Approximate
+    absent_count = max(0, int(expected_working_days - total_attendance - leave_count))
+    
+    attendance_stats = {
+        "normal": normal_count,
+        "late": late_count,
+        "absent": absent_count,
+        "leave": leave_count
+    }
+    
     # Get VAPID key with proper stripping
     vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
     
@@ -734,6 +777,7 @@ async def dashboard(
         "request": request, 
         "active_emps": active_emps,     # ✅ ส่งตัวแปรที่เพิ่ง Query มา
         "resigned_emps": resigned_emps,   # ✅ ส่งตัวแปรที่เพิ่ง Query มา
+        "attendance_stats": attendance_stats,  # ส่งข้อมูลสถิติการเข้างาน
         "public_vapid_key": vapid_key if vapid_key else "", 
         "user_role": user.role, 
         "user": user,
