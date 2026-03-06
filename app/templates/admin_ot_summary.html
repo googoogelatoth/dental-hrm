@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4 mb-5">
+    <h3 class="mb-4"><i class="bi bi-bar-chart-line-fill"></i> สรุปข้อมูลค่าล่วงเวลา (OT)</h3>
+    
+    <!-- ฟอร์มค้นหาและกรองข้อมูล -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form id="filterForm" method="get" action="/admin/ot-summary-report">
+                <div class="row">
+                    <div class="col-md-3">
+                        <label for="start_date" class="form-label">วันที่เริ่มต้น</label>
+                        <input type="date" id="start_date" name="start_date" class="form-control" value="{{ start_date }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="end_date" class="form-label">วันที่สิ้นสุด</label>
+                        <input type="date" id="end_date" name="end_date" class="form-control" value="{{ end_date }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="status" class="form-label">สถานะ</label>
+                        <select id="status" name="status" class="form-select">
+                            <option value="all" {% if current_status == "all" %}selected{% endif %}>ทั้งหมด</option>
+                            <option value="pending" {% if current_status == "pending" %}selected{% endif %}>รอการอนุมัติ</option>
+                            <option value="approved" {% if current_status == "approved" %}selected{% endif %}>อนุมัติแล้ว</option>
+                            <option value="rejected" {% if current_status == "rejected" %}selected{% endif %}>ปฏิเสธ</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end gap-2">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search"></i> ค้นหา
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="resetFilters()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- สรุปข้อมูลทั่วไป -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm border-start border-primary border-5">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">รวมทั้งหมด</h6>
+                    <h2 class="text-primary">{{ total_ots }}</h2>
+                    <small class="text-muted">รายการ</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm border-start border-success border-5">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">รวมชั่วโมง OT</h6>
+                    <h2 class="text-success">{{ "%.1f"|format(total_minutes / 60) }}</h2>
+                    <small class="text-muted">ชั่วโมง</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm border-start border-info border-5">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">อนุมัติแล้ว</h6>
+                    <h2 class="text-info">{{ status_count.approved }}</h2>
+                    <small class="text-muted">รายการ</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm border-start border-warning border-5">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">รอการอนุมัติ</h6>
+                    <h2 class="text-warning">{{ status_count.pending }}</h2>
+                    <small class="text-muted">รายการ</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- สรุปตามประเภท OT -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h5 class="mb-3">สรุปตามประเภท OT</h5>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">OT 1.0 เท่า</h6>
+                    <h3 class="text-danger mb-2">{{ summary.ot_1_0 }}</h3>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_0 / 60) }} ชั่วโมง</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">OT 1.5 เท่า</h6>
+                    <h3 class="text-warning mb-2">{{ summary.ot_1_5 }}</h3>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_5 / 60) }} ชั่วโมง</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">OT 2.0 เท่า</h6>
+                    <h3 class="text-info mb-2">{{ summary.ot_2_0 }}</h3>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_2_0 / 60) }} ชั่วโมง</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <h6 class="text-muted mb-2">OT 3.0 เท่า</h6>
+                    <h3 class="text-success mb-2">{{ summary.ot_3_0 }}</h3>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_3_0 / 60) }} ชั่วโมง</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ตารางรายละเอียด -->
+    <div class="card shadow">
+        <div class="card-header bg-light border-bottom">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h5 class="mb-0"><i class="bi bi-table"></i> รายละเอียดข้อมูล OT</h5>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="exportToExcel()">
+                        <i class="bi bi-download"></i> ส่งออก Excel
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% if ots %}
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>วันที่</th>
+                            <th>พนักงาน</th>
+                            <th>เวลา</th>
+                            <th>ประเภท</th>
+                            <th>นาที</th>
+                            <th>ชั่วโมง</th>
+                            <th>เหตุผล</th>
+                            <th>สถานะ</th>
+                            <th>หมายเหตุ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ot in ots %}
+                        <tr>
+                            <td><strong>{{ ot.request_date.strftime('%d/%m/%Y') }}</strong></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div>
+                                        <small>{{ ot.employee.first_name }} {{ ot.employee.last_name }}</small><br>
+                                        <small class="text-muted">{{ ot.employee.employee_code }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <small>{{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</small>
+                            </td>
+                            <td>
+                                <span class="badge bg-info text-dark">{{ ot.ot_type }}</span>
+                            </td>
+                            <td>
+                                <strong>{{ ot.total_minutes }}</strong>
+                            </td>
+                            <td>
+                                <small>{{ "%.1f"|format(ot.total_minutes / 60) }}</small>
+                            </td>
+                            <td>
+                                <small>{{ ot.reason if ot.reason else '-' }}</small>
+                            </td>
+                            <td>
+                                {% if ot.status == "approved" %}
+                                    <span class="badge bg-success">✓ อนุมัติแล้ว</span>
+                                {% elif ot.status == "pending" %}
+                                    <span class="badge bg-warning text-dark">⧖ รอการอนุมัติ</span>
+                                {% elif ot.status == "rejected" %}
+                                    <span class="badge bg-danger">✗ ปฏิเสธ</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small title="{{ ot.admin_remark or 'ไม่มี' }}" class="text-muted">
+                                    {% if ot.admin_remark %}
+                                        <i class="bi bi-info-circle"></i>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </small>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 3rem; color: #ccc;"></i>
+                <p class="text-muted mt-3">ไม่พบข้อมูล OT ในช่วงเวลาที่เลือก</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function resetFilters() {
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    document.getElementById('start_date').value = firstDay.toISOString().split('T')[0];
+    document.getElementById('end_date').value = today.toISOString().split('T')[0];
+    document.getElementById('status').value = 'approved';
+    
+    document.getElementById('filterForm').submit();
+}
+
+function exportToExcel() {
+    // สร้าง table element ชั่วคราวเพื่อส่งออก
+    const table = document.querySelector('.table');
+    if (!table) {
+        alert('ไม่พบข้อมูลสำหรับส่งออก');
+        return;
+    }
+    
+    // สร้าง HTML ที่พร้อมสำหรับ Download
+    let html = '<table border="1">';
+    
+    // Header
+    const headers = table.querySelectorAll('thead th');
+    html += '<tr>';
+    headers.forEach(header => {
+        html += '<td><strong>' + header.textContent.trim() + '</strong></td>';
+    });
+    html += '</tr>';
+    
+    // Body
+    const rows = table.querySelectorAll('tbody tr');
+    rows.forEach(row => {
+        html += '<tr>';
+        const cells = row.querySelectorAll('td');
+        cells.forEach((cell, index) => {
+            // ข้ามคอลัมน์สุดท้าย (หมายเหตุสั้นๆ)
+            if (index < cells.length - 1) {
+                html += '<td>' + cell.textContent.trim() + '</td>';
+            }
+        });
+        html += '</tr>';
+    });
+    
+    html += '</table>';
+    
+    // สร้าง Blob และ Download
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'OT_Summary_' + new Date().toISOString().split('T')[0] + '.xls');
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+</script>
+
+<style>
+    .card {
+        border: none;
+        transition: transform 0.2s;
+    }
+    .card:hover {
+        transform: translateY(-2px);
+    }
+    .sticky-top {
+        background: white;
+        z-index: 10;
+    }
+    .table-hover tbody tr:hover {
+        background-color: #f5f5f5;
+    }
+</style>
+{% endblock %}

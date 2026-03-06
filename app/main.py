@@ -3701,28 +3701,73 @@ async def my_ot_requests_page(request: Request,user: models.Employee = Depends(g
         return RedirectResponse(url="/login", status_code=303)
     
 @app.get("/admin/ot-summary-report")
-async def ot_summary_report(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+async def ot_summary_report(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    status: str = Query("approved")
+):
     if request.cookies.get("user_role") != "Admin":
         return RedirectResponse(url="/dashboard", status_code=303)
 
-    # ดึง OT ที่อนุมัติแล้วทั้งหมดมาสรุปยอด
-    all_approved_ots = db.query(models.OTRequest).filter(
-        models.OTRequest.status == "approved"
-    ).all()
+    # กำหนดค่าวันที่เริ่มต้น (ถ้าไม่มี ให้เป็นต้นเดือนปัจจุบัน)
+    now = get_now_th()
+    if not start_date:
+        start_date = (now.replace(day=1)).strftime('%Y-%m-%d')
+    if not end_date:
+        end_date = now.strftime('%Y-%m-%d')
     
-    # คำนวณยอดรวมนาทีแยกตามประเภทเพื่อทำ Dashboard เล็กๆ
+    # แปลง string เป็น date object
+    try:
+        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+    except:
+        start_date_obj = (now.replace(day=1)).date()
+        end_date_obj = now.date()
+    
+    # สร้าง Query ฐานสิ่งสืบค้นหา
+    query = db.query(models.OTRequest).filter(
+        models.OTRequest.request_date >= start_date_obj,
+        models.OTRequest.request_date <= end_date_obj
+    )
+    
+    # กรองตามสถานะ
+    if status and status != "all":
+        query = query.filter(models.OTRequest.status == status)
+    
+    filtered_ots = query.all()
+    
+    # คำนวณยอดรวมนาทีแยกตามประเภท
     summary = {
-        "ot_1_0": sum(ot.total_minutes for ot in all_approved_ots if ot.ot_type == "ot_1_0"),
-        "ot_1_5": sum(ot.total_minutes for ot in all_approved_ots if ot.ot_type == "ot_1_5"),
-        "ot_2_0": sum(ot.total_minutes for ot in all_approved_ots if ot.ot_type == "ot_2_0"),
-        "ot_3_0": sum(ot.total_minutes for ot in all_approved_ots if ot.ot_type == "ot_3_0"),
+        "ot_1_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_1_0"),
+        "ot_1_5": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_1_5"),
+        "ot_2_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_2_0"),
+        "ot_3_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_3_0"),
     }
+    
+    # นับสถานะ
+    status_count = {
+        "pending": len([ot for ot in filtered_ots if ot.status == "pending"]),
+        "approved": len([ot for ot in filtered_ots if ot.status == "approved"]),
+        "rejected": len([ot for ot in filtered_ots if ot.status == "rejected"]),
+    }
+    total_ots = len(filtered_ots)
+    total_minutes = sum(ot.total_minutes for ot in filtered_ots)
 
-    return templates.TemplateResponse("admin_ot_report.html", {
+    return templates.TemplateResponse("admin_ot_summary.html", {
         "request": request,
-        "ots": all_approved_ots,
+        "ots": filtered_ots,
         "texts": texts,
-        "summary": summary
+        "summary": summary,
+        "status_count": status_count,
+        "total_ots": total_ots,
+        "total_minutes": total_minutes,
+        "start_date": start_date,
+        "end_date": end_date,
+        "current_status": status
     })
 
 @app.get("/admin/download-attendance-template")
