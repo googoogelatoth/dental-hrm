@@ -611,11 +611,40 @@ async def monitor_page(
     # - ขาดงาน (พนักงานทั้งหมด - มาทำงาน - ลางาน)
     stat_absent_today = max(0, total_active_emp - present_today - on_leave_today)
 
-    # 3. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - สถิติการลาทั้งหมด
-    sick_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาป่วย").count()
-    personal_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลากิจ").count()
-    vacation_leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.leave_type == "ลาพักร้อน").count()
-    leave_pie_data = [sick_leave, personal_leave, vacation_leave]
+    # 3. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - สถิติการเข้างานประจำเดือน
+    first_day_of_month = today.replace(day=1)
+    
+    # นับจำนวนแต่ละสถานะในเดือนปัจจุบัน
+    normal_count = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today,
+        models.Attendance.status == 'Normal'
+    ).count()
+    
+    late_count = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today,
+        models.Attendance.status == 'Late'
+    ).count()
+    
+    leave_count = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.start_date <= today,
+        models.LeaveRequest.end_date >= first_day_of_month,
+        models.LeaveRequest.status == 'Approved'
+    ).count()
+    
+    # คำนวณจำนวนขาดโดยประมาณ
+    total_days_in_month = (today - first_day_of_month).days + 1
+    total_attendance = db.query(models.Attendance).filter(
+        models.Attendance.date >= first_day_of_month,
+        models.Attendance.date <= today
+    ).count()
+    
+    expected_working_days = total_days_in_month * total_active_emp * 5 / 7
+    absent_count = max(0, int(expected_working_days - total_attendance - leave_count))
+    
+    # ข้อมูลสำหรับ Pie Chart: [ปกติ, มาสาย, ขาด, ลา]
+    attendance_pie_data = [normal_count, late_count, absent_count, leave_count]
 
     # 4. ข้อมูลสำหรับกราฟแท่ง (Bar Chart) - สถิติลา 6 เดือนล่าสุด
     thai_months = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
@@ -649,7 +678,7 @@ async def monitor_page(
         "stat_absent_today": stat_absent_today,
         "leave_bar_labels": leave_bar_labels,
         "leave_bar_data": leave_bar_data,
-        "leave_pie_data": leave_pie_data,
+        "attendance_pie_data": attendance_pie_data,
         "company_name": company.company_name if company else "Mini HRM",
         "company_logo": compute_logo_url(company),
     })
@@ -726,49 +755,6 @@ async def dashboard(
     active_emps = db.query(models.Employee).filter(models.Employee.is_active).all()
     resigned_emps = db.query(models.Employee).filter(~models.Employee.is_active).all()
     
-    # Calculate attendance statistics for pie chart (current month)
-    today = get_now_th().date()
-    first_day_of_month = today.replace(day=1)
-    
-    # Count attendance by status
-    normal_count = db.query(models.Attendance).filter(
-        models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today,
-        models.Attendance.status == 'Normal'
-    ).count()
-    
-    late_count = db.query(models.Attendance).filter(
-        models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today,
-        models.Attendance.status == 'Late'
-    ).count()
-    
-    # Count approved leaves
-    leave_count = db.query(models.LeaveRequest).filter(
-        models.LeaveRequest.start_date <= today,
-        models.LeaveRequest.end_date >= first_day_of_month,
-        models.LeaveRequest.status == 'Approved'
-    ).count()
-    
-    # Count absents (no attendance record on working days)
-    # Get total working days in month
-    total_days_in_month = (today - first_day_of_month).days + 1
-    total_attendance = db.query(models.Attendance).filter(
-        models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today
-    ).count()
-    
-    # Rough calculation: working days minus attendance records
-    expected_working_days = total_days_in_month * len(active_emps) * 5 / 7  # Approximate
-    absent_count = max(0, int(expected_working_days - total_attendance - leave_count))
-    
-    attendance_stats = {
-        "normal": normal_count,
-        "late": late_count,
-        "absent": absent_count,
-        "leave": leave_count
-    }
-    
     # Get VAPID key with proper stripping
     vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
     
@@ -777,7 +763,6 @@ async def dashboard(
         "request": request, 
         "active_emps": active_emps,     # ✅ ส่งตัวแปรที่เพิ่ง Query มา
         "resigned_emps": resigned_emps,   # ✅ ส่งตัวแปรที่เพิ่ง Query มา
-        "attendance_stats": attendance_stats,  # ส่งข้อมูลสถิติการเข้างาน
         "public_vapid_key": vapid_key if vapid_key else "", 
         "user_role": user.role, 
         "user": user,

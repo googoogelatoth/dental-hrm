@@ -66,7 +66,7 @@
         </div>
         <div class="col-lg-4 mb-4">
             <div class="card border-0 shadow-sm p-4 h-100">
-                <h6 class="fw-bold mb-4">{{ texts.mon_chart_pie }}</h6>
+                <h6 class="fw-bold mb-4">สถิติการเข้างานประจำเดือน</h6>
                 <div style="height: 300px;">
                     <canvas id="leavePieChart"></canvas>
                 </div>
@@ -129,26 +129,43 @@
             }
         });
 
-        // กราฟวงกลม (Pie Chart) - ประเภทการลา
+        // กราฟวงกลม (Pie Chart) - สถิติการเข้างาน
         const ctxPie = document.getElementById('leavePieChart').getContext('2d');
         new Chart(ctxPie, {
             type: 'doughnut',
             data: {
-                labels: [
-                    '{{ texts.leave_sick }}', 
-                    '{{ texts.leave_personal }}', 
-                    '{{ texts.leave_vacation }}'
-                ],
+                labels: ['ปกติ', 'มาสาย', 'ขาด', 'ลา'],
                 datasets: [{
-                    data: JSON.parse('{{ leave_pie_data | tojson | safe }}'),
-                    backgroundColor: ['#dc3545', '#ffc107', '#198754'],
-                    borderWidth: 0
+                    data: JSON.parse('{{ attendance_pie_data | tojson | safe }}'),
+                    backgroundColor: ['#28a745', '#ffc107', '#dc3545', '#17a2b8'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                cutout: '70%'
+                cutout: '60%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 10,
+                            font: { size: 13 }
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                return label + ': ' + value + ' ครั้ง (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
             }
         });
     });
