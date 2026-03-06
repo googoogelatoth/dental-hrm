@@ -32,10 +32,12 @@ VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip(
 # VAPID Claims Subject (must be a valid mailto: link or admin email)
 VAPID_CLAIMS_SUB = os.getenv("VAPID_CLAIMS_SUB", "").strip().strip('"').strip("'")
 if not VAPID_CLAIMS_SUB or VAPID_CLAIMS_SUB == "mailto:your-email@example.com":
-    # Try to use a fallback admin email if VAPID_CLAIMS_SUB is not configured
+    # Use fallback admin email if VAPID_CLAIMS_SUB is not configured
     VAPID_CLAIMS_SUB = os.getenv("ADMIN_EMAIL", "mailto:admin@example.com").strip()
-    if not VAPID_CLAIMS_SUB.startswith("mailto:"):
-        VAPID_CLAIMS_SUB = f"mailto:{VAPID_CLAIMS_SUB}"
+
+# Ensure VAPID_CLAIMS_SUB is always in mailto: format (required by pywebpush)
+if VAPID_CLAIMS_SUB and not VAPID_CLAIMS_SUB.startswith("mailto:"):
+    VAPID_CLAIMS_SUB = f"mailto:{VAPID_CLAIMS_SUB}"
 
 # Validate VAPID keys (optional in dev, but warn if missing)
 if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
