@@ -47,3 +47,8 @@ def decrypt_data(data: str) -> str:
     """Decrypt sensitive data with fallback support for key rotation and legacy plaintext."""
     _, value = decrypt_data_with_status(data)
     return value
+
+
+def is_api_path(path: str) -> bool:
+    """Return True when request path is under API namespace."""
+    return path == "/api" or path.startswith("/api/")

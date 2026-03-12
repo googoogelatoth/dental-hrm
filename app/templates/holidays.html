@@ -34,9 +34,11 @@
                     <td class="fw-bold">{{ holiday.holiday_date.strftime('%d/%m/%Y') }}</td>
                     <td>{{ holiday.holiday_name }}</td>
                     <td class="text-center">
-                        <a href="/delete-holiday/{{ holiday.id }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ texts.hld_confirm_delete }}')">
-                            <i class="bi bi-trash"></i> {{ texts.hld_btn_delete }}
-                        </a>
+                        <form action="/delete-holiday/{{ holiday.id }}" method="post" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('{{ texts.hld_confirm_delete }}')">
+                                <i class="bi bi-trash"></i> {{ texts.hld_btn_delete }}
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 {% else %}

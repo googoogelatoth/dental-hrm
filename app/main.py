@@ -1,15 +1,19 @@
 import os
+import sys
 import logging
 import builtins
+import secrets
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 import io
 import json
 import uuid
 import calendar
+import re
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
 from typing import List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 from fastapi import (
     FastAPI,
@@ -33,9 +37,10 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, extract
+from sqlalchemy.exc import SQLAlchemyError
 from .database import SessionLocal, engine
 from . import models
-from .security import encrypt_data, decrypt_data, decrypt_data_with_status
+from .security import encrypt_data, decrypt_data, decrypt_data_with_status, is_api_path
 from .languages import TRANSLATIONS
 
 import pandas as pd
@@ -49,7 +54,15 @@ import pytz
 import starlette.status as status
 from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_CLAIMS_SUB
 
-app = FastAPI()
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    await validate_required_env()
+    if "pytest" not in sys.modules and not os.getenv("PYTEST_CURRENT_TEST"):
+        await create_first_admin()
+    yield
+
+app = FastAPI(lifespan=app_lifespan)
 
 # Configure structured logging for the application
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -130,6 +143,35 @@ cloudinary.config(
 # ตั้งค่าตำแหน่งของไฟล์ HTML
 templates = Jinja2Templates(directory="app/templates")
 
+
+def render_template(*args, **kwargs):
+    """Render templates while supporting both old and new Starlette signatures."""
+    if len(args) < 2:
+        raise TypeError("render_template requires at least template name and context")
+
+    # New signature: (request, name, context, ...)
+    if isinstance(args[0], Request):
+        request = args[0]
+        name = args[1]
+        context = args[2] if len(args) > 2 else {}
+        extra_args = args[3:]
+        return templates.TemplateResponse(request, name, context, *extra_args, **kwargs)
+
+    # Legacy signature: (name, context, ...)
+    name = args[0]
+    context = args[1] if len(args) > 1 else {}
+    if not isinstance(context, dict):
+        raise TypeError("Template context must be a dict")
+
+    request = context.get("request")
+    if request is None:
+        raise ValueError("Template context must include 'request'")
+
+    normalized_context = dict(context)
+    normalized_context.pop("request", None)
+    extra_args = args[2:]
+    return templates.TemplateResponse(request, name, normalized_context, *extra_args, **kwargs)
+
 # เพิ่ม global functions สำหรับ template ให้สามารถดึงข้อมูลบริษัทได้อัตโนมัติ
 def get_company_context():
     """ดึงข้อมูลบริษัทสำหรับแสดงใน navbar"""
@@ -140,7 +182,8 @@ def get_company_context():
             'company_logo': compute_logo_url(company) or "/static/img/mini-hrm-logo.png",
             'company_name': company.company_name if company else "Mini-HRM"
         }
-    except:
+    except SQLAlchemyError as exc:
+        logger.warning(f"Failed to load company context from DB: {exc}")
         return {
             'company_logo': "/static/img/mini-hrm-logo.png",
             'company_name': "Mini-HRM"
@@ -153,6 +196,108 @@ templates.env.globals.update({
     'get_company_logo': lambda request: get_company_context()['company_logo'],
     'get_company_name': lambda request: get_company_context()['company_name']
 })
+
+
+UNSAFE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+CSRF_EXEMPT_PATHS = {
+    "/service-worker.js",
+}
+
+
+def _requires_admin_guard(path: str) -> bool:
+    return path.startswith("/admin") or path.startswith("/debug")
+
+
+def _should_enforce_csrf(request: Request) -> bool:
+    path = request.url.path
+    if request.method.upper() not in UNSAFE_HTTP_METHODS:
+        return False
+    if path in CSRF_EXEMPT_PATHS:
+        return False
+    # Enforce CSRF for logged-in sessions and login POST.
+    return request.cookies.get("is_logged_in") == "true" or path == "/login"
+
+
+def _extract_csrf_token_from_body(content_type: str, body: bytes) -> Optional[str]:
+    """Extract csrf_token from raw request body without calling request.form()."""
+    if not body:
+        return None
+
+    if "application/x-www-form-urlencoded" in content_type:
+        parsed = parse_qs(body.decode("utf-8", errors="ignore"), keep_blank_values=True)
+        token_values = parsed.get("csrf_token")
+        return token_values[0] if token_values else None
+
+    if "multipart/form-data" in content_type:
+        text_body = body.decode("utf-8", errors="ignore")
+        match = re.search(r'name="csrf_token"\r\n\r\n([^\r\n]+)', text_body)
+        if match:
+            return match.group(1)
+
+    return None
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Centralized hardening for sensitive route prefixes.
+    if _requires_admin_guard(path):
+        if path.startswith("/debug") and os.getenv("ENVIRONMENT", "development") == "production":
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+        user_id = request.cookies.get("user_id")
+        session_id = request.cookies.get("session_id")
+        is_logged_in = request.cookies.get("is_logged_in") == "true"
+
+        if not (is_logged_in and user_id and session_id):
+            return RedirectResponse(url="/login?msg=session_expired", status_code=303)
+
+        db = SessionLocal()
+        try:
+            parsed_user_id = int(user_id)
+            user = db.query(models.Employee).filter(models.Employee.id == parsed_user_id).first()
+        except (TypeError, ValueError, SQLAlchemyError):
+            user = None
+        finally:
+            db.close()
+
+        if not user or not user.is_active or user.current_session_id != session_id:
+            return RedirectResponse(url="/login?msg=session_expired", status_code=303)
+
+        if user.role != "Admin":
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+    csrf_cookie = request.cookies.get("csrf_token")
+
+    if _should_enforce_csrf(request):
+        provided_token = request.headers.get("x-csrf-token") or request.headers.get("x-xsrf-token")
+        if not provided_token:
+            content_type = (request.headers.get("content-type") or "").lower()
+            if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+                raw_body = await request.body()
+                provided_token = _extract_csrf_token_from_body(content_type, raw_body)
+
+        if not csrf_cookie or not provided_token:
+            return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
+
+        if not secrets.compare_digest(str(provided_token), str(csrf_cookie)):
+            return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
+
+    response = await call_next(request)
+
+    if not csrf_cookie:
+        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        response.set_cookie(
+            key="csrf_token",
+            value=secrets.token_urlsafe(32),
+            max_age=60 * 60 * 8,
+            secure=is_production,
+            httponly=False,
+            samesite="Lax",
+        )
+
+    return response
 
 
 # Serve service worker at root for full-origin scope
@@ -185,8 +330,9 @@ async def get_current_active_user(request: Request, db: Session = Depends(get_db
 
     # 2. ดึงข้อมูล User จาก DB
     try:
-        user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
-    except Exception:
+        parsed_user_id = int(user_id)
+        user = db.query(models.Employee).filter(models.Employee.id == parsed_user_id).first()
+    except (TypeError, ValueError, SQLAlchemyError):
         raise HTTPException(status_code=401, detail="ข้อมูลผู้ใช้ไม่ถูกต้อง")
     
     # 3. 🛡️ เช็คว่ามีตัวตน และ สถานะพนักงาน
@@ -200,6 +346,16 @@ async def get_current_active_user(request: Request, db: Session = Depends(get_db
         raise HTTPException(status_code=401, detail="เซสชั่นหมดอายุหรือมีการเข้าสู่ระบบจากที่อื่น")
         
     return user # คืนค่าเป็นก้อน Object จริงๆ เท่านั้น
+
+
+async def require_admin(
+    user: models.Employee = Depends(get_current_active_user),
+) -> models.Employee:
+    """Dependency: raises HTTP 403 if the authenticated user is not an Admin."""
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return user
+
 
 async def get_lang(request: Request):
     # ดึงค่า lang จากคุกกี้ ถ้าไม่มีให้ใช้ 'th' เป็น Default
@@ -249,7 +405,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Encryption helpers are provided by `app/security.py` and the Fernet instance
 # is created from the `ENCRYPTION_KEY` environment variable in `app/config.py`.
 
-@app.on_event("startup")
 async def create_first_admin():
     db = SessionLocal()
     try:
@@ -275,7 +430,6 @@ async def create_first_admin():
         db.close()
 
 
-@app.on_event("startup")
 async def validate_required_env():
     """Fail fast on startup when required environment variables are missing."""
     missing = []
@@ -313,18 +467,22 @@ async def validate_required_env():
 
 # Debug endpoint to check VAPID key status (remove in production)
 @app.get("/debug/vapid-status", response_class=HTMLResponse)
-async def debug_vapid_status(request: Request):
+async def debug_vapid_status(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+):
     """Debug endpoint to verify VAPID keys are loaded correctly."""
+    if os.getenv("ENVIRONMENT", "development") == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+
     vapid_pub = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
     vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'")
     
     status = {
         "vapid_public_key_loaded": len(vapid_pub) > 0,
         "vapid_public_key_length": len(vapid_pub),
-        "vapid_public_key_first_20": vapid_pub[:20] if vapid_pub else "NOT SET",
         "vapid_private_key_loaded": len(vapid_priv) > 0,
         "vapid_private_key_length": len(vapid_priv),
-        "vapid_private_key_first_20": vapid_priv[:20] if vapid_priv else "NOT SET",
     }
     
     html_content = f"""
@@ -394,12 +552,9 @@ def inspect_employee_sensitive_fields(employee: models.Employee):
 async def admin_encryption_audit(
     request: Request,
     limit: int = Query(500, ge=1, le=5000),
-    user: models.Employee = Depends(get_current_active_user),
+    user: models.Employee = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if not user or user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     employees = db.query(models.Employee).order_by(models.Employee.id.asc()).limit(limit).all()
 
     status_kinds = ["empty", "current_key", "old_key", "plaintext", "unreadable"]
@@ -442,12 +597,9 @@ async def admin_encryption_migrate(
     request: Request,
     dry_run: bool = Query(True),
     limit: int = Query(5000, ge=1, le=20000),
-    user: models.Employee = Depends(get_current_active_user),
+    user: models.Employee = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if not user or user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     employees = db.query(models.Employee).order_by(models.Employee.id.asc()).limit(limit).all()
 
     updated_employees = 0
@@ -564,7 +716,7 @@ async def view_audit_logs(
     # 2. ดึงข้อมูล Logs 200 รายการล่าสุด
     logs = db.query(models.ActivityLog).order_by(models.ActivityLog.timestamp.desc()).limit(200).all()
 
-    return templates.TemplateResponse("admin_logs.html", {
+    return render_template("admin_logs.html", {
         "request": request,
         "logs": logs,
         "texts": texts,
@@ -665,7 +817,7 @@ async def monitor_page(
         leave_bar_labels.append(thai_months[m])
         leave_bar_data.append(month_count)
 
-    return templates.TemplateResponse("monitor.html", {
+    return render_template("monitor.html", {
         "request": request,
         "texts": texts,
         **company_info,  # company_logo และ company_name สำหรับ navbar
@@ -716,11 +868,15 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
     # กรณี 401: ไม่ได้ Login หรือ Session หมดอายุ
     # กรณี 403: ไม่มีสิทธิ์เข้าถึง (บางทีเกิดจาก Session เพี้ยน)
     if exc.status_code in [401, 403]:
+        if is_api_path(request.url.path):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": str(exc.detail)},
+            )
         return RedirectResponse(url="/login?msg=session_expired")
     
     # สำหรับ Error อื่นๆ เช่น 404 (หาหน้าไม่เจอ) หรือ 500 (ระบบพัง)
     # ให้ส่งค่ากลับไปเป็นหน้าจอปกติที่ระบบควรจะเป็น (ไม่หน้าขาวแน่นอน)
-    from fastapi.responses import JSONResponse
     return JSONResponse(
         status_code=exc.status_code,
         content={"message": str(exc.detail)},
@@ -734,21 +890,7 @@ async def dashboard(
     db: Session = Depends(get_db),
     company_info: dict = Depends(get_company_info)
 ):
-    # 1. เช็คพื้นฐานว่ามีการ Login ไหม
-    user_id = request.cookies.get("user_id")
     company = db.query(models.CompanySetting).first()
-    
-    if not user_id:
-        return RedirectResponse(url="/login", status_code=303)
-    
-    # 🛡️ ตรวจสอบสถานะ User (get_current_active_user จะส่งสถานะมาให้)
-    if user == "inactive":
-        res = RedirectResponse(url="/login?msg=account_inactive", status_code=303)
-        res.delete_cookie("user_id")
-        return res
-    if user == "expired":
-        res = RedirectResponse(url="/login?msg=session_expired", status_code=303)
-        return res
 
     # 3. 🎯 ดึงข้อมูลพนักงานแยกกลุ่ม (🚩 แก้ไขตรงนี้)
     # เราต้องดึงมาทั้ง 2 กลุ่มเพื่อเอาไปโชว์ใน Tabs ของนายครับ
@@ -759,7 +901,7 @@ async def dashboard(
     vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
     
     # 4. ส่งข้อมูลไปที่หน้า HTML
-    return templates.TemplateResponse("dashboard.html", {
+    return render_template("dashboard.html", {
         "request": request, 
         "active_emps": active_emps,     # ✅ ส่งตัวแปรที่เพิ่ง Query มา
         "resigned_emps": resigned_emps,   # ✅ ส่งตัวแปรที่เพิ่ง Query มา
@@ -781,7 +923,7 @@ async def add_employee_page(
     if not hasattr(user, 'role') or user.role != "Admin":
         return RedirectResponse(url="/dashboard?error=permission", status_code=303)
     
-    return templates.TemplateResponse("add_employee.html", {
+    return render_template("add_employee.html", {
         "request": request,
         "texts": texts,
         "user": user # ส่ง user ไปให้หน้า HTML ด้วย เผื่อต้องโชว์ชื่อคนทำรายการ
@@ -791,7 +933,8 @@ async def add_employee_page(
 @app.post("/add-employee")
 async def handle_add_employee(
     request: Request,
-    user: models.Employee = Depends(get_current_active_user),
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
     employee_code: str = Form(...),
     first_name: str = Form(...),
     last_name: str = Form(...),
@@ -809,18 +952,14 @@ async def handle_add_employee(
     documents: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # --- 1. ตรวจสอบสิทธิ์ Admin ---
-    if not hasattr(user, 'role') or user.role != "Admin":
-        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิ์")
-
     # --- 2. เช็คข้อมูลซ้ำ (Employee Code & ID Card) ---
     if db.query(models.Employee).filter(models.Employee.employee_code == employee_code).first():
-        return templates.TemplateResponse("add_employee.html", {"request": request, "error": f"รหัสพนักงาน {employee_code} มีในระบบแล้ว", "texts": get_lang()})
+        return render_template("add_employee.html", {"request": request, "error": f"รหัสพนักงาน {employee_code} มีในระบบแล้ว", "texts": texts})
 
     if id_card_number:
         target_id = encrypt_data(id_card_number)
         if db.query(models.Employee).filter(models.Employee.id_card_number == target_id).first():
-            return templates.TemplateResponse("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": get_lang()})
+            return render_template("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": texts})
 
     # --- 3. จัดการรูปโปรไฟล์ ---
     profile_url = "/static/img/default-avatar.png"
@@ -882,12 +1021,8 @@ async def update_company_settings(
     address: str = Form(...),
     logo: UploadFile = File(None),
     db: Session = Depends(get_db),
-    user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มเพื่อเช็คคนทำ
+    user: models.Employee = Depends(require_admin)
 ):
-    # --- 1. ตรวจสอบสิทธิ์ (ควรให้เฉพาะ Admin เปลี่ยนค่าบริษัทได้) ---
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     # --- 2. ค้นหาหรือสร้างข้อมูลบริษัท ---
     company = db.query(models.CompanySetting).first()
     if not company:
@@ -931,7 +1066,7 @@ async def update_company_settings(
 #         return RedirectResponse(url="/check-in-page", status_code=303)
     
 #     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
-#     return templates.TemplateResponse("edit_employee.html",{"request": request,"texts": texts, "employee": employee})
+#     return render_template("edit_employee.html",{"request": request,"texts": texts, "employee": employee})
 
 # # --- 2. รับข้อมูลจากฟอร์มแก้ไข (POST) ---
 # @app.post("/edit-employee/{emp_id}")
@@ -977,7 +1112,7 @@ async def update_company_settings(
 #             models.Employee.id != emp_id
 #         ).first()
 #         if existing_emp:
-#             return templates.TemplateResponse("edit_employee.html", {
+#             return render_template("edit_employee.html", {
 #                 "request": request,
 #                 "employee": employee,
 #                 "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว"
@@ -1054,8 +1189,8 @@ async def update_company_settings(
 #     return RedirectResponse(url="/dashboard?msg=updated", status_code=status.HTTP_303_SEE_OTHER)
 
 # --- 3. ฟังก์ชันลบข้อมูล ---
-@app.get("/delete-employee/{emp_id}")
-async def delete_employee(emp_id: int, request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+@app.post("/delete-employee/{emp_id}")
+async def delete_employee(emp_id: int, request: Request, user: models.Employee = Depends(require_admin), db: Session = Depends(get_db)):
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if employee:
         emp_name = f"{employee.first_name} {employee.last_name}"
@@ -1089,16 +1224,11 @@ async def employee_detail(
         "id_card_number": decrypt_data(employee.id_card_number) if employee.id_card_number else "",
         "bank_account_number": decrypt_data(employee.bank_account_number) if employee.bank_account_number else ""
     }
-    
-    # 🚩 เพิ่มบรรทัดนี้ครับนาย!
-    logger.info(f"--- DEBUG EMPLOYEE {emp_id} ---")
-    logger.info(f"Decrypted Data: {display_data}")
-    logger.info("-------------------------------")
 
     # Get VAPID key with proper stripping
     vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
 
-    return templates.TemplateResponse("employee_detail_content.html", {
+    return render_template("employee_detail_content.html", {
         "request": request,
         "texts": texts, 
         "employee": employee,
@@ -1185,7 +1315,7 @@ async def restore_employee(
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     # สร้างการตอบกลับหน้า Login
-    res = templates.TemplateResponse("login.html", {"request": request})
+    res = render_template("login.html", {"request": request})
     
     # --- ท่าไม้ตาย: สั่งลบ Cookie ทันทีที่เข้าหน้านี้ ---
     res.delete_cookie("is_logged_in")
@@ -1275,27 +1405,23 @@ async def handle_login(
     db.commit()
 
     # กรณี Login ไม่สำเร็จ
-    return templates.TemplateResponse("login.html", {
+    return render_template("login.html", {
         "request": request,
         "texts": texts, 
         "error": "รหัสพนักงานหรือรหัสผ่านไม่ถูกต้อง"
     })
 
 # 3. ฟังก์ชันออกจากระบบ
-@app.get("/logout")
-async def logout(request: Request, db: Session = Depends(get_db)):
+@app.post("/logout")
+async def logout(request: Request, db: Session = Depends(get_db), user: models.Employee = Depends(get_current_active_user)):
     # บันทึก log ก่อนลบ cookie
-    user_name = request.cookies.get("user_name")
-    user_id = request.cookies.get("user_id")
-    
-    if user_name and user_id:
-        try:
-            user = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
-            if user:
-                log_activity(db, user, "ออกจากระบบ", f"พนักงาน {user.first_name} ออกจากระบบ", request)
-                db.commit()
-        except:
-            pass
+    try:
+        log_activity(db, user, "ออกจากระบบ", f"พนักงาน {user.first_name} ออกจากระบบ", request)
+        user.current_session_id = None
+        db.commit()
+    except SQLAlchemyError as exc:
+        logger.warning(f"Logout activity write failed for user_id={user.id}: {exc}")
+        db.rollback()
     
     res = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     # ลบ Cookie ทั้งหมดที่เกี่ยวกับ Session
@@ -1311,7 +1437,7 @@ async def logout(request: Request, db: Session = Depends(get_db)):
 async def change_password_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang)):
     if request.cookies.get("is_logged_in") != "true":
         return RedirectResponse(url="/login")
-    return templates.TemplateResponse("change_password.html", {"texts": texts,"request": request})
+    return render_template("change_password.html", {"texts": texts,"request": request})
 
 # --- จัดการการเปลี่ยนรหัสผ่านใน Database ---
 @app.post("/change-password")
@@ -1326,7 +1452,7 @@ async def handle_change_password(
 ):
     # 1. ตรวจสอบรหัสผ่านใหม่และยืนยันว่าตรงกันไหม
     if new_password != confirm_password:
-        return templates.TemplateResponse("change_password.html", {
+        return render_template("change_password.html", {
             "request": request, 
             "texts": texts,
             "error": "รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน"
@@ -1365,7 +1491,7 @@ async def handle_change_password(
         db.commit() # ต้อง commit log ลงไปครับ
 
     # กรณีรหัสผ่านเดิมไม่ถูกต้อง
-    return templates.TemplateResponse("change_password.html", {
+    return render_template("change_password.html", {
         "request": request,
         "texts": texts, 
         "error": "รหัสผ่านเดิมไม่ถูกต้อง"
@@ -1373,20 +1499,13 @@ async def handle_change_password(
     
 @app.get("/check-in-page", response_class=HTMLResponse)
 async def check_in_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    emp_code = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
-    
-    # ถ้าหา user ไม่เจอ (เช่น ยังไม่ได้ login หรือ cookie หมดอายุ) ให้เตะไปหน้า Login
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-    
     # ตรวจสอบว่าวันนี้ลงเวลาไปหรือยัง
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == user.id,
         models.Attendance.date == date.today()
     ).first()
     
-    return templates.TemplateResponse("check_in_page.html", {"texts": texts,"request": request, "attendance": attendance})
+    return render_template("check_in_page.html", {"texts": texts,"request": request, "attendance": attendance})
 
 # ฟังก์ชันช่วยแปลง Base64 เป็นไฟล์ภาพ
 # def save_attendance_photo(base64_data, emp_code, type="in"):
@@ -1421,20 +1540,13 @@ async def handle_check_in(
     image_data: str = Form(None), 
     db: Session = Depends(get_db)
 ):
-    # 1. ดึงข้อมูลพนักงานจาก Cookie เพื่อความปลอดภัย
-    emp_code = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
-    
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-    
-    # 2. ตั้งค่าเวลาปัจจุบัน (ICT Timezone)
+    # 1. ตั้งค่าเวลาปัจจุบัน (ICT Timezone)
     now = get_now_th()
     today = now.date()
     current_time = now.time()
     schedule = user.schedule
 
-    # 3. ค้นหา Record ของวันนี้ในฐานข้อมูล
+    # 2. ค้นหา Record ของวันนี้ในฐานข้อมูล
     attendance = db.query(models.Attendance).filter(
         models.Attendance.employee_id == user.id,
         models.Attendance.date == today
@@ -1599,15 +1711,10 @@ async def handle_check_in(
 #     return RedirectResponse(url="/check-in-page?msg=checkout_success", status_code=303)
 
 @app.post("/save-schedules")
-async def save_schedules(request: Request,user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def save_schedules(request: Request,user: models.Employee = Depends(require_admin), db: Session = Depends(get_db)):
     # 1. ตรวจสอบการ Login
     if request.cookies.get("is_logged_in") != "true":
         return RedirectResponse(url="/login", status_code=303)
-
-    # 2. เพิ่มการตรวจสอบสิทธิ Admin (สำคัญมาก!)
-    if request.cookies.get("user_role") != "Admin":
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="คุณไม่มีสิทธิแก้ไขตารางเวลา")
 
     form_data = await request.form()
     employees = db.query(models.Employee).all()
@@ -1653,14 +1760,14 @@ async def schedule_management_page(request: Request,user: models.Employee = Depe
         return RedirectResponse(url="/login", status_code=303)
     
     # --- เพิ่มตรงนี้: ตรวจสอบสิทธิ Admin ---
-    if request.cookies.get("user_role") != "Admin":
+    if user.role != "Admin":
         # ถ้าไม่ใช่ Admin ให้เตะไปหน้าลงเวลา (หรือหน้า Dashboard ที่จำกัดข้อมูล)
         return RedirectResponse(url="/check-in-page", status_code=303)
     
     # 2. ดึงรายชื่อพนักงานทุกคนมาแสดงเพื่อตั้งค่า
     employees = db.query(models.Employee).all()
     
-    return templates.TemplateResponse("schedules.html", {
+    return render_template("schedules.html", {
         "request": request,
         "texts": texts, 
         "employees": employees
@@ -1674,8 +1781,8 @@ async def attendance_report(
     search_query: str = Query(None), 
     db: Session = Depends(get_db)
 ):
-    user_role = request.cookies.get("user_role")
-    user_name = request.cookies.get("user_name")
+    user_role = user.role
+    user_name = user.employee_code
     
     # 1. จัดการช่วงวันที่ให้เป็น Date Object
     try:
@@ -1796,7 +1903,7 @@ async def attendance_report(
         current_day += timedelta(days=1)
     
     # 4. ส่งข้อมูลกลับหน้าจอ
-    return templates.TemplateResponse("attendance_report.html", {
+    return render_template("attendance_report.html", {
         "request": request, 
         "records": report_data,
         "start_date": s_date,
@@ -1822,7 +1929,7 @@ async def my_profile_page(
     # Get VAPID key with proper stripping
     vapid_key = os.getenv("VAPID_PUBLIC_KEY", "").strip().strip('"').strip("'")
 
-    return templates.TemplateResponse("my_profile.html", {
+    return render_template("my_profile.html", {
         "request": request, 
         "employee": user,
         "public_vapid_key": vapid_key if vapid_key else "",
@@ -1842,20 +1949,13 @@ async def handle_leave_apply(
     evidence: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
-    # 1. ตรวจสอบ Login
-    emp_code = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
-    
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-
-    # ✅ 2. จัดการไฟล์แนบ (เปลี่ยนจากเซฟลงเครื่อง เป็นขึ้น Cloudinary)
+    # ✅ 1. จัดการไฟล์แนบ (เปลี่ยนจากเซฟลงเครื่อง เป็นขึ้น Cloudinary)
     evidence_url = None
     if evidence and evidence.filename:
         # เรียกใช้ฟังก์ชันที่เราสร้างไว้
         evidence_url = upload_file_to_cloudinary(evidence, "leave_documents")
 
-    # 3. บันทึกลง Database
+    # 2. บันทึกลง Database
     new_leave = models.LeaveRequest(
         employee_id=user.id,
         leave_type=leave_type,
@@ -1888,7 +1988,7 @@ async def handle_leave_apply(
                 f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})", 
                 db
             )
-    except Exception as e:
+    except SQLAlchemyError as e:
         logger.info(f"❌ Notification Error: {e}")
 
     return RedirectResponse(url="/check-in-page?msg=leave_sent", status_code=303)
@@ -1896,20 +1996,20 @@ async def handle_leave_apply(
 @app.get("/admin/leaves", response_class=HTMLResponse)
 async def admin_leave_management(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
     # กั้นสิทธิ Admin
-    if request.cookies.get("user_role") != "Admin":
+    if user.role != "Admin":
         return RedirectResponse(url="/check-in-page", status_code=303)
     
     # ดึงรายการลาที่รอการอนุมัติ (หรือทั้งหมด)
     pending_leaves = db.query(models.LeaveRequest).order_by(models.LeaveRequest.created_at.desc()).all()
     
-    return templates.TemplateResponse("admin_leaves.html", {
+    return render_template("admin_leaves.html", {
         "request": request,
         "texts": texts,
         "leaves": pending_leaves
     })
     
 @app.post("/admin/leave/approve/{leave_id}")
-async def approve_leave(request: Request, leave_id: int, status: str = Form(...),admin_remark: str = Form(None),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def approve_leave(request: Request, leave_id: int, status: str = Form(...),admin_remark: str = Form(None),user: models.Employee = Depends(require_admin), db: Session = Depends(get_db)):
     # 1. ค้นหาใบลา
     leave = db.query(models.LeaveRequest).filter(models.LeaveRequest.id == leave_id).first()
     
@@ -1929,7 +2029,7 @@ async def approve_leave(request: Request, leave_id: int, status: str = Form(...)
                     
                     # ตรรกะ: มากกว่า 4 ชั่วโมง = 1 วัน, ถ้าน้อยกว่าหรือเท่ากับ = 0.5 วัน
                     days_to_deduct = 1.0 if duration_hours > 4 else 0.5
-                except Exception:
+                except (AttributeError, TypeError, ValueError, ArithmeticError):
                     # กรณีไม่มีเวลา หรือเกิด Error ในการคำนวณ ให้ Default เป็น 1 วัน
                     days_to_deduct = 1.0
             else:
@@ -1974,7 +2074,7 @@ async def approve_leave(request: Request, leave_id: int, status: str = Form(...)
                 f"คำขอลาของคุณ{status_text}", 
                 db
             )
-        except Exception as e:
+        except (SQLAlchemyError, TypeError, ValueError) as e:
             logger.info(f"Push Notification Error: {e}")
     
     # 🚩 4. บรรทัด return ต้องอยู่ล่างสุดเสมอ
@@ -1982,20 +2082,10 @@ async def approve_leave(request: Request, leave_id: int, status: str = Form(...)
 
 @app.get("/leave-apply", response_class=HTMLResponse)
 async def leave_apply_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang)):
-    # ตรวจสอบการ Login
-    if request.cookies.get("is_logged_in") != "true":
-        return RedirectResponse(url="/login", status_code=303)
-        
-    return templates.TemplateResponse("leave_apply.html", {"texts": texts,"request": request})
+    return render_template("leave_apply.html", {"texts": texts,"request": request})
 
 @app.get("/my-leaves", response_class=HTMLResponse)
 async def my_leaves_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    emp_code = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == emp_code).first()
-    
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-
     approved_leaves = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == user.id,
         models.LeaveRequest.status == "Approved"
@@ -2026,8 +2116,8 @@ async def my_leaves_page(request: Request,user: models.Employee = Depends(get_cu
         if leave.leave_type in used_days:
             used_days[leave.leave_type] += num_days
 
-    return templates.TemplateResponse("my_leaves.html", {
-        "request": request,"texts": texts,
+    return render_template(request, "my_leaves.html", {
+        "texts": texts,
         "leaves": db.query(models.LeaveRequest).filter(models.LeaveRequest.employee_id == user.id).all(),
         "quotas": {
             "sick": user.sick_leave_quota,
@@ -2061,7 +2151,7 @@ async def edit_employee_page(
         "bank_account_number": decrypt_data(employee.bank_account_number)
     }
     
-    return templates.TemplateResponse("edit_employee.html", {
+    return render_template("edit_employee.html", {
         "request": request, 
         "texts": texts, 
         "employee": employee,
@@ -2072,6 +2162,7 @@ async def edit_employee_page(
 async def handle_edit_employee(
     request: Request,
     emp_id: int,
+    texts: dict = Depends(get_lang),
     first_name: str = Form(...),
     last_name: str = Form(...),
     nickname: str = Form(None),
@@ -2088,13 +2179,9 @@ async def handle_edit_employee(
     vacation_quota: int = Form(6),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
-    user: models.Employee = Depends(get_current_active_user),
+    user: models.Employee = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
-    # 1. ตรวจสอบสิทธิ์ Admin
-    if not user or user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-    
     employee = db.query(models.Employee).filter(models.Employee.id == emp_id).first()
     if not employee:
         return RedirectResponse(url="/dashboard", status_code=303)
@@ -2112,8 +2199,8 @@ async def handle_edit_employee(
             models.Employee.id != emp_id
         ).first()
         if existing_emp:
-            return templates.TemplateResponse("edit_employee.html", {
-                "request": request, "employee": employee, "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว", "texts": get_lang()
+            return render_template("edit_employee.html", {
+                "request": request, "employee": employee, "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว", "texts": texts
             })
 
     # 4. อัปเดตข้อมูลทั่วไป เงินเดือน และโควตาการลา
@@ -2161,11 +2248,7 @@ async def handle_edit_employee(
 
 @app.get("/my-attendance", response_class=HTMLResponse)
 async def my_attendance(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    user_name = request.cookies.get("user_name")
-    emp = db.query(models.Employee).filter(models.Employee.employee_code == user_name).first()
-    
-    if not emp:
-        return RedirectResponse(url="/login")
+    emp = user
 
     s_date = date.today() - timedelta(days=30)
     e_date = date.today()
@@ -2255,10 +2338,10 @@ async def my_attendance(request: Request,user: models.Employee = Depends(get_cur
             
         current_day += timedelta(days=1)
 
-    return templates.TemplateResponse("my_attendance.html", {"texts": texts,"request": request, "records": report_data})
+    return render_template("my_attendance.html", {"texts": texts,"request": request, "records": report_data})
 
 @app.post("/update-schedules")
-async def update_schedules(request: Request,user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+async def update_schedules(request: Request,user: models.Employee = Depends(require_admin), db: Session = Depends(get_db)):
     form_data = await request.form()
     employees = db.query(models.Employee).all()
 
@@ -2295,11 +2378,17 @@ async def update_schedules(request: Request,user: models.Employee = Depends(get_
 
 @app.get("/holidays", response_class=HTMLResponse)
 async def holiday_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     holidays = db.query(models.Holiday).order_by(models.Holiday.holiday_date).all()
-    return templates.TemplateResponse("holidays.html", {"texts": texts,"request": request, "holidays": holidays})
+    return render_template("holidays.html", {"texts": texts,"request": request, "holidays": holidays})
 
 @app.post("/add-holiday")
 async def add_holiday(request: Request, holiday_name: str = Form(...), holiday_date: str = Form(...),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     new_holiday = models.Holiday(holiday_name=holiday_name, holiday_date=datetime.strptime(holiday_date, "%Y-%m-%d").date())
     db.add(new_holiday)
     
@@ -2309,8 +2398,11 @@ async def add_holiday(request: Request, holiday_name: str = Form(...), holiday_d
     db.commit()
     return RedirectResponse(url="/holidays", status_code=303)
 
-@app.get("/delete-holiday/{holiday_id}")
+@app.post("/delete-holiday/{holiday_id}")
 async def delete_holiday(holiday_id: int, request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     holiday = db.query(models.Holiday).filter(models.Holiday.id == holiday_id).first()
     if holiday:
         holiday_name = holiday.holiday_name
@@ -2323,28 +2415,20 @@ async def delete_holiday(holiday_id: int, request: Request, user: models.Employe
         
         db.commit()
     return RedirectResponse(url="/holidays", status_code=303)
-async def add_holiday(holiday_date: date = Form(...), holiday_name: str = Form(...),user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
-    new_holiday = models.Holiday(holiday_date=holiday_date, holiday_name=holiday_name)
-    db.add(new_holiday)
-    db.commit()
-    return RedirectResponse(url="/holidays", status_code=303)
-
-@app.get("/delete-holiday/{holiday_id}")
-async def delete_holiday(holiday_id: int, db: Session = Depends(get_db)):
-    holiday = db.query(models.Holiday).filter(models.Holiday.id == holiday_id).first()
-    if holiday:
-        db.delete(holiday)
-        db.commit()
-    return RedirectResponse(url="/holidays", status_code=303)
 
 @app.get("/export-attendance")
 async def export_attendance(
+    request: Request,
     background_tasks: BackgroundTasks, # เพิ่มสำหรับจัดการลบไฟล์หลังดาวน์โหลด
+    user: models.Employee = Depends(get_current_active_user),
     start_date: str = Query(None), 
     end_date: str = Query(None), 
     search_query: str = Query(None), 
     db: Session = Depends(get_db)
 ):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     # 1. จัดการช่วงวันที่ (Logic เดียวกับหน้า Report)
     try:
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date() if start_date else date.today()
@@ -2420,6 +2504,7 @@ async def export_attendance(
 @app.post("/submit-attendance-request")
 async def submit_attendance_request(
     request: Request,
+    user: models.Employee = Depends(get_current_active_user),
     request_date: date = Form(...),
     check_in: str = Form(None),
     check_out: str = Form(None),
@@ -2428,14 +2513,7 @@ async def submit_attendance_request(
     lon: float = Form(None),
     db: Session = Depends(get_db)
 ):
-    # 1. ตรวจสอบ User ก่อน
-    user_name = request.cookies.get("user_name")
-    user = db.query(models.Employee).filter(models.Employee.employee_code == user_name).first()
-    
-    if not user:
-        return RedirectResponse(url="/login", status_code=303)
-
-    # 2. บันทึกลง Database ให้สำเร็จก่อน
+    # 1. บันทึกลง Database ให้สำเร็จก่อน
     try:
         in_time = datetime.strptime(check_in, "%H:%M").time() if check_in else None
         out_time = datetime.strptime(check_out, "%H:%M").time() if check_out else None
@@ -2457,11 +2535,11 @@ async def submit_attendance_request(
         log_activity(db, user, "ขอแก้ไขลงเวลา", f"ยื่นคำขอแก้ไขลงเวลาวันที่ {request_date} (เวลาเข้า: {check_in or '-'}, ออก: {check_out or '-'})", request)
         
         db.commit() # ✅ ยืนยันข้อมูลเข้า DB
-    except Exception as e:
+    except (TypeError, ValueError, SQLAlchemyError) as e:
         logger.info(f"❌ Database Error: {e}")
         return RedirectResponse(url="/attendance-report?msg=error", status_code=303)
 
-    # 🚩 3. ส่งแจ้งเตือนหา Admin (วางไว้ตรงนี้หลัง commit)
+    # 🚩 2. ส่งแจ้งเตือนหา Admin (วางไว้ตรงนี้หลัง commit)
     try:
         # ใช้สูตรหา Admin ที่ชัวร์ที่สุด
         admins = db.query(models.Employee).filter(
@@ -2477,7 +2555,7 @@ async def submit_attendance_request(
                 db
             )
         logger.info(f"🔔 Manual Attendance Notification sent to {len(admins)} admins")
-    except Exception as e:
+    except (SQLAlchemyError, TypeError, ValueError) as e:
         logger.info(f"❌ Notification Error: {e}")
     
     return RedirectResponse(url="/attendance-report?msg=request_sent", status_code=303)
@@ -2564,7 +2642,7 @@ async def view_attendance_requests(request: Request,user: models.Employee = Depe
     requests = db.query(models.ManualAttendanceRequest).filter(
         models.ManualAttendanceRequest.status == "Pending"
     ).all()
-    return templates.TemplateResponse("admin_requests.html", {
+    return render_template("admin_requests.html", {
         "request": request,
         "texts": texts, 
         "pending_requests": requests
@@ -2582,11 +2660,23 @@ async def approve_request(
     await perform_approval_logic(request_id, status, admin_remark, db)
     return RedirectResponse(url="/admin/attendance-requests?msg=updated", status_code=303)
 
-@app.get("/admin/reject-request/{request_id}")
-async def reject_request(request_id: int, db: Session = Depends(get_db)):
+@app.post("/admin/reject-request/{request_id}")
+async def reject_request(
+    request: Request,
+    request_id: int,
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     req = db.query(models.ManualAttendanceRequest).filter(models.ManualAttendanceRequest.id == request_id).first()
     if req:
         req.status = "Rejected" # เปลี่ยนสถานะเฉยๆ ไม่ต้องไปยุ่งกับตาราง Attendance
+        log_activity(
+            db,
+            user,
+            "Reject attendance request",
+            f"Rejected manual attendance request id={request_id}",
+            request,
+        )
         db.commit()
     return RedirectResponse(url="/admin/attendance-requests", status_code=303)
 
@@ -2594,16 +2684,20 @@ async def reject_request(request_id: int, db: Session = Depends(get_db)):
 @app.get("/manual-attendance-form")
 async def manual_attendance_form(
     request: Request, 
+    user: models.Employee = Depends(get_current_active_user),
     texts: dict = Depends(get_lang) # 1. เพิ่ม Dependency ตัวเดิมเข้าไป
 ):
-    return templates.TemplateResponse("manual_attendance_form.html", {
+    return render_template("manual_attendance_form.html", {
         "request": request,
         "texts": texts # 2. ส่งก้อนคำแปลไปด้วย
     })
 
 # 🚀 2. ฟังก์ชันดึงจำนวนคำขอที่ค้างอยู่ (สำหรับโชว์ Badge แดงๆ ใน Navbar)
 @app.get("/api/manual-requests-count")
-async def get_manual_count(db: Session = Depends(get_db)):
+async def get_manual_count(user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    if not user or user.role != "Admin":
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
     count = db.query(models.ManualAttendanceRequest).filter(
         models.ManualAttendanceRequest.status == "Pending"
     ).count()
@@ -2614,12 +2708,8 @@ async def import_attendance_upload(
     request: Request, 
     file: UploadFile = File(...), 
     db: Session = Depends(get_db),
-    user: models.Employee = Depends(get_current_active_user) # 🚩 เพิ่มเพื่อเก็บ Log คนทำ
+    user: models.Employee = Depends(require_admin)
 ):
-    # --- ตรวจสอบสิทธิ์ Admin ---
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     try:
         contents = await file.read()
         # รองรับทั้ง Excel และ CSV
@@ -2648,7 +2738,7 @@ async def import_attendance_upload(
                     for fmt in ("%H:%M:%S", "%H:%M"):
                         try:
                             return datetime.strptime(t_str, fmt).time()
-                        except Exception:
+                        except ValueError:
                             continue
                     return None
 
@@ -2687,7 +2777,7 @@ async def import_attendance_upload(
         db.commit()
         return RedirectResponse(url="/admin/attendance-requests?msg=import_success", status_code=303)
         
-    except Exception as e:
+    except (ValueError, KeyError, SQLAlchemyError) as e:
         logger.info(f"🚩 Import Error: {e}")
         # บันทึก Log กรณีล้มเหลวด้วยเพื่อตรวจสอบปัญหา
         log_activity(db, user, "Import ล้มเหลว", f"เกิดข้อผิดพลาดขณะนำเข้าไฟล์ {file.filename}: {str(e)}", request)
@@ -2696,9 +2786,12 @@ async def import_attendance_upload(
 
 # 🚀 เพิ่มฟังก์ชันนี้เพื่อให้ปุ่มในหน้า Report ทำงานได้
 @app.get("/manual-attendance-form-admin", response_class=HTMLResponse)
-async def import_attendance_page(request: Request):
+async def import_attendance_page(request: Request, user: models.Employee = Depends(get_current_active_user)):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
     # หน้าจอนี้สำหรับ Admin เข้าไปเพื่อ Upload ไฟล์ Excel
-    return templates.TemplateResponse("import_attendance.html", {"request": request})
+    return render_template("import_attendance.html", {"request": request})
 
 # VAPID configuration is loaded from `app.config` via environment variables.
 VAPID_CLAIMS = {
@@ -2706,7 +2799,7 @@ VAPID_CLAIMS = {
 }
 
 @app.post("/api/save-subscription")
-async def save_subscription(request: Request, db: Session = Depends(get_db)):
+async def save_subscription(request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     try:
         subscription_data = await request.json()
         
@@ -2714,14 +2807,6 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
         if not subscription_data.get('endpoint') or not subscription_data.get('keys'):
             return {"status": "error", "message": "Invalid subscription data"}
         
-        # ดึงข้อมูลผู้ใช้จาก Cookie
-        user_code = request.cookies.get("employee_code") or request.cookies.get("user_name")
-        
-        user = db.query(models.Employee).filter(models.Employee.employee_code == user_code).first()
-        
-        if not user:
-            return {"status": "error", "message": "User not found"}
-
         # ค้นหาว่าเครื่องนี้/Browser นี้เคยลงทะเบียนหรือยัง
         existing = db.query(models.PushSubscription).filter(
             models.PushSubscription.endpoint == subscription_data['endpoint']
@@ -2770,7 +2855,7 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
     except KeyError as e:
         logger.error(f"❌ Missing key in subscription data: {e}")
         return {"status": "error", "message": f"Invalid subscription data structure: {str(e)}"}
-    except Exception as e:
+    except (TypeError, ValueError, SQLAlchemyError) as e:
         db.rollback()
         logger.error(f"❌ Error saving subscription: {e}")
         return {"status": "error", "message": f"Server error: {str(e)}"}
@@ -2813,7 +2898,7 @@ async def save_subscription(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/admin/broadcast", response_class=HTMLResponse)
 async def broadcast_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang)):
-    return templates.TemplateResponse("admin_broadcast.html", {"texts": texts,"request": request})
+    return render_template("admin_broadcast.html", {"texts": texts,"request": request})
 
 @app.post("/admin/send-broadcast")
 async def send_broadcast(
@@ -2868,7 +2953,7 @@ def send_push_notification(employee_id: int, title: str, message: str, db: Sessi
                 if ex.response and ex.response.status_code == 410:
                     db.delete(sub)
                     db.commit()
-    except Exception as ex:
+    except SQLAlchemyError as ex:
         logger.info(f"Error sending push notifications: {ex}")
 
 def calculate_ot_pay(emp_id: int, month: int, year: int, db: Session):
@@ -3236,7 +3321,7 @@ async def recalculate_attendance(
         
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=recalculated", status_code=303)
         
-    except Exception as e:
+    except (SQLAlchemyError, ValueError) as e:
         logger.error(f"❌ Recalculate error: {e}")
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&error=recalculate_failed", status_code=303)
 
@@ -3325,7 +3410,7 @@ async def calculate_payroll_page(
         emp.absent_days = payroll_details.get('absent_days', 0)
 
 
-    return templates.TemplateResponse("admin_payroll.html", {
+    return render_template("admin_payroll.html", {
         "request": request,
         "employees": employees,
         "start_date": start_date,
@@ -3345,11 +3430,8 @@ async def process_payroll(
     start_date: str = Form(...),
     end_date: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: models.Employee = Depends(get_current_active_user)
+    current_user: models.Employee = Depends(require_admin)
 ):
-    if current_user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Forbidden")
-
     form_data = await request.form()
     emp_ids = form_data.getlist("emp_ids")
     dt_end_global = datetime.strptime(end_date, '%Y-%m-%d').date()
@@ -3528,7 +3610,7 @@ async def process_payroll(
 @app.post("/admin/save-payroll-settings")
 async def save_payroll_settings(
     request: Request,
-    user: models.Employee = Depends(get_current_active_user),
+    user: models.Employee = Depends(require_admin),
     late_days: int = Form(...),
     late_hours: int = Form(...),
     absent_days: int = Form(...),
@@ -3540,10 +3622,6 @@ async def save_payroll_settings(
     ot_3_mult: float = Form(3.0),
     db: Session = Depends(get_db)
 ):
-    # ตรวจสอบสิทธิ์ Admin ก่อนบันทึก
-    if request.cookies.get("user_role") != "Admin":
-        raise HTTPException(status_code=403, detail="ไม่มีสิทธิ์")
-
     # อัปเดตหรือสร้างค่าใหม่ (Upsert Logic)
     settings_to_update = [
         {"type_name": "late", "label": "หักมาสาย", "divider_days": late_days, "divider_hours": late_hours, "multiplier": 1.0},
@@ -3654,7 +3732,7 @@ async def payroll_summary(
     }
 
     # 5. ส่งค่ากลับไปที่ Template พร้อมข้อมูลสำหรับตัวเลือก Filter
-    return templates.TemplateResponse("admin_payroll_summary.html", {
+    return render_template("admin_payroll_summary.html", {
         "request": request,
         "payroll_data": payroll_data,
         "summary": summary,
@@ -3668,14 +3746,14 @@ async def payroll_summary(
 @app.get("/admin/payroll-settings")
 async def payroll_settings_page(request: Request,user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db),texts: dict = Depends(get_lang)):
     # ตรวจสอบสิทธิ์ Admin
-    if request.cookies.get("user_role") != "Admin":
+    if user.role != "Admin":
         return RedirectResponse(url="/dashboard", status_code=303)
 
     # ดึงค่าปัจจุบันจาก DB ไปโชว์ในฟอร์ม (ถ้ามี)
     late_set = db.query(models.PayrollSetting).filter_by(type_name='late').first()
     ot_set = db.query(models.PayrollSetting).filter_by(type_name='ot_1_5').first()
 
-    return templates.TemplateResponse("payroll_settings.html", {
+    return render_template("payroll_settings.html", {
         "request": request,
         "late_set": late_set,
         "texts": texts,
@@ -3686,9 +3764,10 @@ async def payroll_settings_page(request: Request,user: models.Employee = Depends
 @app.get("/request-ot")
 async def request_ot_page(
     request: Request, 
+    user: models.Employee = Depends(get_current_active_user),
     texts: dict = Depends(get_lang)  # <--- เพิ่มอันนี้
 ):
-    return templates.TemplateResponse("request_ot.html", {
+    return render_template("request_ot.html", {
         "request": request,
         "texts": texts  # <--- ส่งก้อนนี้ไปด้วย
     })
@@ -3712,14 +3791,6 @@ async def handle_request_ot(
     if not all([ot_date, start_time, end_time]):
         return RedirectResponse(url="/request-ot?msg=missing_fields", status_code=303)
 
-    # ตรวจสอบ ID พนักงานจาก Cookie
-    user_id_raw = request.cookies.get("id") or request.cookies.get("user_id")
-    if not user_id_raw:
-        return RedirectResponse(url="/login", status_code=303)
-    
-    user_id = int(user_id_raw)
-    user = db.query(models.Employee).filter(models.Employee.id == user_id).first()
-
     # 2. คำนวณเวลาและบันทึก
     fmt = '%H:%M'
     try:
@@ -3732,7 +3803,7 @@ async def handle_request_ot(
             return RedirectResponse(url="/request-ot?msg=invalid_time", status_code=303)
 
         new_ot = models.OTRequest(
-            employee_id=user_id,
+            employee_id=user.id,
             request_date=datetime.strptime(ot_date, '%Y-%m-%d').date(),
             start_time=t1.time(),
             end_time=t2.time(),
@@ -3756,13 +3827,13 @@ async def handle_request_ot(
                 (models.Employee.employee_code == "admin")
             ).all()
             for admin in admins:
-                send_push_notification(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name if user else user_id} ยื่นขอ OT", db)
-        except Exception as e:
+                send_push_notification(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name} ยื่นขอ OT", db)
+        except (SQLAlchemyError, TypeError, ValueError) as e:
             logger.info(f"❌ Notification Error: {e}")
 
         return RedirectResponse(url="/my-ot-requests?msg=success", status_code=303)
 
-    except Exception as e:
+    except (SQLAlchemyError, ValueError, TypeError) as e:
         db.rollback()
         logger.info(f"🚩 Error: {e}")
         return RedirectResponse(url="/request-ot?msg=error", status_code=303)
@@ -3775,7 +3846,7 @@ async def approve_ot_page(request: Request,user: models.Employee = Depends(get_c
     
     # 2. ส่งข้อมูลที่ค้นหาได้ (ตัวแปร data) ไปที่หน้า HTML
     # โดยตั้งชื่อในหน้า HTML ว่า "pending_ot"
-    return templates.TemplateResponse("admin_approve_ot.html", {
+    return render_template("admin_approve_ot.html", {
         "request": request,
         "texts": texts, 
         "pending_ot": data  # 🚩 ข้อมูลจะถูกส่งไปชื่อนี้เพื่อให้ HTML วนลูปแสดงผล
@@ -3823,36 +3894,21 @@ async def process_ot(
                 f"คำขอ OT ของคุณ{msg_text}", 
                 db
             )
-        except Exception as e:
+        except (SQLAlchemyError, TypeError, ValueError) as e:
             logger.info(f"Push Notification Error: {e}")
             
     return RedirectResponse(url="/admin/approve-ot?msg=updated", status_code=303)
 
 @app.get("/my-ot-requests")
 async def my_ot_requests_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # 1. ตรวจสอบชื่อคุกกี้ (ถ้าหน้าอื่นเข้าได้ ให้ใช้ชื่อตามหน้านั้น เช่น "id")
-    user_id_raw = request.cookies.get("user_id") or request.cookies.get("id")
-    
-    if not user_id_raw:
-        return RedirectResponse(url="/login", status_code=303)
-    
-    try:
-        # 2. แปลงเป็น Integer เพื่อให้ตรงกับประเภทข้อมูลใน Database
-        user_id = int(user_id_raw)
-        
-        # 3. ดึงข้อมูลโดยใช้ IDที่เป็น Integer
-        my_ots = db.query(models.OTRequest).filter(
-            models.OTRequest.employee_id == user_id
-        ).order_by(models.OTRequest.request_date.desc()).all()
-        
-        return templates.TemplateResponse("my_ot_requests.html", {
-            "request": request,
-            "ots": my_ots,
-            "texts": texts
-        })
-    except ValueError:
-        # กรณีคุกกี้ไม่ใช่ตัวเลข ให้ส่งไป Login ใหม่
-        return RedirectResponse(url="/login", status_code=303)
+    my_ots = db.query(models.OTRequest).filter(
+        models.OTRequest.employee_id == user.id
+    ).order_by(models.OTRequest.request_date.desc()).all()
+
+    return render_template(request, "my_ot_requests.html", {
+        "ots": my_ots,
+        "texts": texts
+    })
     
 @app.get("/admin/ot-summary-report")
 async def ot_summary_report(
@@ -3864,7 +3920,7 @@ async def ot_summary_report(
     end_date: str = Query(None),
     status: str = Query("approved")
 ):
-    if request.cookies.get("user_role") != "Admin":
+    if user.role != "Admin":
         return RedirectResponse(url="/dashboard", status_code=303)
 
     # กำหนดค่าวันที่เริ่มต้น (ถ้าไม่มี ให้เป็นต้นเดือนปัจจุบัน)
@@ -3878,7 +3934,7 @@ async def ot_summary_report(
     try:
         start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
         end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-    except:
+    except (ValueError, TypeError):
         start_date_obj = (now.replace(day=1)).date()
         end_date_obj = now.date()
     
@@ -3911,7 +3967,7 @@ async def ot_summary_report(
     total_ots = len(filtered_ots)
     total_minutes = sum(ot.total_minutes for ot in filtered_ots)
 
-    return templates.TemplateResponse("admin_ot_summary.html", {
+    return render_template("admin_ot_summary.html", {
         "request": request,
         "ots": filtered_ots,
         "texts": texts,
@@ -3964,7 +4020,7 @@ async def approve_all_requests(request: Request, user: models.Employee = Depends
             # ส่งค่า db เข้าไปตรงๆ ได้เลย ไม่ต้องผ่าน Depends อีกรอบ
             await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
             approved_count += 1
-        except Exception as e:
+        except (SQLAlchemyError, ValueError, TypeError) as e:
             logger.info(f"🚩 Error: {e}")
             continue
     
@@ -3985,7 +4041,7 @@ async def view_payslip(request: Request, payroll_id: int,user: models.Employee =
         return "ไม่พบข้อมูลสลิปเงินเดือน"
     
     company_logo = compute_logo_url(company)
-    return templates.TemplateResponse("payslip_print.html", {
+    return render_template("payslip_print.html", {
         "request": request, # บรรทัดนี้จะไม่ Error แล้ว
         "p": payroll,
         "texts": texts,
@@ -4016,7 +4072,7 @@ async def payroll_tax_sso_report(
     total_sso = sum(p.sso or 0 for p in data)
     total_tax = sum(p.tax or 0 for p in data)
     
-    return templates.TemplateResponse("sso_tax_report.html", {
+    return render_template("sso_tax_report.html", {
         "request": request,
         "data": data,
         "total_sso": total_sso,
@@ -4036,17 +4092,11 @@ async def settings_page(request: Request,user: models.Employee = Depends(get_cur
     # 1. ดึงข้อมูลบริษัท
     company = db.query(models.CompanySetting).first()
     
-    # 2. ดึงข้อมูล User ปัจจุบันจาก Cookie (เพื่อให้แสดงชื่อใน Tab ข้อมูลส่วนตัวได้)
-    user_id = request.cookies.get("user_id")
-    current_user = None
-    if user_id:
-        current_user = db.query(models.Employee).filter(models.Employee.id == user_id).first()
-    
-    return templates.TemplateResponse("settings.html", {
+    return render_template("settings.html", {
         "request": request,
         "company": company,
         "texts": texts,
-        "user": current_user  # 🚩 เพิ่มบรรทัดนี้เพื่อส่งข้อมูล User ไปให้ HTML
+        "user": user
     })
 
 # --- ในไฟล์ app/main.py ---
@@ -4058,27 +4108,23 @@ async def my_payslips(
     year: int = None, 
     db: Session = Depends(get_db)
 ):
-    # ... โค้ดเช็ค Login เดิม ...
-    user_id = request.cookies.get("user_id")
-    
     now = datetime.now()
     target_month = month or now.month
     target_year = year or now.year
 
     # 🚩 แก้บรรทัดที่มีปัญหา: เปลี่ยน models.Payslip เป็น models.PayrollDetail
     payslips = db.query(models.PayrollDetail).filter(
-        models.PayrollDetail.employee_id == int(user_id),
+        models.PayrollDetail.employee_id == user.id,
         models.PayrollDetail.month == target_month,
         models.PayrollDetail.year == target_year
     ).all()
 
     # ดึงข้อมูลบริษัทและพนักงานเพื่อไปแสดงในสลิป
     company = db.query(models.CompanySetting).first()
-    employee = db.query(models.Employee).filter(models.Employee.id == int(user_id)).first()
+    employee = user
     company_logo = compute_logo_url(company)
 
-    return templates.TemplateResponse("my_payslips.html", {
-        "request": request,
+    return render_template(request, "my_payslips.html", {
         "payslips": payslips,
         "employee": employee,
         "company": company,
@@ -4095,7 +4141,7 @@ async def admin_leave_summary(request: Request,user: models.Employee = Depends(g
     
     # ดึงการลาที่ Approved แล้วมานับยอด
     # (หรือจะดึงจากคอลัมน์ quota ในตาราง Employee ตรงๆ ก็ได้ถ้าเราเขียนระบบหักยอดไว้เป๊ะแล้ว)
-    return templates.TemplateResponse("admin_leave_summary.html", {
+    return render_template("admin_leave_summary.html", {
         "request": request,
         "texts": texts,
         "employees": employees

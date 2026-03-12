@@ -87,11 +87,11 @@
                                             <i class="bi bi-person-x"></i>
                                         </button>
                                     </form>
-                                    <a href="/delete-employee/{{ emp.id }}" class="btn btn-sm btn-outline-danger" 
-                                       title="{{ texts.delete }}"
-                                       onclick="return confirm('{{ texts.confirm_delete }}')">
-                                        <i class="bi bi-trash"></i>
-                                    </a>
+                                    <form action="/delete-employee/{{ emp.id }}" method="POST" class="d-inline">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="{{ texts.delete }}" onclick="return confirm('{{ texts.confirm_delete }}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
                                 </div>
                             </td>
                         </tr>
