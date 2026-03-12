@@ -2,6 +2,15 @@
 
 {% block content %}
 <div class="container-fluid mt-4">
+    <div
+        id="payroll-i18n"
+        data-recalc-success="{{ texts.pay_recalc_success }}"
+        data-recalc-error="{{ texts.pay_recalc_error }}"
+        data-recalc-confirm="{{ texts.pay_recalc_confirm }}"
+        data-select-date="{{ texts.pay_select_dates_first }}"
+        data-csrf-missing="{{ texts.pay_csrf_missing }}"
+        hidden
+    ></div>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h3><i class="bi bi-calculator text-primary me-2"></i> {{ texts.pay_title }}</h3>
         <span class="badge bg-info text-dark">{{ texts.pay_subtitle }} (ICT Timezone)</span>
@@ -12,16 +21,19 @@
         const urlParams = new URLSearchParams(window.location.search);
         const msg = urlParams.get('msg');
         const error = urlParams.get('error');
+        const i18nEl = document.getElementById('payroll-i18n');
+        const recalcSuccessText = i18nEl?.dataset.recalcSuccess || 'Recalculation completed.';
+        const recalcErrorText = i18nEl?.dataset.recalcError || 'Error recalculating data.';
         
         if (msg === 'recalculated') {
             const div = document.createElement('div');
             div.className = 'alert alert-success alert-dismissible fade show';
-            div.innerHTML = '<i class="bi bi-check-circle me-2"></i>✅ รีคำนวณค่า Late/Early เรียบร้อยแล้ว! กรุณากดปุ่ม "คำนวณใหม่" เพื่อดูผลลัพธ์ <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            div.innerHTML = '<i class="bi bi-check-circle me-2"></i>' + recalcSuccessText + ' <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
             document.querySelector('.container-fluid').insertBefore(div, document.querySelector('.card'));
         } else if (error === 'recalculate_failed') {
             const div = document.createElement('div');
             div.className = 'alert alert-danger alert-dismissible fade show';
-            div.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>❌ เกิดข้อผิดพลาดในการรีคำนวณ <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+            div.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>' + recalcErrorText + ' <button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
             document.querySelector('.container-fluid').insertBefore(div, document.querySelector('.card'));
         }
     </script>
@@ -102,6 +114,7 @@
                                 <td class="text-center small">
                                     <span class="badge bg-secondary mb-1">{{ emp.paid_days }} {{ texts.unit_day|default('days') }}</span><br>
                                     <span class="text-warning">{{ texts.pay_stat_late }}: {{ emp.late_minutes }} {{ texts.unit_min|default('min') }}</span><br>
+                                    <span class="text-info">{{ texts.pay_stat_early }}: {{ emp.early_minutes }} {{ texts.unit_min|default('min') }}</span><br>
                                     <span class="text-danger">{{ texts.pay_stat_absent }}: {{ emp.absent_days or 0 }} {{ texts.unit_day|default('days') }}</span>
                                 </td>
 
@@ -242,7 +255,12 @@ function calculateRow(element) {
 }
 
 function recalculateLatEarly() {
-    if (!confirm('⚠️ ต้องการรีคำนวณค่าเวลาสายและออกก่อนใหม่หรือไม่?\n\nระบบจะคำนวณใหม่ตามตารางเวลาปัจจุบันของพนักงาน')) {
+    const i18nEl = document.getElementById('payroll-i18n');
+    const recalcConfirmText = i18nEl?.dataset.recalcConfirm || 'Recalculate late/early now?';
+    const selectDateText = i18nEl?.dataset.selectDate || 'Please select a date range first.';
+    const csrfMissingText = i18nEl?.dataset.csrfMissing || 'CSRF token not found. Please refresh and try again.';
+
+    if (!confirm(recalcConfirmText)) {
         return;
     }
     
@@ -250,7 +268,7 @@ function recalculateLatEarly() {
     const endDate = document.getElementById('global_end').value;
     
     if (!startDate || !endDate) {
-        alert('กรุณาเลือกช่วงวันที่ก่อน');
+        alert(selectDateText);
         return;
     }
     
@@ -258,6 +276,30 @@ function recalculateLatEarly() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/admin/recalculate-attendance';
+
+    // Programmatic form.submit() does not trigger global submit hooks,
+    // so attach CSRF token explicitly here.
+    const csrfToken = (function () {
+        const cookies = document.cookie ? document.cookie.split('; ') : [];
+        for (const cookie of cookies) {
+            const [k, ...rest] = cookie.split('=');
+            if (k === 'csrf_token') {
+                return decodeURIComponent(rest.join('='));
+            }
+        }
+        return '';
+    })();
+
+    if (!csrfToken) {
+        alert(csrfMissingText);
+        return;
+    }
+
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrf_token';
+    csrfInput.value = csrfToken;
+    form.appendChild(csrfInput);
     
     const startInput = document.createElement('input');
     startInput.type = 'hidden';

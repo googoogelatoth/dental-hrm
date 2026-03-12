@@ -2,6 +2,15 @@
 
 {% block content %}
 <div class="container mt-4">
+    <div
+        id="monitor-i18n"
+        data-pie-normal="{{ texts.mon_pie_normal }}"
+        data-pie-late="{{ texts.mon_pie_late }}"
+        data-pie-absent="{{ texts.mon_pie_absent }}"
+        data-pie-leave="{{ texts.mon_pie_leave }}"
+        data-chart-unit="{{ texts.mon_chart_unit }}"
+        hidden
+    ></div>
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="fw-bold"><i class="bi bi-speedometer2 me-2"></i> {{ texts.mon_title }}</h4>
         <span class="badge bg-primary px-3 py-2">{{ texts.mon_last_update }}: <span id="lastUpdate">...</span></span>
@@ -37,19 +46,19 @@
     <div class="row g-3 mb-4">
         <div class="col-4">
             <div class="card border-0 shadow-sm p-3 bg-danger bg-opacity-10 text-center">
-                <div class="text-danger small fw-bold"><i class="bi bi-person-x me-1"></i> ขาดวันนี้</div>
+                <div class="text-danger small fw-bold"><i class="bi bi-person-x me-1"></i> {{ texts.mon_absent_today }}</div>
                 <div class="h4 fw-bold text-danger mb-0">{{ stat_absent_today }}</div>
             </div>
         </div>
         <div class="col-4">
             <div class="card border-0 shadow-sm p-3 bg-warning bg-opacity-10 text-center">
-                <div class="text-warning small fw-bold text-dark"><i class="bi bi-clock-history me-1"></i> สายวันนี้</div>
+                <div class="text-warning small fw-bold text-dark"><i class="bi bi-clock-history me-1"></i> {{ texts.mon_late_today }}</div>
                 <div class="h4 fw-bold text-warning mb-0">{{ stat_late_today }}</div>
             </div>
         </div>
         <div class="col-4">
             <div class="card border-0 shadow-sm p-3 bg-info bg-opacity-10 text-center">
-                <div class="text-info small fw-bold"><i class="bi bi-box-arrow-right me-1"></i> ออกก่อนวันนี้</div>
+                <div class="text-info small fw-bold"><i class="bi bi-box-arrow-right me-1"></i> {{ texts.mon_early_today }}</div>
                 <div class="h4 fw-bold text-info mb-0">{{ stat_early_today }}</div>
             </div>
         </div>
@@ -66,7 +75,7 @@
         </div>
         <div class="col-lg-4 mb-4">
             <div class="card border-0 shadow-sm p-4 h-100">
-                <h6 class="fw-bold mb-4">สถิติการเข้างานประจำเดือน</h6>
+                <h6 class="fw-bold mb-4">{{ texts.mon_attendance_monthly }}</h6>
                 <div style="height: 300px;">
                     <canvas id="leavePieChart"></canvas>
                 </div>
@@ -100,6 +109,15 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        const i18nEl = document.getElementById('monitor-i18n');
+        const pieLabels = [
+            i18nEl?.dataset.pieNormal || 'Normal',
+            i18nEl?.dataset.pieLate || 'Late',
+            i18nEl?.dataset.pieAbsent || 'Absent',
+            i18nEl?.dataset.pieLeave || 'Leave',
+        ];
+        const chartUnit = i18nEl?.dataset.chartUnit || 'times';
+
         document.getElementById('lastUpdate').innerText = new Date().toLocaleTimeString();
 
         // Check PDPA Status
@@ -134,7 +152,7 @@
         new Chart(ctxPie, {
             type: 'doughnut',
             data: {
-                labels: ['ปกติ', 'มาสาย', 'ขาด', 'ลา'],
+                labels: pieLabels,
                 datasets: [{
                     data: JSON.parse('{{ attendance_pie_data | tojson | safe }}'),
                     backgroundColor: ['#28a745', '#ffc107', '#dc3545', '#17a2b8'],
@@ -161,7 +179,7 @@
                                 const value = context.parsed || 0;
                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                return label + ': ' + value + ' ครั้ง (' + percentage + '%)';
+                                return label + ': ' + value + ' ' + chartUnit + ' (' + percentage + '%)';
                             }
                         }
                     }

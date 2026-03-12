@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container mt-4 mb-5">
+    <div id="ot-summary-i18n" data-export-no-data="{{ texts.ot_sum_export_no_data }}" hidden></div>
     <h3 class="mb-4"><i class="bi bi-bar-chart-line-fill"></i> {{ texts.ot_sum_title }}</h3>
     
     <!-- ฟอร์มค้นหาและกรองข้อมูล -->
@@ -81,41 +82,41 @@
     <!-- สรุปตามประเภท OT -->
     <div class="row mb-4">
         <div class="col-12">
-            <h5 class="mb-3">สรุปตามประเภท OT</h5>
+            <h5 class="mb-3">{{ texts.ot_sum_by_type }}</h5>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">OT 1.0 เท่า</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_type_1_0 }}</h6>
                     <h3 class="text-danger mb-2">{{ summary.ot_1_0 }}</h3>
-                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_0 / 60) }} ชั่วโมง</small>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_0 / 60) }} {{ texts.ot_sum_hours }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">OT 1.5 เท่า</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_type_1_5 }}</h6>
                     <h3 class="text-warning mb-2">{{ summary.ot_1_5 }}</h3>
-                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_5 / 60) }} ชั่วโมง</small>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_1_5 / 60) }} {{ texts.ot_sum_hours }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">OT 2.0 เท่า</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_type_2_0 }}</h6>
                     <h3 class="text-info mb-2">{{ summary.ot_2_0 }}</h3>
-                    <small class="text-muted">{{ "%.1f"|format(summary.ot_2_0 / 60) }} ชั่วโมง</small>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_2_0 / 60) }} {{ texts.ot_sum_hours }}</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <h6 class="text-muted mb-2">OT 3.0 เท่า</h6>
+                    <h6 class="text-muted mb-2">{{ texts.ot_sum_type_3_0 }}</h6>
                     <h3 class="text-success mb-2">{{ summary.ot_3_0 }}</h3>
-                    <small class="text-muted">{{ "%.1f"|format(summary.ot_3_0 / 60) }} ชั่วโมง</small>
+                    <small class="text-muted">{{ "%.1f"|format(summary.ot_3_0 / 60) }} {{ texts.ot_sum_hours }}</small>
                 </div>
             </div>
         </div>
@@ -126,11 +127,11 @@
         <div class="card-header bg-light border-bottom">
             <div class="row align-items-center">
                 <div class="col">
-                    <h5 class="mb-0"><i class="bi bi-table"></i> รายละเอียดข้อมูล OT</h5>
+                    <h5 class="mb-0"><i class="bi bi-table"></i> {{ texts.ot_sum_details_title }}</h5>
                 </div>
                 <div class="col-auto">
                     <button class="btn btn-sm btn-outline-secondary" onclick="exportToExcel()">
-                        <i class="bi bi-download"></i> ส่งออก Excel
+                        <i class="bi bi-download"></i> {{ texts.ot_sum_export_excel }}
                     </button>
                 </div>
             </div>
@@ -141,15 +142,15 @@
                 <table class="table table-hover mb-0">
                     <thead class="table-light sticky-top">
                         <tr>
-                            <th>วันที่</th>
-                            <th>พนักงาน</th>
-                            <th>เวลา</th>
-                            <th>ประเภท</th>
-                            <th>นาที</th>
-                            <th>ชั่วโมง</th>
-                            <th>เหตุผล</th>
-                            <th>สถานะ</th>
-                            <th>หมายเหตุ</th>
+                            <th>{{ texts.ot_sum_col_date }}</th>
+                            <th>{{ texts.ot_sum_col_employee }}</th>
+                            <th>{{ texts.ot_sum_col_time }}</th>
+                            <th>{{ texts.ot_sum_col_type }}</th>
+                            <th>{{ texts.ot_sum_col_minutes }}</th>
+                            <th>{{ texts.ot_sum_col_hours }}</th>
+                            <th>{{ texts.ot_sum_col_reason }}</th>
+                            <th>{{ texts.ot_sum_col_status }}</th>
+                            <th>{{ texts.ot_sum_col_remark }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -181,15 +182,15 @@
                             </td>
                             <td>
                                 {% if ot.status == "approved" %}
-                                    <span class="badge bg-success">✓ อนุมัติแล้ว</span>
+                                    <span class="badge bg-success">{{ texts.ot_sum_badge_approved }}</span>
                                 {% elif ot.status == "pending" %}
-                                    <span class="badge bg-warning text-dark">⧖ รอการอนุมัติ</span>
+                                    <span class="badge bg-warning text-dark">{{ texts.ot_sum_badge_pending }}</span>
                                 {% elif ot.status == "rejected" %}
-                                    <span class="badge bg-danger">✗ ปฏิเสธ</span>
+                                    <span class="badge bg-danger">{{ texts.ot_sum_badge_rejected }}</span>
                                 {% endif %}
                             </td>
                             <td>
-                                <small title="{{ ot.admin_remark or 'ไม่มี' }}" class="text-muted">
+                                <small title="{{ ot.admin_remark or texts.ot_sum_empty_remark }}" class="text-muted">
                                     {% if ot.admin_remark %}
                                         <i class="bi bi-info-circle"></i>
                                     {% else %}
@@ -205,7 +206,7 @@
             {% else %}
             <div class="text-center py-5">
                 <i class="bi bi-inbox" style="font-size: 3rem; color: #ccc;"></i>
-                <p class="text-muted mt-3">ไม่พบข้อมูล OT ในช่วงเวลาที่เลือก</p>
+                <p class="text-muted mt-3">{{ texts.ot_sum_no_data_in_period }}</p>
             </div>
             {% endif %}
         </div>
@@ -227,8 +228,10 @@ function resetFilters() {
 function exportToExcel() {
     // สร้าง table element ชั่วคราวเพื่อส่งออก
     const table = document.querySelector('.table');
+    const i18nEl = document.getElementById('ot-summary-i18n');
+    const exportNoDataText = i18nEl?.dataset.exportNoData || 'No data available for export';
     if (!table) {
-        alert('ไม่พบข้อมูลสำหรับส่งออก');
+        alert(exportNoDataText);
         return;
     }
     

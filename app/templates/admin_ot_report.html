@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container mt-4">
-    <h3><i class="bi bi-bar-chart-line-fill"></i> สรุปภาพรวมค่าล่วงเวลา (OT)</h3>
+    <h3><i class="bi bi-bar-chart-line-fill"></i> {{ texts.ot_report_title }}</h3>
     
     <div class="row mb-4">
         {% for type, mins in summary.items() %}
@@ -9,7 +9,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <h6 class="text-muted">{{ type }}</h6>
-                    <h2 class="text-primary">{{ mins }} <small class="fs-6">นาที</small></h2>
+                    <h2 class="text-primary">{{ mins }} <small class="fs-6">{{ texts.ot_report_minute_unit }}</small></h2>
                 </div>
             </div>
         </div>
@@ -21,11 +21,11 @@
             <table class="table table-striped">
                 <thead>
                     <tr>
-                        <th>วันที่</th>
-                        <th>พนักงาน</th>
-                        <th>ประเภท</th>
-                        <th>นาที</th>
-                        <th>เหตุผล</th>
+                        <th>{{ texts.ot_report_col_date }}</th>
+                        <th>{{ texts.ot_report_col_employee }}</th>
+                        <th>{{ texts.ot_report_col_type }}</th>
+                        <th>{{ texts.ot_report_col_minutes }}</th>
+                        <th>{{ texts.ot_report_col_reason }}</th>
                     </tr>
                 </thead>
                 <tbody>
