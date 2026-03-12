@@ -131,6 +131,18 @@
             {% if request.query_params.get('msg') == 'session_expired' %}
             <div class="alert alert-warning py-2 small border-0 mb-4" style="border-radius: 10px;">
                 <i class="bi bi-info-circle me-1"></i> Your session has expired due to login from another device.
+
+                        {% if request.query_params.get('msg') == 'insufficient_role' %}
+                        <div class="alert alert-danger py-2 small border-0 mb-4" style="border-radius: 10px;">
+                            <i class="bi bi-shield-exclamation me-1"></i> You don't have permission to access this page. Admin access required.
+                        </div>
+                        {% endif %}
+
+                        {% if request.query_params.get('msg') == 'invalid_csrf' %}
+                        <div class="alert alert-danger py-2 small border-0 mb-4" style="border-radius: 10px;">
+                            <i class="bi bi-exclamation-triangle me-1"></i> Security validation failed. Please try again.
+                        </div>
+                        {% endif %}
             </div>
             {% endif %}
 

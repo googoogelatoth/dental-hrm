@@ -45,8 +45,8 @@ def test_admin_payroll_page_requires_admin_role(client, db_session):
 
     response = client.get("/admin/calculate-payroll", follow_redirects=False)
 
-    assert response.status_code == 403
-    assert response.headers["content-type"].startswith("application/json")
+    assert response.status_code == 303
+    assert "msg=insufficient_role" in response.headers["location"]
 
 
 def test_admin_can_open_payroll_page(client, db_session):

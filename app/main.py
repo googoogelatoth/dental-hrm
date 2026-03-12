@@ -266,7 +266,7 @@ async def security_middleware(request: Request, call_next):
             return RedirectResponse(url="/login?msg=session_expired", status_code=303)
 
         if user.role != "Admin":
-            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+            return RedirectResponse(url="/login?msg=insufficient_role", status_code=303)
 
     csrf_cookie = request.cookies.get("csrf_token")
 
@@ -279,10 +279,10 @@ async def security_middleware(request: Request, call_next):
                 provided_token = _extract_csrf_token_from_body(content_type, raw_body)
 
         if not csrf_cookie or not provided_token:
-            return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
+            return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
 
         if not secrets.compare_digest(str(provided_token), str(csrf_cookie)):
-            return JSONResponse(status_code=403, content={"detail": "Invalid CSRF token"})
+            return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
 
     response = await call_next(request)
 

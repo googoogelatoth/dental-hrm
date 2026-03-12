@@ -34,7 +34,8 @@ def test_role_tampering_cookie_cannot_escalate_admin_post(client, db_session):
         follow_redirects=False,
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 303
+    assert "msg=insufficient_role" in response.headers["location"]
 
 
 def test_missing_csrf_blocks_authenticated_state_change(client, db_session):
@@ -51,8 +52,8 @@ def test_missing_csrf_blocks_authenticated_state_change(client, db_session):
     # No csrf_token cookie and no csrf_token form field.
     response = client.post("/admin/approve-all-requests", data={}, follow_redirects=False)
 
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Invalid CSRF token"
+    assert response.status_code == 303
+    assert "msg=invalid_csrf" in response.headers["location"]
 
 
 def test_non_admin_cannot_access_holidays_page(client, db_session):
@@ -132,9 +133,8 @@ def test_non_admin_blocked_by_centralized_admin_guard(client, db_session, path: 
 
     response = client.get(path, follow_redirects=False)
 
-    assert response.status_code == 403
-    assert response.headers["content-type"].startswith("application/json")
-    assert response.json().get("detail") == "Forbidden"
+    assert response.status_code == 303
+    assert "msg=insufficient_role" in response.headers["location"]
 
 
 @pytest.mark.parametrize("path", [
