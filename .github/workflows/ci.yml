@@ -2,19 +2,7 @@ name: CI - Economy Tests
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - "app/**"
-      - "tests/**"
-      - "requirements.txt"
-      - ".github/workflows/ci.yml"
   pull_request:
-    branches: [main, develop]
-    paths:
-      - "app/**"
-      - "tests/**"
-      - "requirements.txt"
-      - ".github/workflows/ci.yml"
   workflow_dispatch:
 
 concurrency:
