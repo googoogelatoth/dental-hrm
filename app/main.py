@@ -1036,7 +1036,7 @@ async def handle_add_employee(
             upload_result = cloudinary.uploader.upload(profile_picture.file, folder="hrm/profiles", public_id=f"emp_{employee_code}", overwrite=True)
             profile_url = upload_result.get("secure_url")
         except Exception as e:
-            logger.info(f"Cloudinary Error: {e}")
+            logger.warning("employee.add profile_upload_failed employee_code=%s error=%s request_id=%s", employee_code, e, _request_id_from_state(request))
 
     # --- 4. สร้าง Object พนักงานใหม่ ---
     new_emp = models.Employee(
@@ -1066,7 +1066,7 @@ async def handle_add_employee(
                     new_doc = models.EmployeeDocument(file_path=doc_upload.get("secure_url"), file_name=doc.filename, employee_id=new_emp.id)
                     db.add(new_doc)
                 except Exception as e: 
-                    logger.info(f"Doc Error: {e}")
+                    logger.warning("employee.add document_upload_failed employee_code=%s file=%s error=%s request_id=%s", employee_code, doc.filename, e, _request_id_from_state(request))
         db.commit()
 
     # --- 6. 🚩 บันทึก Log การเพิ่มพนักงาน ---
@@ -1112,7 +1112,7 @@ async def update_company_settings(
             )
             company.logo_path = upload_result.get("secure_url")
         except Exception as e: 
-            logger.info(f"Logo Error: {e}")
+            logger.warning("company.settings logo_upload_failed error=%s request_id=%s", e, _request_id_from_state(request))
 
     # --- 5. 🚩 บันทึก Log ก่อน Commit ---
     log_activity(
@@ -2060,7 +2060,7 @@ async def handle_leave_apply(
                 db
             )
     except SQLAlchemyError as e:
-        logger.info(f"❌ Notification Error: {e}")
+        logger.warning("leave.apply notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
 
     return RedirectResponse(url="/check-in-page?msg=leave_sent", status_code=303)
 
@@ -2146,7 +2146,7 @@ async def approve_leave(request: Request, leave_id: int, status: str = Form(...)
                 db
             )
         except (SQLAlchemyError, TypeError, ValueError) as e:
-            logger.info(f"Push Notification Error: {e}")
+            logger.warning("leave.approval notify_employee_failed leave_id=%s employee_id=%s status=%s error=%s request_id=%s", leave.id, leave.employee_id, status, e, _request_id_from_state(request))
     
     # 🚩 4. บรรทัด return ต้องอยู่ล่างสุดเสมอ
     return RedirectResponse(url="/admin/leaves?msg=updated", status_code=303)
@@ -2607,7 +2607,7 @@ async def submit_attendance_request(
         
         db.commit() # ✅ ยืนยันข้อมูลเข้า DB
     except (TypeError, ValueError, SQLAlchemyError) as e:
-        logger.info(f"❌ Database Error: {e}")
+        logger.warning("attendance.manual_request create_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
         return RedirectResponse(url="/attendance-report?msg=error", status_code=303)
 
     # 🚩 2. ส่งแจ้งเตือนหา Admin (วางไว้ตรงนี้หลัง commit)
@@ -2625,9 +2625,9 @@ async def submit_attendance_request(
                 f"มีคำขอจาก {user.first_name} ({user.nickname}) รอการอนุมัติ", 
                 db
             )
-        logger.info(f"🔔 Manual Attendance Notification sent to {len(admins)} admins")
+        logger.info("attendance.manual_request notify_admin_success admins=%s user_id=%s request_id=%s", len(admins), user.id, _request_id_from_state(request))
     except (SQLAlchemyError, TypeError, ValueError) as e:
-        logger.info(f"❌ Notification Error: {e}")
+        logger.warning("attendance.manual_request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
     
     return RedirectResponse(url="/attendance-report?msg=request_sent", status_code=303)
 
@@ -2713,6 +2713,7 @@ async def view_attendance_requests(request: Request,user: models.Employee = Depe
     requests = db.query(models.ManualAttendanceRequest).filter(
         models.ManualAttendanceRequest.status == "Pending"
     ).all()
+    logger.info("attendance.requests.view success user_id=%s pending=%s request_id=%s", user.id, len(requests), _request_id_from_state(request))
     return render_template("admin_requests.html", {
         "request": request,
         "texts": texts, 
@@ -2721,6 +2722,7 @@ async def view_attendance_requests(request: Request,user: models.Employee = Depe
     
 @app.post("/admin/approve-request/{request_id}")
 async def approve_request(
+    request: Request,
     request_id: int, 
     user: models.Employee = Depends(get_current_active_user), 
     status: str = Form(...), 
@@ -2728,7 +2730,8 @@ async def approve_request(
     db: Session = Depends(get_db)
 ):
     # เรียกใช้ฟังก์ชันกลาง
-    await perform_approval_logic(request_id, status, admin_remark, db)
+    result = await perform_approval_logic(request_id, status, admin_remark, db)
+    logger.info("attendance.request.process status=%s request_target_id=%s success=%s admin_user_id=%s request_id=%s", status, request_id, result, user.id, _request_id_from_state(request))
     return RedirectResponse(url="/admin/attendance-requests?msg=updated", status_code=303)
 
 @app.post("/admin/reject-request/{request_id}")
@@ -2846,10 +2849,11 @@ async def import_attendance_upload(
         )
 
         db.commit()
+        logger.info("attendance.import success filename=%s imported=%s user_id=%s request_id=%s", file.filename, count_success, user.id, _request_id_from_state(request))
         return RedirectResponse(url="/admin/attendance-requests?msg=import_success", status_code=303)
         
     except (ValueError, KeyError, SQLAlchemyError) as e:
-        logger.info(f"🚩 Import Error: {e}")
+        logger.error("attendance.import failed filename=%s error=%s user_id=%s request_id=%s", file.filename, e, user.id, _request_id_from_state(request))
         # บันทึก Log กรณีล้มเหลวด้วยเพื่อตรวจสอบปัญหา
         log_activity(db, user, "Import ล้มเหลว", f"เกิดข้อผิดพลาดขณะนำเข้าไฟล์ {file.filename}: {str(e)}", request)
         db.commit()
@@ -2920,15 +2924,15 @@ async def save_subscription(request: Request, user: models.Employee = Depends(ge
         db.add(new_log)
         
         db.commit()
-        logger.info(f"✅ Push Subscription {action_type} for user {user.employee_code}")
+        logger.info("push.subscription save_success action=%s user_id=%s employee_code=%s request_id=%s", action_type, user.id, user.employee_code, _request_id_from_state(request))
         return {"status": "success", "message": "Subscription saved successfully"}
         
     except KeyError as e:
-        logger.error(f"❌ Missing key in subscription data: {e}")
+        logger.error("push.subscription missing_key error=%s user_id=%s request_id=%s", e, user.id, _request_id_from_state(request))
         return {"status": "error", "message": f"Invalid subscription data structure: {str(e)}"}
     except (TypeError, ValueError, SQLAlchemyError) as e:
         db.rollback()
-        logger.error(f"❌ Error saving subscription: {e}")
+        logger.error("push.subscription save_failed error=%s user_id=%s request_id=%s", e, user.id, _request_id_from_state(request))
         return {"status": "error", "message": f"Server error: {str(e)}"}
 
 
@@ -3936,13 +3940,13 @@ async def handle_request_ot(
             for admin in admins:
                 send_push_notification(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name} ยื่นขอ OT", db)
         except (SQLAlchemyError, TypeError, ValueError) as e:
-            logger.info(f"❌ Notification Error: {e}")
+            logger.warning("ot.request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
 
         return RedirectResponse(url="/my-ot-requests?msg=success", status_code=303)
 
     except (SQLAlchemyError, ValueError, TypeError) as e:
         db.rollback()
-        logger.info(f"🚩 Error: {e}")
+        logger.error("ot.request create_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
         return RedirectResponse(url="/request-ot?msg=error", status_code=303)
 
 @app.get("/admin/approve-ot")
@@ -3950,6 +3954,7 @@ async def approve_ot_page(request: Request,user: models.Employee = Depends(get_c
     # 1. สั่งให้โปรแกรมไป "ค้นหา" ในตาราง OTRequest
     # โดยเลือกเฉพาะรายการที่สถานะเป็น "pending" (รออนุมัติ)
     data = db.query(models.OTRequest).filter(models.OTRequest.status == "pending").all()
+    logger.info("ot.approval.view success user_id=%s pending=%s request_id=%s", user.id, len(data), _request_id_from_state(request))
     
     # 2. ส่งข้อมูลที่ค้นหาได้ (ตัวแปร data) ไปที่หน้า HTML
     # โดยตั้งชื่อในหน้า HTML ว่า "pending_ot"
@@ -4002,7 +4007,8 @@ async def process_ot(
                 db
             )
         except (SQLAlchemyError, TypeError, ValueError) as e:
-            logger.info(f"Push Notification Error: {e}")
+            logger.warning("ot.process notify_employee_failed ot_id=%s employee_id=%s action=%s error=%s request_id=%s", ot_id, ot_req.employee_id, action, e, _request_id_from_state(request))
+        logger.info("ot.process success ot_id=%s action=%s employee_id=%s admin_user_id=%s request_id=%s", ot_id, action, ot_req.employee_id, user.id, _request_id_from_state(request))
             
     return RedirectResponse(url="/admin/approve-ot?msg=updated", status_code=303)
 
@@ -4128,11 +4134,12 @@ async def approve_all_requests(request: Request, user: models.Employee = Depends
             await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
             approved_count += 1
         except (SQLAlchemyError, ValueError, TypeError) as e:
-            logger.info(f"🚩 Error: {e}")
+            logger.warning("attendance.approve_all item_failed target_request_id=%s error=%s request_id=%s", req.id, e, _request_id_from_state(request))
             continue
     
     # บันทึก log
     log_activity(db, user, "อนุมัติแก้ไขลงเวลาทั้งหมด", f"อนุมัติคำขอแก้ไขลงเวลาทั้งหมด {approved_count} รายการ", request)
+    logger.info("attendance.approve_all success admin_user_id=%s approved=%s pending_total=%s request_id=%s", user.id, approved_count, len(pending_list), _request_id_from_state(request))
             
     return RedirectResponse(url="/admin/attendance-requests?msg=all_approved_success", status_code=303)
 
