@@ -30,6 +30,7 @@
 - `ENVIRONMENT`: ใช้ `production` บนระบบจริง (default: `development`)
 - `LOG_LEVEL`: ระดับ log ของแอป (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`)
 - `PAYROLL_DEBUG`: เปิด debug log สำหรับ payroll โดยตรง (`true/false`)
+- `SLOW_REQUEST_MS`: เกณฑ์เวลา (มิลลิวินาที) สำหรับ log request ที่ช้า (default: `800`)
 
 คำแนะนำ production:
 

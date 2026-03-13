@@ -10,6 +10,7 @@ import json
 import uuid
 import calendar
 import re
+from time import perf_counter
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
 from typing import List, Optional
@@ -75,6 +76,11 @@ if _log_level_name not in _valid_log_levels:
 APP_ENV = os.getenv("ENVIRONMENT", "development").strip().lower()
 IS_PRODUCTION = APP_ENV == "production"
 PAYROLL_DEBUG_ENABLED = os.getenv("PAYROLL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"} or not IS_PRODUCTION
+try:
+    SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "800"))
+except ValueError:
+    SLOW_REQUEST_MS = 800
+    logger.warning("startup.slow_request_ms invalid_value fallback=800")
 
 # Redirect simple logger.info() calls to structured logging (INFO level)
 # This helps catch stray prints without changing every call site immediately.
@@ -260,18 +266,46 @@ def _redirect_with_request_id(url: str, status_code: int, request_id: str) -> Re
     return response
 
 
+def _should_log_request_summary(path: str, status_code: int, duration_ms: int) -> bool:
+    if path.startswith("/static") or path.startswith("/uploads"):
+        return False
+    if path in {"/manifest.json", "/service-worker.js"}:
+        return False
+    return status_code >= 400 or duration_ms >= SLOW_REQUEST_MS
+
+
+def _finalize_response(request: Request, response: Response, started_at: float) -> Response:
+    request_id = _request_id_from_state(request)
+    duration_ms = int((perf_counter() - started_at) * 1000)
+    response.headers["X-Request-ID"] = request_id
+    path = request.url.path
+
+    if _should_log_request_summary(path, response.status_code, duration_ms):
+        log_fn = logger.warning if response.status_code >= 400 else logger.info
+        log_fn(
+            "http.request method=%s path=%s status=%s duration_ms=%s request_id=%s",
+            request.method,
+            path,
+            response.status_code,
+            duration_ms,
+            request_id,
+        )
+
+    return response
+
+
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     path = request.url.path
     request_id = _get_request_id(request)
     request.state.request_id = request_id
+    started_at = perf_counter()
 
     # Centralized hardening for sensitive route prefixes.
     if _requires_admin_guard(path):
         if path.startswith("/debug") and IS_PRODUCTION:
             response = JSONResponse(status_code=404, content={"detail": "Not found"})
-            response.headers["X-Request-ID"] = request_id
-            return response
+            return _finalize_response(request, response, started_at)
 
         user_id = request.cookies.get("user_id")
         session_id = request.cookies.get("session_id")
@@ -279,7 +313,8 @@ async def security_middleware(request: Request, call_next):
 
         if not (is_logged_in and user_id and session_id):
             logger.warning("security.guard denied reason=missing_session path=%s method=%s request_id=%s", path, request.method, request_id)
-            return _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
+            response = _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
+            return _finalize_response(request, response, started_at)
 
         db = SessionLocal()
         try:
@@ -292,11 +327,13 @@ async def security_middleware(request: Request, call_next):
 
         if not user or not user.is_active or user.current_session_id != session_id:
             logger.warning("security.guard denied reason=invalid_session path=%s method=%s user_id=%s request_id=%s", path, request.method, user_id, request_id)
-            return _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
+            response = _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
+            return _finalize_response(request, response, started_at)
 
         if user.role != "Admin":
             logger.warning("security.guard denied reason=insufficient_role path=%s method=%s user_id=%s role=%s request_id=%s", path, request.method, user.id, user.role, request_id)
-            return _redirect_with_request_id(url="/login?msg=insufficient_role", status_code=303, request_id=request_id)
+            response = _redirect_with_request_id(url="/login?msg=insufficient_role", status_code=303, request_id=request_id)
+            return _finalize_response(request, response, started_at)
 
     csrf_cookie = request.cookies.get("csrf_token")
 
@@ -310,11 +347,13 @@ async def security_middleware(request: Request, call_next):
 
         if not csrf_cookie or not provided_token:
             logger.warning("security.csrf denied reason=missing_token path=%s method=%s request_id=%s", path, request.method, request_id)
-            return _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
+            response = _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
+            return _finalize_response(request, response, started_at)
 
         if not secrets.compare_digest(str(provided_token), str(csrf_cookie)):
             logger.warning("security.csrf denied reason=token_mismatch path=%s method=%s request_id=%s", path, request.method, request_id)
-            return _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
+            response = _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
+            return _finalize_response(request, response, started_at)
 
     response = await call_next(request)
 
@@ -327,10 +366,7 @@ async def security_middleware(request: Request, call_next):
             httponly=False,
             samesite="Lax",
         )
-
-    response.headers["X-Request-ID"] = request_id
-
-    return response
+    return _finalize_response(request, response, started_at)
 
 
 # Serve service worker at root for full-origin scope
@@ -3267,6 +3303,7 @@ async def recalculate_attendance(
     รีคำนวณค่า late_minutes และ early_minutes ทั้งหมดในช่วงเวลาที่กำหนด
     """
     try:
+        request_id = _request_id_from_state(request)
         s_date = datetime.strptime(start_date, '%Y-%m-%d').date()
         e_date = datetime.strptime(end_date, '%Y-%m-%d').date()
         
@@ -3352,11 +3389,21 @@ async def recalculate_attendance(
         
         # บันทึก log
         log_activity(db, user, "รีคำนวณเวลาสาย/ออกก่อน", f"รีคำนวณข้อมูล {len(attendances)} รายการ อัพเดท {updated_count} รายการ และล้าง Draft {draft_count} รายการ ช่วง {start_date} ถึง {end_date}", request)
+        logger.info(
+            "payroll.recalculate success user_id=%s start_date=%s end_date=%s attendance_total=%s updated=%s draft_reset=%s request_id=%s",
+            user.id,
+            start_date,
+            end_date,
+            len(attendances),
+            updated_count,
+            draft_count,
+            request_id,
+        )
         
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=recalculated", status_code=303)
         
     except (SQLAlchemyError, ValueError) as e:
-        logger.error(f"❌ Recalculate error: {e}")
+        logger.error("payroll.recalculate failed start_date=%s end_date=%s error=%s request_id=%s", start_date, end_date, e, _request_id_from_state(request))
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&error=recalculate_failed", status_code=303)
 
 @app.get("/admin/calculate-payroll")
@@ -3369,6 +3416,7 @@ async def calculate_payroll_page(
     reset: str = Query(None),
     db: Session = Depends(get_db)
 ):
+    request_id = _request_id_from_state(request)
     # 1. จัดการวันที่ Default ของเดือน
     now_th = get_now_th()
     if not start_date or not end_date:
@@ -3387,6 +3435,7 @@ async def calculate_payroll_page(
             models.PayrollDetail.status == "Draft"
         ).delete()
         db.commit()
+        logger.info("payroll.calculate reset_draft=true month=%s year=%s request_id=%s", e_dt_global.month, e_dt_global.year, request_id)
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}", status_code=303)
 
     settings = get_payroll_settings(db)
@@ -3443,6 +3492,16 @@ async def calculate_payroll_page(
         emp.net_salary = payroll_details['net_salary']
         emp.absent_days = payroll_details.get('absent_days', 0)
 
+    logger.info(
+        "payroll.calculate success user_id=%s start_date=%s end_date=%s employees=%s holidays=%s request_id=%s",
+        user.id,
+        start_date,
+        end_date,
+        len(employees),
+        len(holiday_dates),
+        request_id,
+    )
+
 
     return render_template("admin_payroll.html", {
         "request": request,
@@ -3466,9 +3525,11 @@ async def process_payroll(
     db: Session = Depends(get_db),
     current_user: models.Employee = Depends(require_admin)
 ):
+    request_id = _request_id_from_state(request)
     form_data = await request.form()
     emp_ids = form_data.getlist("emp_ids")
     dt_end_global = datetime.strptime(end_date, '%Y-%m-%d').date()
+    processed_count = 0
 
     def parse_to_float_field(field_name, default_form=form_data):
         val = default_form.get(field_name, "0")
@@ -3556,6 +3617,7 @@ async def process_payroll(
                 status="Draft" if action == "save_draft" else "Finalized"
             )
             db.add(new_payroll)
+            processed_count += 1
 
             log_activity(
                 db, current_user, "บันทึกเงินเดือน",
@@ -3629,12 +3691,23 @@ async def process_payroll(
                 status="Draft" if action == "save_draft" else "Finalized"
             )
             db.add(new_record)
+            processed_count += 1
 
         # single log for full-run
         log_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันเงินเดือน"
         log_activity(db, current_user, log_name, f"งวด {dt_end_global.month}/{dt_end_global.year}", request)
 
     db.commit()
+
+    logger.info(
+        "payroll.process success action=%s month=%s year=%s processed=%s selected=%s request_id=%s",
+        action,
+        dt_end_global.month,
+        dt_end_global.year,
+        processed_count,
+        len(emp_ids),
+        request_id,
+    )
 
     if action == "save_draft":
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", status_code=303)
