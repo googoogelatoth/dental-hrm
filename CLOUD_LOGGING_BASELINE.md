@@ -2,6 +2,8 @@
 
 This guide defines a practical baseline for the new request correlation and observability logs.
 
+Provider-agnostic baseline (recommended source of truth): `OBSERVABILITY_BASELINE.md`
+
 ## Scope
 
 The filters below target these log patterns already emitted by the app:

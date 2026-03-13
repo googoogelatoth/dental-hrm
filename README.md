@@ -41,7 +41,9 @@
 ## 🔎 Cloud Logging Queries (Google Cloud)
 ตัวอย่าง Query ที่แนะนำสำหรับ troubleshooting:
 
-ดู baseline query + alert threshold เริ่มต้นที่ `CLOUD_LOGGING_BASELINE.md`
+baseline กลาง (ไม่ผูก provider): `OBSERVABILITY_BASELINE.md`
+
+baseline สำหรับ Google Cloud โดยเฉพาะ: `CLOUD_LOGGING_BASELINE.md`
 
 ```text
 # 1) หา request ตาม request_id เดียว (trace ทั้งเส้น)
