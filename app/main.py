@@ -65,8 +65,13 @@ async def app_lifespan(_app: FastAPI):
 app = FastAPI(lifespan=app_lifespan)
 
 # Configure structured logging for the application
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+_log_level_name = os.getenv("LOG_LEVEL", "INFO").strip().upper()
+_valid_log_levels = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+_effective_log_level = getattr(logging, _log_level_name, logging.INFO)
+logging.basicConfig(level=_effective_log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("clinic_hrm")
+if _log_level_name not in _valid_log_levels:
+    logger.warning("startup.log_level invalid_value=%s fallback=INFO", _log_level_name)
 APP_ENV = os.getenv("ENVIRONMENT", "development").strip().lower()
 IS_PRODUCTION = APP_ENV == "production"
 PAYROLL_DEBUG_ENABLED = os.getenv("PAYROLL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"} or not IS_PRODUCTION
