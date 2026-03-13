@@ -251,7 +251,7 @@ async def security_middleware(request: Request, call_next):
 
     # Centralized hardening for sensitive route prefixes.
     if _requires_admin_guard(path):
-        if path.startswith("/debug") and os.getenv("ENVIRONMENT", "development") == "production":
+        if path.startswith("/debug") and IS_PRODUCTION:
             return JSONResponse(status_code=404, content={"detail": "Not found"})
 
         user_id = request.cookies.get("user_id")
@@ -259,6 +259,7 @@ async def security_middleware(request: Request, call_next):
         is_logged_in = request.cookies.get("is_logged_in") == "true"
 
         if not (is_logged_in and user_id and session_id):
+            logger.warning("security.guard denied reason=missing_session path=%s method=%s", path, request.method)
             return RedirectResponse(url="/login?msg=session_expired", status_code=303)
 
         db = SessionLocal()
@@ -271,9 +272,11 @@ async def security_middleware(request: Request, call_next):
             db.close()
 
         if not user or not user.is_active or user.current_session_id != session_id:
+            logger.warning("security.guard denied reason=invalid_session path=%s method=%s user_id=%s", path, request.method, user_id)
             return RedirectResponse(url="/login?msg=session_expired", status_code=303)
 
         if user.role != "Admin":
+            logger.warning("security.guard denied reason=insufficient_role path=%s method=%s user_id=%s role=%s", path, request.method, user.id, user.role)
             return RedirectResponse(url="/login?msg=insufficient_role", status_code=303)
 
     csrf_cookie = request.cookies.get("csrf_token")
@@ -287,20 +290,21 @@ async def security_middleware(request: Request, call_next):
                 provided_token = _extract_csrf_token_from_body(content_type, raw_body)
 
         if not csrf_cookie or not provided_token:
+            logger.warning("security.csrf denied reason=missing_token path=%s method=%s", path, request.method)
             return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
 
         if not secrets.compare_digest(str(provided_token), str(csrf_cookie)):
+            logger.warning("security.csrf denied reason=token_mismatch path=%s method=%s", path, request.method)
             return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
 
     response = await call_next(request)
 
     if not csrf_cookie:
-        is_production = os.getenv("ENVIRONMENT", "development") == "production"
         response.set_cookie(
             key="csrf_token",
             value=secrets.token_urlsafe(32),
             max_age=60 * 60 * 8,
-            secure=is_production,
+            secure=IS_PRODUCTION,
             httponly=False,
             samesite="Lax",
         )
@@ -1359,6 +1363,7 @@ async def handle_login(
             f"พนักงาน {user.first_name} เข้าสู่ระบบสำเร็จ (Session: {new_session_id[:8]}...)", 
             request
         )
+        logger.info("auth.login success user_id=%s employee_code=%s role=%s", user.id, user.employee_code, user.role)
         
         db.commit()
         # --------------------------------------------
@@ -1368,7 +1373,7 @@ async def handle_login(
         
         # 3. ตั้งค่า Cookie (ปรับปรุง security)
         max_age = 60 * 60 * 24 * 30  # 30 วัน
-        is_production = os.getenv("ENVIRONMENT", "development") == "production"
+        is_production = IS_PRODUCTION
         
         res.set_cookie(
             key="session_id", value=new_session_id, max_age=max_age, 
@@ -1409,6 +1414,7 @@ async def handle_login(
         f"พยายามเข้าสู่ระบบด้วยรหัส: {username} แต่รหัสผ่านไม่ถูกต้อง", 
         request
     )
+    logger.warning("auth.login failed username=%s", username)
     db.commit()
 
     # กรณี Login ไม่สำเร็จ
@@ -1426,8 +1432,9 @@ async def logout(request: Request, db: Session = Depends(get_db), user: models.E
         log_activity(db, user, "ออกจากระบบ", f"พนักงาน {user.first_name} ออกจากระบบ", request)
         user.current_session_id = None
         db.commit()
+        logger.info("auth.logout success user_id=%s employee_code=%s", user.id, user.employee_code)
     except SQLAlchemyError as exc:
-        logger.warning(f"Logout activity write failed for user_id={user.id}: {exc}")
+        logger.warning("auth.logout activity_write_failed user_id=%s error=%s", user.id, exc)
         db.rollback()
     
     res = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
