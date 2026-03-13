@@ -259,6 +259,7 @@ function recalculateLatEarly() {
     const recalcConfirmText = i18nEl?.dataset.recalcConfirm || 'Recalculate late/early now?';
     const selectDateText = i18nEl?.dataset.selectDate || 'Please select a date range first.';
     const csrfMissingText = i18nEl?.dataset.csrfMissing || 'CSRF token not found. Please refresh and try again.';
+    const recalcErrorText = i18nEl?.dataset.recalcError || 'Error recalculating data.';
 
     if (!confirm(recalcConfirmText)) {
         return;
@@ -272,13 +273,6 @@ function recalculateLatEarly() {
         return;
     }
     
-    // สร้าง form และส่งไป
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/admin/recalculate-attendance';
-
-    // Programmatic form.submit() does not trigger global submit hooks,
-    // so attach CSRF token explicitly here.
     const csrfToken = (function () {
         const cookies = document.cookie ? document.cookie.split('; ') : [];
         for (const cookie of cookies) {
@@ -295,26 +289,27 @@ function recalculateLatEarly() {
         return;
     }
 
-    const csrfInput = document.createElement('input');
-    csrfInput.type = 'hidden';
-    csrfInput.name = 'csrf_token';
-    csrfInput.value = csrfToken;
-    form.appendChild(csrfInput);
-    
-    const startInput = document.createElement('input');
-    startInput.type = 'hidden';
-    startInput.name = 'start_date';
-    startInput.value = startDate;
-    form.appendChild(startInput);
-    
-    const endInput = document.createElement('input');
-    endInput.type = 'hidden';
-    endInput.name = 'end_date';
-    endInput.value = endDate;
-    form.appendChild(endInput);
-    
-    document.body.appendChild(form);
-    form.submit();
+    // Use fetch + X-CSRF-Token header so the middleware validates CSRF from the header
+    // without consuming the request body. This keeps the body intact for the route
+    // handler's Form(...) parameters — avoiding the body-consumed-by-middleware issue
+    // that caused the session check to fail and redirect to login.
+    fetch('/admin/recalculate-attendance', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRF-Token': csrfToken
+        },
+        body: new URLSearchParams({
+            csrf_token: csrfToken,
+            start_date: startDate,
+            end_date: endDate
+        }).toString()
+    }).then(function(response) {
+        // response.url is the final URL after the server's 303 redirect is followed
+        window.location.replace(response.url);
+    }).catch(function() {
+        alert(recalcErrorText);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
