@@ -450,21 +450,20 @@ async def validate_required_env():
     vapid_priv = os.getenv("VAPID_PRIVATE_KEY", "").strip().strip('"').strip("'")
     
     if vapid_pub:
-        logger.info(f"✅ VAPID_PUBLIC_KEY loaded: {len(vapid_pub)} characters")
-        logger.info(f"   First 30 chars: {vapid_pub[:30]}...")
+        logger.info("startup.vapid_public_key loaded=true length=%d", len(vapid_pub))
         # Standard VAPID public key is ~86-90 chars (P-256 uncompressed point, base64url encoded with padding)
         if len(vapid_pub) < 85 or len(vapid_pub) > 92:
-            logger.warning(f"⚠️  VAPID_PUBLIC_KEY length is {len(vapid_pub)}, expected 85-92 characters")
+            logger.warning("startup.vapid_public_key unexpected_length=%d expected=85-92", len(vapid_pub))
     else:
-        logger.error("❌ VAPID_PUBLIC_KEY is empty or not loaded!")
+        logger.error("startup.vapid_public_key loaded=false")
     
     if vapid_priv:
-        logger.info(f"✅ VAPID_PRIVATE_KEY loaded: {len(vapid_priv)} characters")
+        logger.info("startup.vapid_private_key loaded=true length=%d", len(vapid_priv))
         # Standard VAPID private key is ~42-48 chars (32-byte value, base64url encoded with padding)
         if len(vapid_priv) < 42 or len(vapid_priv) > 48:
-            logger.warning(f"⚠️  VAPID_PRIVATE_KEY length is {len(vapid_priv)}, expected 42-48 characters")
+            logger.warning("startup.vapid_private_key unexpected_length=%d expected=42-48", len(vapid_priv))
     else:
-        logger.error("❌ VAPID_PRIVATE_KEY is empty or not loaded!")
+        logger.error("startup.vapid_private_key loaded=false")
         
 # Consolidated: push notification moved to send_push_notification() function (see line ~2432)
 
