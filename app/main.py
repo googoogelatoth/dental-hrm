@@ -67,6 +67,9 @@ app = FastAPI(lifespan=app_lifespan)
 # Configure structured logging for the application
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("clinic_hrm")
+APP_ENV = os.getenv("ENVIRONMENT", "development").strip().lower()
+IS_PRODUCTION = APP_ENV == "production"
+PAYROLL_DEBUG_ENABLED = os.getenv("PAYROLL_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"} or not IS_PRODUCTION
 
 # Redirect simple logger.info() calls to structured logging (INFO level)
 # This helps catch stray prints without changing every call site immediately.
@@ -3130,12 +3133,11 @@ def calculate_dynamic_payroll_details(
     # absence deduction uses daily rate (salary + allowance) / 30 per day
     calculated_absent_deduction = round(absent_days * daily_rate, 2)
     
-    # Debug logging for holiday calculation (remove after verification)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"[Payroll Debug] Employee: {emp.employee_code}, Period: {start_date} to {end_date}")
-    logger.info(f"  Holiday dates in range: {sorted(holiday_dates)}")
-    logger.info(f"  Total working days: {total_working_days}, Paid days: {paid_days}, Absent days: {absent_days}")
+    # Keep high-volume payroll traces out of production logs by default.
+    if PAYROLL_DEBUG_ENABLED:
+        logger.info(f"[Payroll Debug] Employee: {emp.employee_code}, Period: {start_date} to {end_date}")
+        logger.info(f"  Holiday dates in range: {sorted(holiday_dates)}")
+        logger.info(f"  Total working days: {total_working_days}, Paid days: {paid_days}, Absent days: {absent_days}")
 
     # ========== 4. DEDUCTIONS: LATE/EARLY (Dynamic from Attendance) ==========
     late_conf = settings.get('late')
