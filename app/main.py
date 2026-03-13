@@ -245,22 +245,41 @@ def _extract_csrf_token_from_body(content_type: str, body: bytes) -> Optional[st
     return None
 
 
+def _get_request_id(request: Request) -> str:
+    request_id = request.headers.get("x-request-id")
+    return request_id.strip() if request_id else str(uuid.uuid4())
+
+
+def _request_id_from_state(request: Request) -> str:
+    return getattr(request.state, "request_id", "-")
+
+
+def _redirect_with_request_id(url: str, status_code: int, request_id: str) -> RedirectResponse:
+    response = RedirectResponse(url=url, status_code=status_code)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     path = request.url.path
+    request_id = _get_request_id(request)
+    request.state.request_id = request_id
 
     # Centralized hardening for sensitive route prefixes.
     if _requires_admin_guard(path):
         if path.startswith("/debug") and IS_PRODUCTION:
-            return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = JSONResponse(status_code=404, content={"detail": "Not found"})
+            response.headers["X-Request-ID"] = request_id
+            return response
 
         user_id = request.cookies.get("user_id")
         session_id = request.cookies.get("session_id")
         is_logged_in = request.cookies.get("is_logged_in") == "true"
 
         if not (is_logged_in and user_id and session_id):
-            logger.warning("security.guard denied reason=missing_session path=%s method=%s", path, request.method)
-            return RedirectResponse(url="/login?msg=session_expired", status_code=303)
+            logger.warning("security.guard denied reason=missing_session path=%s method=%s request_id=%s", path, request.method, request_id)
+            return _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
 
         db = SessionLocal()
         try:
@@ -272,12 +291,12 @@ async def security_middleware(request: Request, call_next):
             db.close()
 
         if not user or not user.is_active or user.current_session_id != session_id:
-            logger.warning("security.guard denied reason=invalid_session path=%s method=%s user_id=%s", path, request.method, user_id)
-            return RedirectResponse(url="/login?msg=session_expired", status_code=303)
+            logger.warning("security.guard denied reason=invalid_session path=%s method=%s user_id=%s request_id=%s", path, request.method, user_id, request_id)
+            return _redirect_with_request_id(url="/login?msg=session_expired", status_code=303, request_id=request_id)
 
         if user.role != "Admin":
-            logger.warning("security.guard denied reason=insufficient_role path=%s method=%s user_id=%s role=%s", path, request.method, user.id, user.role)
-            return RedirectResponse(url="/login?msg=insufficient_role", status_code=303)
+            logger.warning("security.guard denied reason=insufficient_role path=%s method=%s user_id=%s role=%s request_id=%s", path, request.method, user.id, user.role, request_id)
+            return _redirect_with_request_id(url="/login?msg=insufficient_role", status_code=303, request_id=request_id)
 
     csrf_cookie = request.cookies.get("csrf_token")
 
@@ -290,12 +309,12 @@ async def security_middleware(request: Request, call_next):
                 provided_token = _extract_csrf_token_from_body(content_type, raw_body)
 
         if not csrf_cookie or not provided_token:
-            logger.warning("security.csrf denied reason=missing_token path=%s method=%s", path, request.method)
-            return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
+            logger.warning("security.csrf denied reason=missing_token path=%s method=%s request_id=%s", path, request.method, request_id)
+            return _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
 
         if not secrets.compare_digest(str(provided_token), str(csrf_cookie)):
-            logger.warning("security.csrf denied reason=token_mismatch path=%s method=%s", path, request.method)
-            return RedirectResponse(url="/login?msg=invalid_csrf", status_code=303)
+            logger.warning("security.csrf denied reason=token_mismatch path=%s method=%s request_id=%s", path, request.method, request_id)
+            return _redirect_with_request_id(url="/login?msg=invalid_csrf", status_code=303, request_id=request_id)
 
     response = await call_next(request)
 
@@ -308,6 +327,8 @@ async def security_middleware(request: Request, call_next):
             httponly=False,
             samesite="Lax",
         )
+
+    response.headers["X-Request-ID"] = request_id
 
     return response
 
@@ -1363,7 +1384,7 @@ async def handle_login(
             f"พนักงาน {user.first_name} เข้าสู่ระบบสำเร็จ (Session: {new_session_id[:8]}...)", 
             request
         )
-        logger.info("auth.login success user_id=%s employee_code=%s role=%s", user.id, user.employee_code, user.role)
+        logger.info("auth.login success user_id=%s employee_code=%s role=%s request_id=%s", user.id, user.employee_code, user.role, _request_id_from_state(request))
         
         db.commit()
         # --------------------------------------------
@@ -1414,7 +1435,7 @@ async def handle_login(
         f"พยายามเข้าสู่ระบบด้วยรหัส: {username} แต่รหัสผ่านไม่ถูกต้อง", 
         request
     )
-    logger.warning("auth.login failed username=%s", username)
+    logger.warning("auth.login failed username=%s request_id=%s", username, _request_id_from_state(request))
     db.commit()
 
     # กรณี Login ไม่สำเร็จ
@@ -1432,9 +1453,9 @@ async def logout(request: Request, db: Session = Depends(get_db), user: models.E
         log_activity(db, user, "ออกจากระบบ", f"พนักงาน {user.first_name} ออกจากระบบ", request)
         user.current_session_id = None
         db.commit()
-        logger.info("auth.logout success user_id=%s employee_code=%s", user.id, user.employee_code)
+        logger.info("auth.logout success user_id=%s employee_code=%s request_id=%s", user.id, user.employee_code, _request_id_from_state(request))
     except SQLAlchemyError as exc:
-        logger.warning("auth.logout activity_write_failed user_id=%s error=%s", user.id, exc)
+        logger.warning("auth.logout activity_write_failed user_id=%s error=%s request_id=%s", user.id, exc, _request_id_from_state(request))
         db.rollback()
     
     res = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
