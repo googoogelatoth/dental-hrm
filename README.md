@@ -38,5 +38,28 @@
 - ตั้ง `LOG_LEVEL=INFO` (หรือ `WARNING` หากต้องการลด log เพิ่ม)
 - ตั้ง `PAYROLL_DEBUG=false` (หรือไม่ต้องตั้งค่า เพื่อปิดโดย default บน production)
 
+## 🔎 Cloud Logging Queries (Google Cloud)
+ตัวอย่าง Query ที่แนะนำสำหรับ troubleshooting:
+
+```text
+# 1) หา request ตาม request_id เดียว (trace ทั้งเส้น)
+textPayload:"request_id=req-123"
+
+# 2) ดูเฉพาะคำขอที่ช้า/ผิดพลาดจาก middleware summary
+textPayload:"http.request" AND (textPayload:"status=4" OR textPayload:"status=5" OR textPayload:"duration_ms=")
+
+# 3) Flow payroll
+textPayload:("payroll.calculate" OR "payroll.process" OR "payroll.recalculate")
+
+# 4) Flow attendance import / requests
+textPayload:("attendance.import" OR "attendance.requests.view" OR "attendance.request.process" OR "attendance.approve_all")
+
+# 5) Flow OT approve/process
+textPayload:("ot.approval.view" OR "ot.process" OR "ot.request")
+
+# 6) Security/Auth denials
+textPayload:("security.guard denied" OR "security.csrf denied" OR "auth.login failed")
+```
+
 ---
 *Developed by HR Architech*
