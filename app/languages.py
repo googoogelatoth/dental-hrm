@@ -423,6 +423,10 @@ TRANSLATIONS = {
         "ot_reason_label": "เหตุผลการทำโอที",
         "ot_reason_placeholder": "เช่น ทำงานล่วงเวลา หรือ เคลียร์เคสคนไข้",
         "ot_btn_submit": "ส่งคำขออนุมัติ",
+        "ot_msg_missing_fields": "กรุณากรอกข้อมูลวันที่และช่วงเวลา OT ให้ครบถ้วน",
+        "ot_msg_invalid_time": "ช่วงเวลา OT ไม่ถูกต้อง กรุณาตรวจสอบเวลาเริ่มและเวลาสิ้นสุด",
+        "ot_msg_overlap_time": "ไม่สามารถยื่น OT ได้ เนื่องจากช่วงเวลาทับซ้อนกับคำขอเดิมในวันเดียวกัน",
+        "ot_msg_error": "เกิดข้อผิดพลาดระหว่างบันทึกคำขอ OT กรุณาลองใหม่อีกครั้ง",
         # --- My OT History Page ---
         "oth_title": "ประวัติการขอโอทีของฉัน",
         "oth_btn_new": "ขอโอทีใหม่",
@@ -1079,6 +1083,10 @@ TRANSLATIONS = {
         "ot_reason_label": "Reason for OT",
         "ot_reason_placeholder": "e.g., Working late or completing patient cases",
         "ot_btn_submit": "Submit for Approval",
+        "ot_msg_missing_fields": "Please fill in work date and OT time period.",
+        "ot_msg_invalid_time": "Invalid OT time range. Please verify start and end time.",
+        "ot_msg_overlap_time": "Cannot submit OT because the time range overlaps with an existing request on the same day.",
+        "ot_msg_error": "An error occurred while saving your OT request. Please try again.",
         # --- My OT History Page ---
         "oth_title": "My OT History",
         "oth_btn_new": "Request New OT",

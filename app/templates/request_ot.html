@@ -1,6 +1,26 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container mt-4" style="max-width: 600px;">
+    {% set msg = request.query_params.get('msg') %}
+
+    {% if msg == 'missing_fields' %}
+    <div class="alert alert-warning" role="alert">
+        {{ texts.ot_msg_missing_fields }}
+    </div>
+    {% elif msg == 'invalid_time' %}
+    <div class="alert alert-warning" role="alert">
+        {{ texts.ot_msg_invalid_time }}
+    </div>
+    {% elif msg == 'overlap_time' %}
+    <div class="alert alert-danger" role="alert">
+        {{ texts.ot_msg_overlap_time }}
+    </div>
+    {% elif msg == 'error' %}
+    <div class="alert alert-danger" role="alert">
+        {{ texts.ot_msg_error }}
+    </div>
+    {% endif %}
+
     <div class="card shadow-sm border-0">
         <div class="card-header bg-primary text-white py-3">
             <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>{{ texts.ot_title }}</h5>

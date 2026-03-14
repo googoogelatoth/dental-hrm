@@ -125,6 +125,31 @@ TH_TZ = pytz.timezone('Asia/Bangkok')
 def get_now_th():
     return datetime.now(TH_TZ).replace(tzinfo=None)
 
+
+def _has_ot_time_overlap(
+    db: Session,
+    employee_id: int,
+    request_date: date,
+    start_time,
+    end_time,
+) -> bool:
+    existing_ots = (
+        db.query(models.OTRequest)
+        .filter(
+            models.OTRequest.employee_id == employee_id,
+            models.OTRequest.request_date == request_date,
+            models.OTRequest.status.in_(["pending", "approved"]),
+        )
+        .all()
+    )
+
+    for ot in existing_ots:
+        if not ot.start_time or not ot.end_time:
+            continue
+        if ot.start_time < end_time and start_time < ot.end_time:
+            return True
+    return False
+
 # สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
 models.Base.metadata.create_all(bind=engine)
 
@@ -3905,6 +3930,7 @@ async def handle_request_ot(
     # 2. คำนวณเวลาและบันทึก
     fmt = '%H:%M'
     try:
+        request_date_obj = datetime.strptime(ot_date, '%Y-%m-%d').date()
         t1 = datetime.strptime(start_time, fmt)
         t2 = datetime.strptime(end_time, fmt)
         tdelta = t2 - t1
@@ -3913,9 +3939,26 @@ async def handle_request_ot(
         if total_minutes <= 0:
             return RedirectResponse(url="/request-ot?msg=invalid_time", status_code=303)
 
+        if _has_ot_time_overlap(
+            db=db,
+            employee_id=user.id,
+            request_date=request_date_obj,
+            start_time=t1.time(),
+            end_time=t2.time(),
+        ):
+            logger.info(
+                "ot.request overlap_blocked user_id=%s request_date=%s start=%s end=%s request_id=%s",
+                user.id,
+                request_date_obj,
+                t1.time(),
+                t2.time(),
+                _request_id_from_state(request),
+            )
+            return RedirectResponse(url="/request-ot?msg=overlap_time", status_code=303)
+
         new_ot = models.OTRequest(
             employee_id=user.id,
-            request_date=datetime.strptime(ot_date, '%Y-%m-%d').date(),
+            request_date=request_date_obj,
             start_time=t1.time(),
             end_time=t2.time(),
             total_minutes=total_minutes,
