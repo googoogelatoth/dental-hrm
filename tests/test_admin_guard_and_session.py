@@ -114,6 +114,24 @@ def test_non_admin_cannot_access_manual_count_api(client, db_session):
     assert response.json().get("detail") == "Forbidden"
 
 
+def test_non_admin_cannot_access_pending_approvals_count_api(client, db_session):
+    session_id = "pending-count-employee-session"
+    employee = create_user(db_session, "sec_emp_pending_count_001", "Employee", session_id=session_id)
+
+    set_authenticated_cookies(
+        client,
+        user_id=employee.id,
+        session_id=session_id,
+        role_cookie="Employee",
+    )
+
+    response = client.get("/api/pending-approvals-count", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json().get("detail") == "Forbidden"
+
+
 @pytest.mark.parametrize("path", [
     "/admin/encryption-audit",
     "/admin/calculate-payroll",

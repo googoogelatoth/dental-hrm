@@ -20,6 +20,12 @@ def test_api_unauthenticated_returns_json_401_not_redirect(client):
     assert_api_error_contract(response, 401)
 
 
+def test_pending_approvals_api_unauthenticated_returns_json_401_not_redirect(client):
+    response = client.get("/api/pending-approvals-count", follow_redirects=False)
+
+    assert_api_error_contract(response, 401)
+
+
 @pytest.mark.parametrize("path,payload", [
     ("/api/accept-pdpa", {"accepted": True}),
     (

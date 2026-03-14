@@ -18,6 +18,23 @@
                         <input type="date" id="end_date" name="end_date" class="form-control" value="{{ end_date }}" required>
                     </div>
                     <div class="col-md-3">
+                        <label for="employee_query" class="form-label">{{ texts.ot_sum_employee_code }}</label>
+                        <input
+                            type="text"
+                            id="employee_query"
+                            name="employee_query"
+                            class="form-control"
+                            list="employee-options"
+                            value="{{ current_employee_query }}"
+                            placeholder="{{ texts.ot_sum_employee_placeholder }}"
+                        >
+                        <datalist id="employee-options">
+                            {% for code, first_name, last_name in employee_options %}
+                                <option value="{{ code }}">{{ code }} - {{ first_name }} {{ last_name }}</option>
+                            {% endfor %}
+                        </datalist>
+                    </div>
+                    <div class="col-md-3">
                         <label for="status" class="form-label">{{ texts.ot_sum_status }}</label>
                         <select id="status" name="status" class="form-select">
                             <option value="all" {% if current_status == "all" %}selected{% endif %}>{{ texts.ot_sum_all }}</option>
@@ -26,7 +43,7 @@
                             <option value="rejected" {% if current_status == "rejected" %}selected{% endif %}>{{ texts.ot_sum_rejected }}</option>
                         </select>
                     </div>
-                    <div class="col-md-3 d-flex align-items-end gap-2">
+                    <div class="col-md-12 d-flex align-items-end gap-2 mt-3">
                         <button type="submit" class="btn btn-primary w-100">
                             <i class="bi bi-search"></i> {{ texts.ot_sum_search }}
                         </button>
@@ -220,6 +237,7 @@ function resetFilters() {
     
     document.getElementById('start_date').value = firstDay.toISOString().split('T')[0];
     document.getElementById('end_date').value = today.toISOString().split('T')[0];
+    document.getElementById('employee_query').value = '';
     document.getElementById('status').value = 'approved';
     
     document.getElementById('filterForm').submit();

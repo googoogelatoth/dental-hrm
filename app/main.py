@@ -37,7 +37,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, or_
 from sqlalchemy.exc import SQLAlchemyError
 from .database import SessionLocal, engine
 from . import models
@@ -2802,6 +2802,28 @@ async def get_manual_count(user: models.Employee = Depends(get_current_active_us
     ).count()
     return {"count": count}
 
+
+@app.get("/api/pending-approvals-count")
+async def get_pending_approvals_count(
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+
+    leave_count = db.query(models.LeaveRequest).filter(models.LeaveRequest.status == "Pending").count()
+    manual_count = db.query(models.ManualAttendanceRequest).filter(
+        models.ManualAttendanceRequest.status == "Pending"
+    ).count()
+    ot_count = db.query(models.OTRequest).filter(models.OTRequest.status == "pending").count()
+
+    return {
+        "leave_count": leave_count,
+        "manual_count": manual_count,
+        "ot_count": ot_count,
+        "total": leave_count + manual_count + ot_count,
+    }
+
 @app.post("/import-attendance-upload")
 async def import_attendance_upload(
     request: Request, 
@@ -4074,7 +4096,9 @@ async def ot_summary_report(
     db: Session = Depends(get_db),
     start_date: str = Query(None),
     end_date: str = Query(None),
-    status: str = Query("approved")
+    status: str = Query("approved"),
+    employee_code: str = Query(None),
+    employee_query: str = Query(None),
 ):
     if user.role != "Admin":
         return RedirectResponse(url="/dashboard", status_code=303)
@@ -4094,8 +4118,20 @@ async def ot_summary_report(
         start_date_obj = (now.replace(day=1)).date()
         end_date_obj = now.date()
     
+    # รายชื่อพนักงานสำหรับช่วยเลือกตัวกรองในหน้าเว็บ
+    employee_options = (
+        db.query(
+            models.Employee.employee_code,
+            models.Employee.first_name,
+            models.Employee.last_name,
+        )
+        .filter(models.Employee.employee_code.isnot(None))
+        .order_by(models.Employee.employee_code.asc())
+        .all()
+    )
+
     # สร้าง Query ฐานสิ่งสืบค้นหา
-    query = db.query(models.OTRequest).filter(
+    query = db.query(models.OTRequest).options(joinedload(models.OTRequest.employee)).filter(
         models.OTRequest.request_date >= start_date_obj,
         models.OTRequest.request_date <= end_date_obj
     )
@@ -4103,6 +4139,19 @@ async def ot_summary_report(
     # กรองตามสถานะ
     if status and status != "all":
         query = query.filter(models.OTRequest.status == status)
+
+    # กรองตามรหัสหรือชื่อพนักงาน (รองรับทั้งพารามิเตอร์เก่าและใหม่)
+    employee_query_filter = (employee_query or employee_code or "").strip()
+    if employee_query_filter:
+        keyword = f"%{employee_query_filter}%"
+        query = query.join(models.Employee).filter(
+            or_(
+                models.Employee.employee_code.ilike(keyword),
+                models.Employee.first_name.ilike(keyword),
+                models.Employee.last_name.ilike(keyword),
+                (models.Employee.first_name + " " + models.Employee.last_name).ilike(keyword),
+            )
+        )
     
     filtered_ots = query.all()
     
@@ -4133,7 +4182,9 @@ async def ot_summary_report(
         "total_minutes": total_minutes,
         "start_date": start_date,
         "end_date": end_date,
-        "current_status": status
+        "current_status": status,
+        "current_employee_query": employee_query_filter,
+        "employee_options": employee_options,
     })
 
 @app.get("/admin/download-attendance-template")

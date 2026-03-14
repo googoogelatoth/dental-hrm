@@ -40,14 +40,20 @@
                 <li class="nav-item dropdown">
                     <a class="nav-link dropdown-toggle text-white" href="#" role="button" data-bs-toggle="dropdown">
                         <i class="bi bi-clock-history me-1"></i> {{ texts.nav_time_mgmt }}
+                        <span class="badge rounded-pill bg-danger ms-1 d-none" id="pending-total-count"></span>
                     </a>
                     <ul class="dropdown-menu shadow border-0">
                         <li><a class="dropdown-item" href="/schedules">{{ texts.nav_set_schedule }}</a></li>
-                        <li><a class="dropdown-item" href="/admin/leaves">{{ texts.nav_check_leaves }}</a></li>
+                        <li>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="/admin/leaves">
+                                {{ texts.nav_check_leaves }}
+                                <span class="badge rounded-pill bg-danger d-none" id="leave-count"></span>
+                            </a>
+                        </li>
                         <li>
                             <a class="dropdown-item d-flex justify-content-between align-items-center" href="/admin/attendance-requests">
                                 {{ texts.nav_approve_manual }}
-                                <span class="badge rounded-pill bg-danger" id="manual-count"></span>
+                                <span class="badge rounded-pill bg-danger d-none" id="manual-count"></span>
                             </a>
                         </li>
                         <li><a class="dropdown-item" href="/holidays">{{ texts.nav_holidays }}</a></li>
@@ -84,7 +90,12 @@
                         <li><a class="dropdown-item" href="/admin/calculate-payroll"><i class="bi bi-calculator me-2"></i>{{ texts.nav_calc_payroll }}</a></li>
                         <li><a class="dropdown-item" href="/admin/payroll-summary"><i class="bi bi-file-earmark-bar-graph me-2"></i>{{ texts.nav_payroll_summary }}</a></li>
                         <li><a class="dropdown-item" href="/admin/payroll-tax-sso-report"><i class="bi bi-file-earmark-check me-2"></i>{{ texts.nav_tax_sso }}</a></li>
-                        <li><a class="dropdown-item" href="/admin/approve-ot"><i class="bi bi-check-circle me-2"></i>{{ texts.nav_approve_ot }}</a></li>
+                        <li>
+                            <a class="dropdown-item d-flex justify-content-between align-items-center" href="/admin/approve-ot">
+                                <span><i class="bi bi-check-circle me-2"></i>{{ texts.nav_approve_ot }}</span>
+                                <span class="badge rounded-pill bg-danger d-none" id="ot-count"></span>
+                            </a>
+                        </li>
                         <li><a class="dropdown-item text-primary fw-bold" href="/admin/ot-summary-report"><i class="bi bi-bar-chart-line me-2"></i>{{ texts.nav_ot_summary }}</a></li>
                         <li><hr class="dropdown-divider"></li>
                         {% endif %}
@@ -154,5 +165,43 @@ document.addEventListener('DOMContentLoaded', function() {
     if (langSelect) {
         langSelect.value = currentLang;
     }
+
+    async function updateAdminPendingBadges() {
+        const totalBadge = document.getElementById('pending-total-count');
+        const leaveBadge = document.getElementById('leave-count');
+        const manualBadge = document.getElementById('manual-count');
+        const otBadge = document.getElementById('ot-count');
+
+        if (!totalBadge || !leaveBadge || !manualBadge || !otBadge) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/pending-approvals-count', { credentials: 'same-origin' });
+            if (!res.ok) {
+                return;
+            }
+            const data = await res.json();
+
+            const setBadge = (el, value) => {
+                if (value > 0) {
+                    el.textContent = value > 99 ? '99+' : String(value);
+                    el.classList.remove('d-none');
+                } else {
+                    el.textContent = '';
+                    el.classList.add('d-none');
+                }
+            };
+
+            setBadge(totalBadge, Number(data.total || 0));
+            setBadge(leaveBadge, Number(data.leave_count || 0));
+            setBadge(manualBadge, Number(data.manual_count || 0));
+            setBadge(otBadge, Number(data.ot_count || 0));
+        } catch (error) {
+            console.error('Failed to load pending approval counts:', error);
+        }
+    }
+
+    updateAdminPendingBadges();
 });
 </script>
