@@ -1205,8 +1205,8 @@ async def handle_add_employee(
     position_allowance: float = Form(0.0),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
-    enable_schedule: str = Form("on"),
-    enable_payroll: str = Form("on"),
+    enable_schedule: Optional[str] = Form(None),
+    enable_payroll: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     # --- 2. เช็คข้อมูลซ้ำ (Employee Code & ID Card) ---
@@ -1993,7 +1993,10 @@ async def save_schedules(request: Request,user: models.Employee = Depends(requir
         return RedirectResponse(url="/login", status_code=303)
 
     form_data = await request.form()
-    employees = db.query(models.Employee).all()
+    employees = db.query(models.Employee).filter(
+        models.Employee.is_active.is_(True),
+        models.Employee.enable_schedule.is_(True),
+    ).all()
 
     for emp in employees:
         
@@ -2041,7 +2044,10 @@ async def schedule_management_page(request: Request,user: models.Employee = Depe
         return RedirectResponse(url="/check-in-page", status_code=303)
     
     # 2. ดึงรายชื่อพนักงานทุกคนมาแสดงเพื่อตั้งค่า
-    employees = db.query(models.Employee).all()
+    employees = db.query(models.Employee).filter(
+        models.Employee.is_active.is_(True),
+        models.Employee.enable_schedule.is_(True),
+    ).all()
     
     return render_template("schedules.html", {
         "request": request,
@@ -2492,8 +2498,8 @@ async def handle_edit_employee(
     benefit_ids: Optional[List[int]] = Form(None),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
-    enable_schedule: str = Form("off"),
-    enable_payroll: str = Form("off"),
+    enable_schedule: Optional[str] = Form(None),
+    enable_payroll: Optional[str] = Form(None),
     user: models.Employee = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
@@ -4928,9 +4934,13 @@ async def payroll_summary(
     raw_data = db.query(models.PayrollDetail).options(
         joinedload(models.PayrollDetail.employee),
         joinedload(models.PayrollDetail.line_items),
+    ).join(
+        models.Employee,
+        models.PayrollDetail.employee_id == models.Employee.id,
     ).filter(
         models.PayrollDetail.month == month,
-        models.PayrollDetail.year == year
+        models.PayrollDetail.year == year,
+        models.Employee.enable_payroll.is_(True)
     ).all()
 
     # 3. ป้องกัน "พนักงานเกิน" (ใช้ Dictionary กรอง ID ซ้ำ)
