@@ -2177,6 +2177,7 @@ async def my_profile_page(
 @app.post("/leave/apply")
 async def handle_leave_apply(
     request: Request,
+    background_tasks: BackgroundTasks,
     user: models.Employee = Depends(get_current_active_user),
     leave_type: str = Form(...),
     start_date: str = Form(...),
@@ -2218,10 +2219,11 @@ async def handle_leave_apply(
         
         for admin in admins:
             sender_info = user.employee_code if user else "ไม่ระบุรหัส"
-            send_push_notification(
-                admin.id, 
-                "📢 มีคำขอลาใหม่", 
-                f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})", 
+            background_tasks.add_task(
+                send_push_notification,
+                admin.id,
+                "📢 มีคำขอลาใหม่",
+                f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})",
                 db
             )
     except SQLAlchemyError as e:
@@ -3140,6 +3142,7 @@ async def export_attendance(
 @app.post("/submit-attendance-request")
 async def submit_attendance_request(
     request: Request,
+    background_tasks: BackgroundTasks,
     user: models.Employee = Depends(get_current_active_user),
     request_date: date = Form(...),
     check_in: str = Form(None),
@@ -3184,10 +3187,11 @@ async def submit_attendance_request(
         ).all()
         
         for admin in admins:
-            send_push_notification(
-                admin.id, 
-                "📢 คำขอลงเวลาย้อนหลัง", 
-                f"มีคำขอจาก {user.first_name} ({user.nickname}) รอการอนุมัติ", 
+            background_tasks.add_task(
+                send_push_notification,
+                admin.id,
+                "📢 คำขอลงเวลาย้อนหลัง",
+                f"มีคำขอจาก {user.first_name} ({user.nickname}) รอการอนุมัติ",
                 db
             )
         logger.info("attendance.manual_request notify_admin_success admins=%s user_id=%s request_id=%s", len(admins), user.id, _request_id_from_state(request))
@@ -4929,7 +4933,9 @@ async def request_ot_page(
 # --- 2. ฟังก์ชันรับข้อมูลยื่น OT (POST) - รวมแจ้งเตือนและคำนวณเวลา ---
 @app.post("/request-ot")
 async def handle_request_ot(
-    request: Request,user: models.Employee = Depends(get_current_active_user),
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: models.Employee = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     # 1. ดึงข้อมูลจาก Form แบบแมนนวลเพื่อกัน Error 422
@@ -4999,7 +5005,13 @@ async def handle_request_ot(
                 (models.Employee.employee_code == "admin")
             ).all()
             for admin in admins:
-                send_push_notification(admin.id, "📢 มีคำขอ OT ใหม่", f"พนักงาน {user.first_name} ยื่นขอ OT", db)
+                background_tasks.add_task(
+                    send_push_notification,
+                    admin.id,
+                    "📢 มีคำขอ OT ใหม่",
+                    f"พนักงาน {user.first_name} ยื่นขอ OT",
+                    db
+                )
         except (SQLAlchemyError, TypeError, ValueError) as e:
             logger.warning("ot.request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
 
@@ -5011,23 +5023,20 @@ async def handle_request_ot(
         return RedirectResponse(url="/request-ot?msg=error", status_code=303)
 
 @app.get("/admin/approve-ot")
-async def approve_ot_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # 1. สั่งให้โปรแกรมไป "ค้นหา" ในตาราง OTRequest
-    # โดยเลือกเฉพาะรายการที่สถานะเป็น "pending" (รออนุมัติ)
+async def approve_ot_page(request: Request, msg: str = None, user: models.Employee = Depends(get_current_active_user), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
     data = db.query(models.OTRequest).filter(models.OTRequest.status == "pending").all()
     logger.info("ot.approval.view success user_id=%s pending=%s request_id=%s", user.id, len(data), _request_id_from_state(request))
-    
-    # 2. ส่งข้อมูลที่ค้นหาได้ (ตัวแปร data) ไปที่หน้า HTML
-    # โดยตั้งชื่อในหน้า HTML ว่า "pending_ot"
     return render_template("admin_approve_ot.html", {
         "request": request,
-        "texts": texts, 
-        "pending_ot": data  # 🚩 ข้อมูลจะถูกส่งไปชื่อนี้เพื่อให้ HTML วนลูปแสดงผล
+        "texts": texts,
+        "pending_ot": data,
+        "msg": msg,
     })
 
 @app.post("/admin/process-ot/{ot_id}")
 async def process_ot(
     request: Request,
+    background_tasks: BackgroundTasks,
     ot_id: int, 
     action: str = Form(...), 
     admin_remark: str = Form(None), # ✅ 1. เพิ่มให้รับค่าเหตุผล (None = ไม่บังคับ)
@@ -5060,15 +5069,13 @@ async def process_ot(
         db.commit() 
         
         # 🚩 ส่งแจ้งเตือนหาพนักงาน
-        try:
-            send_push_notification(
-                ot_req.employee_id, 
-                f"{icon} ผลการอนุมัติ OT", 
-                f"คำขอ OT ของคุณ{msg_text}", 
-                db
-            )
-        except (SQLAlchemyError, TypeError, ValueError) as e:
-            logger.warning("ot.process notify_employee_failed ot_id=%s employee_id=%s action=%s error=%s request_id=%s", ot_id, ot_req.employee_id, action, e, _request_id_from_state(request))
+        background_tasks.add_task(
+            send_push_notification,
+            ot_req.employee_id,
+            f"{icon} ผลการอนุมัติ OT",
+            f"คำขอ OT ของคุณ{msg_text}",
+            db
+        )
         logger.info("ot.process success ot_id=%s action=%s employee_id=%s admin_user_id=%s request_id=%s", ot_id, action, ot_req.employee_id, user.id, _request_id_from_state(request))
             
     return RedirectResponse(url="/admin/approve-ot?msg=updated", status_code=303)

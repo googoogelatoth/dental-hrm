@@ -2,6 +2,14 @@
 {% block content %}
 <div class="container mt-4">
     <h3 class="mb-4"><i class="bi bi-clipboard-check text-primary"></i> {{ texts.ot_approval_title }}</h3>
+
+    {% if msg == 'updated' %}
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-check-circle-fill fs-5"></i>
+        <span>ดำเนินการเรียบร้อยแล้ว</span>
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
     
     <div class="card shadow">
         <div class="card-body">
@@ -28,7 +36,7 @@
                             <td><span class="badge bg-info text-dark">{{ ot.ot_type }}</span></td>
                             <td><small class="text-muted">{{ ot.reason or '-' }}</small></td>
                             <td class="text-center">
-                                <form action="/admin/process-ot/{{ ot.id }}" method="POST">
+                                <form action="/admin/process-ot/{{ ot.id }}" method="POST" onsubmit="disableOtButtons(this)">
                                     <div class="d-flex flex-column gap-2">
                                         <textarea name="admin_remark" 
                                                   class="form-control form-control-sm" 
@@ -59,4 +67,15 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function disableOtButtons(form) {
+    form.querySelectorAll('button[type="submit"]').forEach(function(btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> กำลังบันทึก...';
+    });
+}
+</script>
 {% endblock %}
