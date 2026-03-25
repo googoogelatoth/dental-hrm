@@ -74,12 +74,12 @@
                             <td class="text-end">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0)) }}</td>
                             <td class="text-end">{{ "{:,.2f}".format(p.ot_pay or 0) }}</td>
                             <td class="text-end">{{ "{:,.2f}".format(p.other_allowances or 0) }}</td>
-                            <td class="text-end">{{ "{:,.2f}".format(p.extra_income or 0) }}</td>
-                            <td class="text-end fw-bold">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.other_allowances or 0) + (p.extra_income or 0)) }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format(p.extra_income_display or 0) }}</td>
+                            <td class="text-end fw-bold">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.other_allowances or 0) + (p.extra_income_display or 0)) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.sso or 0) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.tax or 0) }}</td>
-                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.extra_deduction or 0) }}</td>
+                            <td class="text-end text-danger">{{ "{:,.2f}".format(p.extra_deduction_display or 0) }}</td>
                             <td class="text-end fw-bold text-primary bg-light">{{ "{:,.2f}".format(p.net_total or 0) }}</td>
                             <td class="text-center no-export">
                                 <a href="/admin/payslip/{{ p.id }}" target="_blank" class="btn btn-outline-secondary btn-sm p-1">

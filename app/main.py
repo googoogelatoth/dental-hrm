@@ -4926,6 +4926,17 @@ async def payroll_summary(
     
     payroll_data = [_annotate_payroll_line_items(p, texts) for p in unique_payroll.values()]
 
+    # Compute display totals that include adjustment line items (เงินเพิ่มอัตโนมัติ)
+    for p in payroll_data:
+        p.extra_income_display = (p.extra_income or 0) + sum(
+            item['amount'] for item in (p.earning_items or [])
+            if item.get('source_type') == 'adjustment'
+        )
+        p.extra_deduction_display = (p.extra_deduction or 0) + sum(
+            item['amount'] for item in (p.deduction_items or [])
+            if item.get('source_type') == 'adjustment'
+        )
+
     def sum_line_items(records: list[models.PayrollDetail], *, item_type: str = None, source_type: str = None) -> float:
         total = 0.0
         for payroll in records:
