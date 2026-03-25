@@ -5,10 +5,16 @@
     <div class="row justify-content-center">
         <div class="col-md-6">
             <div class="card shadow-sm border-0">
+                {% set msg = request.query_params.get('msg') %}
                 <div class="card-header bg-warning text-dark fw-bold">
                     <i class="bi bi-pencil-square me-2"></i>{{ texts.man_title }}
                 </div>
                 <div class="card-body">
+                    {% if msg == 'duplicate' %}
+                    <div class="alert alert-warning" role="alert">
+                        พบคำขอแก้ไขลงเวลารายการเดิมที่ยังรออนุมัติอยู่แล้ว
+                    </div>
+                    {% endif %}
                     <form action="/submit-attendance-request" method="post" id="requestForm">
                         <div class="mb-3">
                             <label class="form-label fw-bold">{{ texts.man_date_label }}</label>

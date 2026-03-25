@@ -196,6 +196,42 @@ def _has_ot_time_overlap(
     return False
 
 
+def _has_pending_leave_duplicate(
+    db: Session,
+    employee_id: int,
+    leave_type: str,
+    start_date: date,
+    end_date: date,
+    reason: str,
+) -> bool:
+    return db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee_id,
+        models.LeaveRequest.leave_type == leave_type,
+        models.LeaveRequest.start_date == start_date,
+        models.LeaveRequest.end_date == end_date,
+        models.LeaveRequest.reason == reason,
+        models.LeaveRequest.status == "Pending",
+    ).first() is not None
+
+
+def _has_pending_manual_request_duplicate(
+    db: Session,
+    employee_id: int,
+    request_date: date,
+    check_in_time,
+    check_out_time,
+    reason: str,
+) -> bool:
+    return db.query(models.ManualAttendanceRequest).filter(
+        models.ManualAttendanceRequest.employee_id == employee_id,
+        models.ManualAttendanceRequest.request_date == request_date,
+        models.ManualAttendanceRequest.check_in_time == check_in_time,
+        models.ManualAttendanceRequest.check_out_time == check_out_time,
+        models.ManualAttendanceRequest.reason == reason,
+        models.ManualAttendanceRequest.status == "Pending",
+    ).first() is not None
+
+
 
 def compute_logo_url(company: Optional[models.CompanySetting]) -> Optional[str]:
     """Return a URL that can be safely inserted into templates.
@@ -2186,6 +2222,20 @@ async def handle_leave_apply(
     evidence: UploadFile = File(None),
     db: Session = Depends(get_db)
 ):
+    start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    if _has_pending_leave_duplicate(
+        db=db,
+        employee_id=user.id,
+        leave_type=leave_type,
+        start_date=start_date_obj,
+        end_date=end_date_obj,
+        reason=reason,
+    ):
+        logger.info("leave.apply duplicate_blocked user_id=%s start=%s end=%s request_id=%s", user.id, start_date_obj, end_date_obj, _request_id_from_state(request))
+        return RedirectResponse(url="/leave-apply?msg=duplicate", status_code=303)
+
     # ✅ 1. จัดการไฟล์แนบ (เปลี่ยนจากเซฟลงเครื่อง เป็นขึ้น Cloudinary)
     evidence_url = None
     if evidence and evidence.filename:
@@ -2197,8 +2247,8 @@ async def handle_leave_apply(
         employee_id=user.id,
         leave_type=leave_type,
         # แปลง string เป็น date object
-        start_date=datetime.strptime(start_date, "%Y-%m-%d").date(),
-        end_date=datetime.strptime(end_date, "%Y-%m-%d").date(),
+        start_date=start_date_obj,
+        end_date=end_date_obj,
         reason=reason,
         evidence_path=evidence_url, # 🚩 เก็บเป็น URL HTTPS แทน Path เดิม
         status="Pending"
@@ -3157,6 +3207,17 @@ async def submit_attendance_request(
         in_time = datetime.strptime(check_in, "%H:%M").time() if check_in else None
         out_time = datetime.strptime(check_out, "%H:%M").time() if check_out else None
 
+        if _has_pending_manual_request_duplicate(
+            db=db,
+            employee_id=user.id,
+            request_date=request_date,
+            check_in_time=in_time,
+            check_out_time=out_time,
+            reason=reason,
+        ):
+            logger.info("attendance.manual_request duplicate_blocked user_id=%s request_date=%s request_id=%s", user.id, request_date, _request_id_from_state(request))
+            return RedirectResponse(url="/manual-attendance-form?msg=duplicate", status_code=303)
+
         new_request = models.ManualAttendanceRequest(
             employee_id=user.id,
             request_date=request_date,
@@ -3198,7 +3259,7 @@ async def submit_attendance_request(
     except (SQLAlchemyError, TypeError, ValueError) as e:
         logger.warning("attendance.manual_request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
     
-    return RedirectResponse(url="/attendance-report?msg=request_sent", status_code=303)
+    return RedirectResponse(url="/check-in-page?msg=request_sent", status_code=303)
 
 async def perform_approval_logic(request_id: int, status: str, admin_remark: str, db: Session):
     req = db.query(models.ManualAttendanceRequest).filter(models.ManualAttendanceRequest.id == request_id).first()
@@ -5015,7 +5076,7 @@ async def handle_request_ot(
         except (SQLAlchemyError, TypeError, ValueError) as e:
             logger.warning("ot.request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
 
-        return RedirectResponse(url="/my-ot-requests?msg=success", status_code=303)
+        return RedirectResponse(url="/check-in-page?msg=ot_sent", status_code=303)
 
     except (SQLAlchemyError, ValueError, TypeError) as e:
         db.rollback()

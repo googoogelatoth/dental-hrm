@@ -2,6 +2,22 @@
 {% block content %}
 <div class="container text-center mt-5">
     <div class="form-container py-5 shadow-sm bg-white rounded">
+        {% set msg = request.query_params.get('msg') %}
+
+        {% if msg == 'leave_sent' %}
+        <div class="alert alert-success border-0 shadow-sm text-start" role="alert">
+            ส่งคำขอลาเรียบร้อยแล้ว
+        </div>
+        {% elif msg == 'ot_sent' %}
+        <div class="alert alert-success border-0 shadow-sm text-start" role="alert">
+            ส่งคำขอ OT เรียบร้อยแล้ว
+        </div>
+        {% elif msg == 'request_sent' %}
+        <div class="alert alert-success border-0 shadow-sm text-start" role="alert">
+            ส่งคำขอแก้ไขลงเวลาเรียบร้อยแล้ว
+        </div>
+        {% endif %}
+
         <h2 class="text-primary mb-3">{{ texts.att_page_title }}</h2>
         <div id="date-display" class="text-muted mb-2"></div>
         <h1 id="clock" class="display-1 fw-bold mb-4 text-dark">00:00:00</h1>

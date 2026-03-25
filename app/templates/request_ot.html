@@ -19,6 +19,10 @@
     <div class="alert alert-danger" role="alert">
         {{ texts.ot_msg_error }}
     </div>
+    {% elif msg == 'duplicate' %}
+    <div class="alert alert-warning" role="alert">
+        พบคำขอ OT ช่วงเวลาเดิมที่ยังรออนุมัติหรืออนุมัติไปแล้ว
+    </div>
     {% endif %}
 
     <div class="card shadow-sm border-0">
@@ -26,7 +30,7 @@
             <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>{{ texts.ot_title }}</h5>
         </div>
         <div class="card-body p-4">
-            <form action="/request-ot" method="POST">
+            <form action="/request-ot" method="POST" id="requestOtForm">
                 <div class="mb-3">
                     <label class="form-label fw-bold">{{ texts.ot_work_date }}</label>
                     <input type="date" name="request_date" class="form-control" required>
@@ -55,7 +59,7 @@
                     <textarea name="reason" class="form-control" rows="3" placeholder="{{ texts.ot_reason_placeholder }}"></textarea>
                 </div>
                 <div class="d-grid">
-                    <button type="submit" class="btn btn-primary btn-lg shadow-sm">
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm" id="requestOtSubmitBtn">
                         {{ texts.ot_btn_submit }}
                     </button>
                 </div>
@@ -63,4 +67,11 @@
         </div>
     </div>
 </div>
+<script>
+document.getElementById('requestOtForm').addEventListener('submit', function() {
+    const btn = document.getElementById('requestOtSubmitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>กำลังส่ง...';
+});
+</script>
 {% endblock %}

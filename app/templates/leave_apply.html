@@ -4,6 +4,8 @@
 <div class="row justify-content-center">
     <div class="col-md-7">
         <div class="form-container shadow-sm p-4 bg-white rounded">
+            {% set msg = request.query_params.get('msg') %}
+
             <div class="d-flex align-items-center mb-4">
                 <a href="/check-in-page" class="btn btn-outline-secondary btn-sm me-3">
                     <i class="bi bi-arrow-left"></i> {{ texts.lv_back }}
@@ -11,7 +13,13 @@
                 <h2 class="text-primary mb-0">{{ texts.lv_title }}</h2>
             </div>
 
-            <form action="/leave/apply" method="POST" enctype="multipart/form-data">
+            {% if msg == 'duplicate' %}
+            <div class="alert alert-warning" role="alert">
+                พบคำขอลารายการเดิมที่ยังรออนุมัติอยู่แล้ว
+            </div>
+            {% endif %}
+
+            <form action="/leave/apply" method="POST" enctype="multipart/form-data" id="leaveApplyForm">
                 <div class="row">
                     <div class="col-md-12 mb-3">
                         <label class="form-label fw-bold">{{ texts.lv_type_label }}</label>
@@ -61,7 +69,7 @@
 
                 <hr>
                 <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg shadow-sm">{{ texts.lv_btn_submit }}</button>
+                    <button type="submit" class="btn btn-primary btn-lg shadow-sm" id="leaveSubmitBtn">{{ texts.lv_btn_submit }}</button>
                 </div>
             </form>
         </div>
@@ -96,5 +104,11 @@
 
     // 4. ตั้งค่าขั้นต่ำให้ End Date ตอนโหลดหน้าแรกด้วย
     endDateInput.setAttribute('min', minDateAllowed);
+
+    document.getElementById('leaveApplyForm').addEventListener('submit', function() {
+        const btn = document.getElementById('leaveSubmitBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>กำลังส่ง...';
+    });
 </script>
 {% endblock %}
