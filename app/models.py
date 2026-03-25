@@ -56,6 +56,10 @@ class Employee(Base):
     pdpa_accepted = Column(Boolean, default=False)
     subscriptions = relationship("PushSubscription", back_populates="employee", cascade="all, delete")
 
+    # การตั้งค่าการมีส่วนร่วมในระบบ
+    enable_schedule = Column(Boolean, default=True)  # มีตารางเวลา/บันทึกการเข้างาน
+    enable_payroll = Column(Boolean, default=True)   # คำนวณเงินเดือนและแสดงในรายงาน
+
 class Benefit(Base):
     __tablename__ = "benefits"
 

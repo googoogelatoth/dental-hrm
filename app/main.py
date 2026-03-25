@@ -1205,6 +1205,8 @@ async def handle_add_employee(
     position_allowance: float = Form(0.0),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
+    enable_schedule: str = Form("on"),
+    enable_payroll: str = Form("on"),
     db: Session = Depends(get_db)
 ):
     # --- 2. เช็คข้อมูลซ้ำ (Employee Code & ID Card) ---
@@ -1244,7 +1246,9 @@ async def handle_add_employee(
         address=address, position=position, role=role,
         base_salary=base_salary, position_allowance=position_allowance,
         profile_picture=profile_url,
-        hashed_password=pwd_context.hash(_normalize_password_secret(password))
+        hashed_password=pwd_context.hash(_normalize_password_secret(password)),
+        enable_schedule=(enable_schedule == "on"),
+        enable_payroll=(enable_payroll == "on"),
     )
     
     db.add(new_emp)
@@ -2488,6 +2492,8 @@ async def handle_edit_employee(
     benefit_ids: Optional[List[int]] = Form(None),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
+    enable_schedule: str = Form("off"),
+    enable_payroll: str = Form("off"),
     user: models.Employee = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
@@ -2539,6 +2545,8 @@ async def handle_edit_employee(
     employee.sick_leave_quota = sick_quota
     employee.personal_leave_quota = personal_quota
     employee.vacation_leave_quota = vacation_quota
+    employee.enable_schedule = (enable_schedule == "on")
+    employee.enable_payroll = (enable_payroll == "on")
 
     selected_benefit_ids = set(int(bid) for bid in (benefit_ids or []))
 
@@ -4332,7 +4340,10 @@ async def calculate_payroll_page(
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}", status_code=303)
 
     settings = get_payroll_settings(db)
-    employees = db.query(models.Employee).filter(models.Employee.is_active).all()
+    employees = db.query(models.Employee).filter(
+        models.Employee.is_active,
+        models.Employee.enable_payroll.is_(True)
+    ).all()
 
     # ดึงวันหยุดนักขัตฤกษ์ในช่วงเวลาที่เลือก
     holidays = db.query(models.Holiday).filter(
@@ -4562,8 +4573,11 @@ async def process_payroll(
             )
 
     else:
-        # No specific selection: process all employees
-        employees = db.query(models.Employee).filter(models.Employee.is_active).all()
+        # No specific selection: process all employees (only those with enable_payroll)
+        employees = db.query(models.Employee).filter(
+            models.Employee.is_active,
+            models.Employee.enable_payroll.is_(True)
+        ).all()
 
         for emp in employees:
             # Determine date range for this employee
