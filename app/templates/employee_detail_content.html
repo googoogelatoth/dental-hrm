@@ -82,6 +82,8 @@
     // JavaScript เดิมของนายใช้ได้เลยครับ ผมไม่ได้ตัดออก
     const msgUnsupported = "{{ texts.pro_notif_unsupported }}";
     const msgDenied = "{{ texts.pro_notif_denied }}";
+    const msgPermissionDefault = "{{ texts.pro_notif_default|default('กรุณากดอนุญาตการแจ้งเตือนในหน้าต่างที่เด้งขึ้น') }}";
+    const msgSecureContext = "{{ texts.pro_notif_secure_context|default('การแจ้งเตือนต้องใช้ HTTPS หรือ localhost เท่านั้น') }}";
     const msgSuccess = "{{ texts.pro_notif_success }}";
     const msgError = "{{ texts.pro_notif_error }}";
 
@@ -139,7 +141,12 @@
             alert(msgUnsupported);
             return;
         }
-        
+
+        if (!window.isSecureContext) {
+            alert(msgSecureContext);
+            return;
+        }
+
         // เช็ค VAPID Key ก่อน
         const vapidKey = '{{ public_vapid_key or '' }}';
         
@@ -175,8 +182,13 @@
             await navigator.serviceWorker.ready; // Wait for SW to be ready
             
             const permission = await Notification.requestPermission();
-            if (permission !== 'granted') {
+
+            if (permission === 'denied') {
                 alert(msgDenied);
+                return;
+            }
+            if (permission !== 'granted') {
+                alert(msgPermissionDefault);
                 return;
             }
             const subscribeOptions = {

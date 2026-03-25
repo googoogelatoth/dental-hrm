@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, DateTime, Float, Time, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Date, DateTime, Float, Time, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
@@ -50,9 +50,50 @@ class Employee(Base):
     attendance = relationship("Attendance", back_populates="employee")
     ot_requests = relationship("OTRequest", back_populates="employee")
     payroll_details = relationship("PayrollDetail", back_populates="employee")
+    payroll_adjustments = relationship("EmployeePayrollAdjustment", back_populates="employee", cascade="all, delete-orphan")
+    employee_benefits = relationship("EmployeeBenefit", back_populates="employee", cascade="all, delete-orphan")
     current_session_id = Column(String, nullable=True)
     pdpa_accepted = Column(Boolean, default=False)
     subscriptions = relationship("PushSubscription", back_populates="employee", cascade="all, delete")
+
+class Benefit(Base):
+    __tablename__ = "benefits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    amount = Column(Float, default=0.0)
+    description = Column(Text, nullable=True)
+    budget_amount = Column(Float, default=0.0)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    is_employee_specific = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True)
+
+    employee_links = relationship("EmployeeBenefit", back_populates="benefit", cascade="all, delete-orphan")
+
+
+class EmployeeBenefit(Base):
+    __tablename__ = "employee_benefits"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    benefit_id = Column(Integer, ForeignKey("benefits.id"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    # ระบุช่วงเวลาที่สวัสดิการนี้มีผล
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    # จำนวนเงินที่พนักงานได้รับสำหรับสวัสดิการนี้ (ค่าเริ่มต้นมาจาก Benefit.amount แต่เก็บแยกในระดับพนักงานได้)
+    initial_amount = Column(Float, default=0.0)
+    # จำนวนคงเหลือที่ยังสามารถใช้ได้ (จะถูกลดเมื่อมีการใช้)
+    remaining_amount = Column(Float, default=0.0)
+
+    __table_args__ = (
+        UniqueConstraint("employee_id", "benefit_id", name="uq_employee_benefit"),
+    )
+
+    employee = relationship("Employee", back_populates="employee_benefits")
+    benefit = relationship("Benefit", back_populates="employee_links")
+    transactions = relationship("BenefitTransaction", back_populates="employee_benefit", cascade="all, delete-orphan")
 
 class EmployeeDocument(Base):
     __tablename__ = "employee_documents"
@@ -166,6 +207,57 @@ class PushSubscription(Base):
 
     employee = relationship("Employee")
 
+
+class BenefitTransaction(Base):
+    __tablename__ = "benefit_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_benefit_id = Column(Integer, ForeignKey("employee_benefits.id"))
+    amount = Column(Float, default=0.0)
+    trans_date = Column(DateTime, default=datetime.now)
+    used_at = Column(DateTime, nullable=True)
+    requested_at = Column(DateTime, default=datetime.now)
+    status = Column(String, default="Recorded")
+    reason = Column(String, nullable=True)
+    admin_remark = Column(String, nullable=True)
+    approved_by_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+    employee_benefit = relationship("EmployeeBenefit", back_populates="transactions")
+    approved_by = relationship("Employee", foreign_keys=[approved_by_id])
+
+
+class PayrollAdjustmentType(Base):
+    __tablename__ = "payroll_adjustment_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    adjustment_kind = Column(String, nullable=False)  # income | deduction
+    description = Column(Text, nullable=True)
+    default_amount = Column(Float, default=0.0)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    employee_assignments = relationship("EmployeePayrollAdjustment", back_populates="adjustment_type", cascade="all, delete-orphan")
+
+
+class EmployeePayrollAdjustment(Base):
+    __tablename__ = "employee_payroll_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employee_id = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    adjustment_type_id = Column(Integer, ForeignKey("payroll_adjustment_types.id"), nullable=False)
+    amount = Column(Float, default=0.0)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+    note = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    employee = relationship("Employee", back_populates="payroll_adjustments")
+    adjustment_type = relationship("PayrollAdjustmentType", back_populates="employee_assignments")
+    payroll_line_items = relationship("PayrollLineItem", back_populates="employee_adjustment")
+
 # ตัวอย่าง Model สำหรับเก็บข้อมูลการจ่ายเงินรายเดือน
 class PayrollDetail(Base):
     __tablename__ = "payroll_details"
@@ -200,6 +292,25 @@ class PayrollDetail(Base):
     calc_end_date = Column(Date, nullable=True)   # 🚩 เพิ่มเพื่อเก็บวันที่จบคำนวณรายคน
     
     employee = relationship("Employee", back_populates="payroll_details")
+    line_items = relationship("PayrollLineItem", back_populates="payroll_detail", cascade="all, delete-orphan")
+
+
+class PayrollLineItem(Base):
+    __tablename__ = "payroll_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    payroll_detail_id = Column(Integer, ForeignKey("payroll_details.id"), nullable=False)
+    item_type = Column(String, nullable=False)  # earning | deduction
+    source_type = Column(String, nullable=False)  # salary | overtime | welfare | adjustment | manual | statutory | attendance
+    code = Column(String, nullable=True)
+    label = Column(String, nullable=False)
+    amount = Column(Float, default=0.0)
+    sort_order = Column(Integer, default=0)
+    benefit_transaction_id = Column(Integer, ForeignKey("benefit_transactions.id"), nullable=True)
+    employee_adjustment_id = Column(Integer, ForeignKey("employee_payroll_adjustments.id"), nullable=True)
+
+    payroll_detail = relationship("PayrollDetail", back_populates="line_items")
+    employee_adjustment = relationship("EmployeePayrollAdjustment", back_populates="payroll_line_items")
     
 class OTRequest(Base):
     __tablename__ = "ot_requests"

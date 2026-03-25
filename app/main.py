@@ -3,6 +3,10 @@ import sys
 import logging
 import builtins
 import secrets
+import base64
+import binascii
+import shutil
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 import io
@@ -10,6 +14,7 @@ import json
 import uuid
 import calendar
 import re
+from pathlib import Path
 from time import perf_counter
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
@@ -45,6 +50,7 @@ from .security import encrypt_data, decrypt_data, decrypt_data_with_status, is_a
 from .languages import TRANSLATIONS
 
 import pandas as pd
+import bcrypt
 from pywebpush import webpush, WebPushException
 import cloudinary
 import cloudinary.uploader
@@ -59,6 +65,11 @@ from .config import VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_CLAIMS_SUB
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
     await validate_required_env()
+    try:
+        models.Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        logging.critical("DB schema init failed: %s", exc)
+        raise
     if "pytest" not in sys.modules and not os.getenv("PYTEST_CURRENT_TEST"):
         await create_first_admin()
     yield
@@ -83,41 +94,75 @@ except ValueError:
     logger.warning("startup.slow_request_ms invalid_value fallback=800")
 
 # Redirect simple logger.info() calls to structured logging (INFO level)
-# This helps catch stray prints without changing every call site immediately.
-builtins.print = logger.info
+# This helps catch simple application prints without breaking third-party
+# libraries that rely on print(file=...) or other standard print semantics.
+_original_print = builtins.print
+
+
+def _safe_print(*args, **kwargs):
+    if kwargs:
+        return _original_print(*args, **kwargs)
+    message = " ".join(str(arg) for arg in args)
+    logger.info(message)
+
+
+builtins.print = _safe_print
+
+if not hasattr(bcrypt, "__about__"):
+    class _BcryptAbout:
+        __version__ = getattr(bcrypt, "__version__", "")
+
+    bcrypt.__about__ = _BcryptAbout()
+
+_original_bcrypt_hashpw = bcrypt.hashpw
+
+
+def _safe_bcrypt_hashpw(secret, salt):
+    if isinstance(secret, (bytes, bytearray)) and len(secret) > 72:
+        secret = bytes(secret[:72])
+    return _original_bcrypt_hashpw(secret, salt)
+
+
+bcrypt.hashpw = _safe_bcrypt_hashpw
 
 # --- ส่วนบนสุดของ main.py ---
 
-UPLOAD_DIR = "uploads/leave_documents"
-# เช็คว่าถ้าไม่มีโฟลเดอร์ uploads ให้สร้างขึ้นมาใหม่
 # 🚩 1. หาตำแหน่งของไฟล์ main.py (ซึ่งอยู่ในโฟลเดอร์ app)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__)) 
-
-# 🚩 2. ตั้งค่าระบบ Static (สำหรับโลโก้วงแดง และ CSS)
-# ชี้ไปที่ app/static
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-LOGO_UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads") # ที่เก็บโลโก้
-
-# สร้างโฟลเดอร์เก็บโลโก้ถ้ายังไม่มี
-os.makedirs(LOGO_UPLOAD_DIR, exist_ok=True)
-
-# 🚩 3. ตั้งค่าระบบ Uploads (สำหรับใบลาและเอกสารพนักงาน - อยู่นอก app)
-# ถอยกลับไป 1 ระดับจาก app/ เพื่อไปที่ root โปรเจกต์
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-DOCS_UPLOAD_DIR = os.path.join(ROOT_DIR, "uploads")
-LEAVE_DIR = os.path.join(DOCS_UPLOAD_DIR, "leave_documents")
 
-# สร้างโฟลเดอร์เอกสารทั้งหมด
-os.makedirs(os.path.join(DOCS_UPLOAD_DIR, "profile_pics"), exist_ok=True)
-os.makedirs(os.path.join(DOCS_UPLOAD_DIR, "documents"), exist_ok=True)
-os.makedirs(LEAVE_DIR, exist_ok=True)
+# 🚩 2. ตั้งค่าระบบ Static (สำหรับไฟล์ระบบ)
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# 🚩 4. Mount ประตูเข้าออกไฟล์ (ห้ามประกาศซ้ำ)
-# เข้าถึงโลโก้ผ่าน: /static/uploads/company_logo.png
+# 🚩 3. ตั้งค่า root สำหรับไฟล์ที่ผู้ใช้อัปโหลด (รองรับ private host)
+_storage_root_env = (os.getenv("APP_STORAGE_ROOT") or "").strip().strip('"').strip("'")
+APP_STORAGE_ROOT = _storage_root_env or os.path.join(ROOT_DIR, "storage")
+if not os.path.isabs(APP_STORAGE_ROOT):
+    APP_STORAGE_ROOT = os.path.join(ROOT_DIR, APP_STORAGE_ROOT)
+
+MEDIA_ROOT = os.path.join(APP_STORAGE_ROOT, "uploads")
+PROFILE_PICS_DIR = os.path.join(MEDIA_ROOT, "profile_pics")
+EMPLOYEE_DOCS_DIR = os.path.join(MEDIA_ROOT, "documents")
+LEAVE_DIR = os.path.join(MEDIA_ROOT, "leave_documents")
+ATTENDANCE_PHOTOS_DIR = os.path.join(MEDIA_ROOT, "attendance_photos")
+COMPANY_LOGO_DIR = os.path.join(MEDIA_ROOT, "company")
+
+for _dir in [
+    APP_STORAGE_ROOT,
+    MEDIA_ROOT,
+    PROFILE_PICS_DIR,
+    EMPLOYEE_DOCS_DIR,
+    LEAVE_DIR,
+    ATTENDANCE_PHOTOS_DIR,
+    COMPANY_LOGO_DIR,
+]:
+    os.makedirs(_dir, exist_ok=True)
+
+logger.info("storage.root path=%s", APP_STORAGE_ROOT)
+
+# 🚩 4. Mount ประตูเข้าออกไฟล์
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-# เข้าถึงใบลาผ่าน: /uploads/leave_documents/file.pdf
-app.mount("/uploads", StaticFiles(directory=DOCS_UPLOAD_DIR), name="uploads")
+app.mount("/uploads", StaticFiles(directory=MEDIA_ROOT), name="uploads")
 
 # บนสุดของไฟล์
 TH_TZ = pytz.timezone('Asia/Bangkok')
@@ -150,8 +195,6 @@ def _has_ot_time_overlap(
             return True
     return False
 
-# สร้างตารางในฐานข้อมูล (ถ้ายังไม่มี)
-models.Base.metadata.create_all(bind=engine)
 
 
 def compute_logo_url(company: Optional[models.CompanySetting]) -> Optional[str]:
@@ -169,6 +212,12 @@ def compute_logo_url(company: Optional[models.CompanySetting]) -> Optional[str]:
     lp = company.logo_path.strip()
     if lp.lower().startswith("http"):
         return lp
+    if lp.startswith("/"):
+        return lp
+    if lp.startswith("uploads/"):
+        return f"/{lp}"
+    if lp.startswith("static/"):
+        return f"/{lp}"
     return f"/static/uploads/{lp}"
 
 # 1. ตั้งค่า Cloudinary (ดึงค่าจากชื่อตัวแปร Environment)
@@ -456,48 +505,108 @@ async def get_lang(request: Request):
     lang = request.cookies.get("lang", "th")
     return TRANSLATIONS.get(lang, TRANSLATIONS["th"])
 
-def upload_base64_to_cloudinary(base64_data, employee_code, suffix):
-    try:
-        if not base64_data or len(base64_data) < 100:
-            return None
-            
-        # 🚩 ขั้นตอนสำคัญ: ถ้ามีหัวข้อความติดมา ให้ตัดออกเหลือแต่ตัวรหัสรูป
-        if "base64," in base64_data:
-            base64_data = base64_data.split("base64,")[1]
 
-        # อัปโหลดขึ้น Cloudinary โดยตรง
-        upload_result = cloudinary.uploader.upload(
-            f"data:image/png;base64,{base64_data}",
-            folder="hrm_system/attendance",
-            public_id=f"{employee_code}_{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            transformation=[
-                {"width": 640, "crop": "limit", "quality": "auto"}
-            ]
-        )
-        return upload_result.get("secure_url") # คืนค่าเป็นลิงก์ https://...
+def _sanitize_file_stem(raw: str, fallback: str = "file") -> str:
+    stem = re.sub(r"[^A-Za-z0-9_-]", "_", (raw or "").strip())
+    return stem or fallback
+
+
+def _save_upload_file(
+    upload: UploadFile,
+    target_dir: str,
+    web_prefix: str,
+    file_stem: Optional[str] = None,
+    overwrite: bool = False,
+) -> Optional[str]:
+    try:
+        original = upload.filename or "upload.bin"
+        ext = (Path(original).suffix or "").lower()
+        if not ext:
+            ext = ".bin"
+
+        stem_source = file_stem or Path(original).stem
+        stem = _sanitize_file_stem(stem_source)
+        if overwrite:
+            filename = f"{stem}{ext}"
+        else:
+            filename = f"{stem}_{uuid.uuid4().hex[:10]}{ext}"
+
+        os.makedirs(target_dir, exist_ok=True)
+        abs_path = os.path.join(target_dir, filename)
+        upload.file.seek(0)
+        with open(abs_path, "wb") as out_file:
+            shutil.copyfileobj(upload.file, out_file)
+
+        return f"{web_prefix}/{filename}".replace("\\", "/")
     except Exception as e:
-        logger.info(f"❌ Cloudinary Error: {e}")
+        logger.warning("upload.file save_failed file=%s error=%s", getattr(upload, "filename", "unknown"), e)
         return None
+
+
+def _save_base64_image(base64_data: str, target_dir: str, web_prefix: str, file_stem: str) -> Optional[str]:
+    try:
+        if not base64_data or len(base64_data) < 32:
+            return None
+
+        payload = base64_data
+        image_ext = ".jpg"
+        if ";base64," in base64_data:
+            header, payload = base64_data.split(";base64,", 1)
+            header = header.lower()
+            if "image/png" in header:
+                image_ext = ".png"
+            elif "image/webp" in header:
+                image_ext = ".webp"
+            elif "image/jpeg" in header or "image/jpg" in header:
+                image_ext = ".jpg"
+
+        decoded = base64.b64decode(payload, validate=False)
+        if not decoded:
+            return None
+
+        filename = f"{_sanitize_file_stem(file_stem)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}{image_ext}"
+        os.makedirs(target_dir, exist_ok=True)
+        abs_path = os.path.join(target_dir, filename)
+        with open(abs_path, "wb") as out_file:
+            out_file.write(decoded)
+
+        return f"{web_prefix}/{filename}".replace("\\", "/")
+    except (binascii.Error, ValueError, OSError) as e:
+        logger.warning("upload.base64 save_failed error=%s", e)
+        return None
+
+
+def upload_base64_to_cloudinary(base64_data, employee_code, suffix):
+    # Backward-compatible function name: now stores file on host-local storage.
+    return _save_base64_image(
+        base64_data=base64_data,
+        target_dir=ATTENDANCE_PHOTOS_DIR,
+        web_prefix="uploads/attendance_photos",
+        file_stem=f"{employee_code}_{suffix}",
+    )
     
 def upload_file_to_cloudinary(file, folder_name):
-    try:
-        # อัปโหลดไฟล์ตรงๆ จากหน่วยความจำ
-        upload_result = cloudinary.uploader.upload(
-            file.file,
-            folder=f"hrm_system/{folder_name}/",
-            # ถ้าเป็น PDF หรือรูปภาพ Cloudinary จัดการให้ได้หมดครับ
-            resource_type="auto" 
-        )
-        return upload_result.get("secure_url")
-    except Exception as e:
-        logger.info(f"❌ Cloudinary Upload Error: {e}")
-        return None
+    # Backward-compatible function name: now stores file on host-local storage.
+    folder_map = {
+        "leave_documents": (LEAVE_DIR, "uploads/leave_documents"),
+        "documents": (EMPLOYEE_DOCS_DIR, "uploads/documents"),
+        "profile_pics": (PROFILE_PICS_DIR, "uploads/profile_pics"),
+        "company": (COMPANY_LOGO_DIR, "uploads/company"),
+    }
+    target_dir, web_prefix = folder_map.get(folder_name, (MEDIA_ROOT, "uploads"))
+    return _save_upload_file(file, target_dir, web_prefix)
 
 # ตั้งค่าการเข้ารหัสรหัสผ่าน
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Encryption helpers are provided by `app/security.py` and the Fernet instance
 # is created from the `ENCRYPTION_KEY` environment variable in `app/config.py`.
+
+
+def _normalize_password_secret(secret: str | bytes) -> bytes:
+    if isinstance(secret, bytes):
+        return secret[:72]
+    return secret.encode('utf-8')[:72]
 
 async def create_first_admin():
     db = SessionLocal()
@@ -507,7 +616,7 @@ async def create_first_admin():
         
         if not admin_exists:
             # สร้าง User Admin คนแรก
-            hashed_pw = pwd_context.hash("admin1234") # ตั้งรหัสผ่านเริ่มต้นที่นี่
+            hashed_pw = pwd_context.hash(_normalize_password_secret("admin1234")) # ตั้งรหัสผ่านเริ่มต้นที่นี่
             first_admin = models.Employee(
                 employee_code="admin",
                 first_name="System",
@@ -828,62 +937,75 @@ async def monitor_page(
     now_th = get_now_th()
     today = now_th.date()
     company = db.query(models.CompanySetting).first()
+    is_admin_view = user.role == "Admin"
 
-    # 2. คำนวณสถิติ "วันนี้" (ข้อมูลจริง)
-    total_active_emp = db.query(models.Employee).filter(models.Employee.is_active).count()
-    
-    # - มาทำงาน (เช็คอินแล้ว)
-    present_today = db.query(models.Attendance).filter(models.Attendance.date == today).count()
-    
-    # - ลางาน (เฉพาะที่อนุมัติแล้วและครอบคลุมวันนี้)
-    on_leave_today = db.query(models.LeaveRequest).filter(
+    # 2. คำนวณสถิติ "วันนี้" (Admin=ทั้งระบบ, Staff=เฉพาะตนเอง)
+    if is_admin_view:
+        total_active_emp = db.query(models.Employee).filter(models.Employee.is_active.is_(True)).count()
+    else:
+        total_active_emp = 1 if user.is_active else 0
+
+    present_query = db.query(models.Attendance).filter(models.Attendance.date == today)
+    on_leave_query = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.status == "Approved",
         models.LeaveRequest.start_date <= today,
         models.LeaveRequest.end_date >= today
-    ).count()
+    )
+    late_query = db.query(models.Attendance).filter(
+        models.Attendance.date == today,
+        models.Attendance.late_minutes > 0
+    )
+    early_query = db.query(models.Attendance).filter(
+        models.Attendance.date == today,
+        models.Attendance.early_minutes > 0
+    )
+
+    if not is_admin_view:
+        present_query = present_query.filter(models.Attendance.employee_id == user.id)
+        on_leave_query = on_leave_query.filter(models.LeaveRequest.employee_id == user.id)
+        late_query = late_query.filter(models.Attendance.employee_id == user.id)
+        early_query = early_query.filter(models.Attendance.employee_id == user.id)
+
+    present_today = present_query.count()
+    on_leave_today = on_leave_query.count()
 
     # - สาย และ ออกก่อน (ดึงจากบันทึกเวลาวันนี้)
-    stat_late_today = db.query(models.Attendance).filter(
-        models.Attendance.date == today, 
-        models.Attendance.late_minutes > 0
-    ).count()
-    
-    stat_early_today = db.query(models.Attendance).filter(
-        models.Attendance.date == today, 
-        models.Attendance.early_minutes > 0
-    ).count()
+    stat_late_today = late_query.count()
+    stat_early_today = early_query.count()
+
+    pending_query = db.query(models.LeaveRequest).filter(models.LeaveRequest.status == "Pending")
+    if not is_admin_view:
+        pending_query = pending_query.filter(models.LeaveRequest.employee_id == user.id)
+    stat_pending = pending_query.count()
 
     # - ขาดงาน (พนักงานทั้งหมด - มาทำงาน - ลางาน)
     stat_absent_today = max(0, total_active_emp - present_today - on_leave_today)
 
     # 3. ข้อมูลสำหรับกราฟวงกลม (Pie Chart) - สถิติการเข้างานประจำเดือน
     first_day_of_month = today.replace(day=1)
-    
-    # นับจำนวนแต่ละสถานะในเดือนปัจจุบัน
-    normal_count = db.query(models.Attendance).filter(
+
+    attendance_base = db.query(models.Attendance).filter(
         models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today,
-        models.Attendance.status == 'Normal'
-    ).count()
-    
-    late_count = db.query(models.Attendance).filter(
-        models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today,
-        models.Attendance.status == 'Late'
-    ).count()
-    
-    leave_count = db.query(models.LeaveRequest).filter(
+        models.Attendance.date <= today
+    )
+    leave_month_base = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.start_date <= today,
         models.LeaveRequest.end_date >= first_day_of_month,
         models.LeaveRequest.status == 'Approved'
-    ).count()
+    )
+
+    if not is_admin_view:
+        attendance_base = attendance_base.filter(models.Attendance.employee_id == user.id)
+        leave_month_base = leave_month_base.filter(models.LeaveRequest.employee_id == user.id)
+
+    # นับจำนวนแต่ละสถานะในเดือนปัจจุบัน
+    normal_count = attendance_base.filter(models.Attendance.status == 'Normal').count()
+    late_count = attendance_base.filter(models.Attendance.status == 'Late').count()
+    leave_count = leave_month_base.count()
     
     # คำนวณจำนวนขาดโดยประมาณ
     total_days_in_month = (today - first_day_of_month).days + 1
-    total_attendance = db.query(models.Attendance).filter(
-        models.Attendance.date >= first_day_of_month,
-        models.Attendance.date <= today
-    ).count()
+    total_attendance = attendance_base.count()
     
     expected_working_days = total_days_in_month * total_active_emp * 5 / 7
     absent_count = max(0, int(expected_working_days - total_attendance - leave_count))
@@ -902,10 +1024,13 @@ async def monitor_page(
         y = target_date.year
         
         # นับจำนวนการลาในเดือนนั้นๆ
-        month_count = db.query(models.LeaveRequest).filter(
+        month_leave_query = db.query(models.LeaveRequest).filter(
             extract('month', models.LeaveRequest.start_date) == m,
             extract('year', models.LeaveRequest.start_date) == y
-        ).count()
+        )
+        if not is_admin_view:
+            month_leave_query = month_leave_query.filter(models.LeaveRequest.employee_id == user.id)
+        month_count = month_leave_query.count()
         
         leave_bar_labels.append(thai_months[m])
         leave_bar_data.append(month_count)
@@ -918,6 +1043,7 @@ async def monitor_page(
         "stat_total": total_active_emp,
         "stat_present": present_today,
         "stat_onleave": on_leave_today,
+        "stat_pending": stat_pending,
         "stat_late_today": stat_late_today,
         "stat_early_today": stat_early_today,
         "stat_absent_today": stat_absent_today,
@@ -1055,11 +1181,18 @@ async def handle_add_employee(
             return render_template("add_employee.html", {"request": request, "error": "เลขบัตรนี้มีในระบบแล้ว", "texts": texts})
 
     # --- 3. จัดการรูปโปรไฟล์ ---
-    profile_url = "/static/img/default-avatar.png"
+    profile_url = "static/img/default-avatar.png"
     if profile_picture and profile_picture.filename:
         try:
-            upload_result = cloudinary.uploader.upload(profile_picture.file, folder="hrm/profiles", public_id=f"emp_{employee_code}", overwrite=True)
-            profile_url = upload_result.get("secure_url")
+            saved_profile = _save_upload_file(
+                upload=profile_picture,
+                target_dir=PROFILE_PICS_DIR,
+                web_prefix="uploads/profile_pics",
+                file_stem=f"emp_{employee_code}",
+                overwrite=True,
+            )
+            if saved_profile:
+                profile_url = saved_profile
         except Exception as e:
             logger.warning("employee.add profile_upload_failed employee_code=%s error=%s request_id=%s", employee_code, e, _request_id_from_state(request))
 
@@ -1075,7 +1208,7 @@ async def handle_add_employee(
         address=address, position=position, role=role,
         base_salary=base_salary, position_allowance=position_allowance,
         profile_picture=profile_url,
-        hashed_password=pwd_context.hash(password)
+        hashed_password=pwd_context.hash(_normalize_password_secret(password))
     )
     
     db.add(new_emp)
@@ -1087,9 +1220,14 @@ async def handle_add_employee(
         for doc in documents:
             if doc.filename:
                 try:
-                    doc_upload = cloudinary.uploader.upload(doc.file, folder=f"hrm/docs/{employee_code}", resource_type="raw", public_id=doc.filename)
-                    new_doc = models.EmployeeDocument(file_path=doc_upload.get("secure_url"), file_name=doc.filename, employee_id=new_emp.id)
-                    db.add(new_doc)
+                    saved_doc = _save_upload_file(
+                        upload=doc,
+                        target_dir=EMPLOYEE_DOCS_DIR,
+                        web_prefix="uploads/documents",
+                    )
+                    if saved_doc:
+                        new_doc = models.EmployeeDocument(file_path=saved_doc, file_name=doc.filename, employee_id=new_emp.id)
+                        db.add(new_doc)
                 except Exception as e: 
                     logger.warning("employee.add document_upload_failed employee_code=%s file=%s error=%s request_id=%s", employee_code, doc.filename, e, _request_id_from_state(request))
         db.commit()
@@ -1129,13 +1267,15 @@ async def update_company_settings(
     # --- 4. จัดการโลโก้บริษัท ---
     if logo and logo.filename:
         try:
-            upload_result = cloudinary.uploader.upload(
-                logo.file, 
-                folder="hrm/company", 
-                public_id="company_logo", 
-                overwrite=True
+            saved_logo = _save_upload_file(
+                upload=logo,
+                target_dir=COMPANY_LOGO_DIR,
+                web_prefix="uploads/company",
+                file_stem="company_logo",
+                overwrite=True,
             )
-            company.logo_path = upload_result.get("secure_url")
+            if saved_logo:
+                company.logo_path = saved_logo
         except Exception as e: 
             logger.warning("company.settings logo_upload_failed error=%s request_id=%s", e, _request_id_from_state(request))
 
@@ -1429,7 +1569,7 @@ async def handle_login(
     user = db.query(models.Employee).filter(models.Employee.employee_code == username).first()
     
     # 2. ตรวจสอบรหัสผ่าน
-    if user and pwd_context.verify(password.encode('utf-8')[:72], user.hashed_password):
+    if user and pwd_context.verify(_normalize_password_secret(password), user.hashed_password):
         
         # --- [ส่วนที่เพิ่มใหม่: Single Device Login] ---
         # ใช้ secrets สำหรับ session ID ที่ปลอดภัยกว่า
@@ -1557,10 +1697,10 @@ async def handle_change_password(
     # 2. ค้นหา User (ใช้ object 'user' จาก Depends ได้เลยครับนาย ไม่ต้องดึงจาก cookie ซ้ำ)
     if user:
         # 3. ตรวจสอบรหัสผ่านเดิม
-        if pwd_context.verify(old_password, user.hashed_password):
+        if pwd_context.verify(_normalize_password_secret(old_password), user.hashed_password):
             
             # 4. เข้ารหัสผ่านใหม่ (Hash) และบันทึก
-            user.hashed_password = pwd_context.hash(new_password)
+            user.hashed_password = pwd_context.hash(_normalize_password_secret(new_password))
             
             # 🚩 บันทึก Log: เปลี่ยนรหัสผ่านสำเร็จ
             log_activity(
@@ -2240,6 +2380,23 @@ async def edit_employee_page(
     if not employee:
         return RedirectResponse(url="/dashboard", status_code=303)
 
+    benefits = db.query(models.Benefit).order_by(models.Benefit.name).all()
+    active_benefit_ids = {
+        eb.benefit_id
+        for eb in db.query(models.EmployeeBenefit)
+        .filter(
+            models.EmployeeBenefit.employee_id == emp_id,
+            models.EmployeeBenefit.is_active.is_(True),
+        )
+        .all()
+    }
+
+    # ส่งข้อมูล EmployeeBenefit objects เพื่อให้ Template แสดงวันที่และยอดคงเหลือได้
+    employee_benefit_map = {
+        eb.benefit_id: eb
+        for eb in db.query(models.EmployeeBenefit).filter(models.EmployeeBenefit.employee_id == emp_id).all()
+    }
+
     # ✅ เพิ่มการถอดรหัสข้อมูลก่อนส่งไปโชว์ที่หน้า Form
     decrypted_data = {
         "phone_number": decrypt_data(employee.phone_number),
@@ -2251,7 +2408,10 @@ async def edit_employee_page(
         "request": request, 
         "texts": texts, 
         "employee": employee,
-        "decrypted": decrypted_data # 🚩 ส่งค่าที่ถอดแล้วไปใช้ใน value ของ HTML
+        "decrypted": decrypted_data, # 🚩 ส่งค่าที่ถอดแล้วไปใช้ใน value ของ HTML
+        "benefits": benefits,
+        "active_benefit_ids": active_benefit_ids,
+        "employee_benefit_map": employee_benefit_map,
     })
 
 @app.post("/edit-employee/{emp_id}")
@@ -2273,6 +2433,7 @@ async def handle_edit_employee(
     sick_quota: int = Form(30),        # รวมโควตาลามาไว้ที่นี่เลย
     personal_quota: int = Form(6),
     vacation_quota: int = Form(6),
+    benefit_ids: Optional[List[int]] = Form(None),
     profile_picture: UploadFile = File(None),
     documents: List[UploadFile] = File(None),
     user: models.Employee = Depends(require_admin),
@@ -2295,8 +2456,23 @@ async def handle_edit_employee(
             models.Employee.id != emp_id
         ).first()
         if existing_emp:
+            benefits = db.query(models.Benefit).order_by(models.Benefit.name).all()
+            active_benefit_ids = {
+                eb.benefit_id
+                for eb in db.query(models.EmployeeBenefit)
+                .filter(
+                    models.EmployeeBenefit.employee_id == emp_id,
+                    models.EmployeeBenefit.is_active.is_(True),
+                )
+                .all()
+            }
             return render_template("edit_employee.html", {
-                "request": request, "employee": employee, "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว", "texts": texts
+                "request": request,
+                "employee": employee,
+                "error": "เลขบัตรประชาชนนี้มีในระบบแล้ว",
+                "texts": texts,
+                "benefits": benefits,
+                "active_benefit_ids": active_benefit_ids,
             })
 
     # 4. อัปเดตข้อมูลทั่วไป เงินเดือน และโควตาการลา
@@ -2311,6 +2487,92 @@ async def handle_edit_employee(
     employee.sick_leave_quota = sick_quota
     employee.personal_leave_quota = personal_quota
     employee.vacation_leave_quota = vacation_quota
+
+    selected_benefit_ids = set(int(bid) for bid in (benefit_ids or []))
+
+    existing_links = db.query(models.EmployeeBenefit).filter(
+        models.EmployeeBenefit.employee_id == emp_id
+    ).all()
+    existing_by_benefit = {link.benefit_id: link for link in existing_links}
+    benefit_by_id = {benefit.id: benefit for benefit in db.query(models.Benefit).all()}
+
+    for benefit_id, link in existing_by_benefit.items():
+        link.is_active = benefit_id in selected_benefit_ids
+
+    new_benefit_ids = selected_benefit_ids - set(existing_by_benefit.keys())
+    for benefit_id in new_benefit_ids:
+        benefit = benefit_by_id.get(benefit_id)
+        default_budget = (benefit.budget_amount if benefit and benefit.budget_amount is not None else None)
+        if default_budget is None and benefit:
+            default_budget = benefit.amount or 0.0
+        db.add(models.EmployeeBenefit(
+            employee_id=emp_id,
+            benefit_id=benefit_id,
+            is_active=True,
+            start_date=benefit.start_date if benefit else None,
+            end_date=benefit.end_date if benefit else None,
+            initial_amount=default_budget or 0.0,
+            remaining_amount=default_budget or 0.0,
+        ))
+    # อ่านฟอร์มเพื่อดึงค่า start/end/amount ของสวัสดิการแต่ละรายการ (ถ้ามี)
+    form = await request.form()
+    # อัปเดตข้อมูลของลิงก์สวัสดิการทั้งรายการ (ทั้งเดิมและใหม่)
+    all_affected_ids = set(list(existing_by_benefit.keys()) + list(selected_benefit_ids))
+    for bid in all_affected_ids:
+        start_val = form.get(f"benefit_start_{bid}")
+        end_val = form.get(f"benefit_end_{bid}")
+        amt_val = form.get(f"benefit_amount_{bid}")
+
+        link = existing_by_benefit.get(bid)
+        if not link:
+            # ลิงก์ใหม่ที่เพิ่งสร้าง - ดึงจาก DB (อาจยังไม่ committed)
+            link = db.query(models.EmployeeBenefit).filter(
+                models.EmployeeBenefit.employee_id == emp_id,
+                models.EmployeeBenefit.benefit_id == bid
+            ).first()
+
+        if link:
+            benefit = benefit_by_id.get(bid)
+            # แปลงค่า date และ amount ถ้ามี
+            if start_val:
+                try:
+                    link.start_date = datetime.strptime(start_val, '%Y-%m-%d').date()
+                except Exception:
+                    link.start_date = None
+            elif benefit and benefit.start_date:
+                link.start_date = benefit.start_date
+            else:
+                link.start_date = None
+
+            if end_val:
+                try:
+                    link.end_date = datetime.strptime(end_val, '%Y-%m-%d').date()
+                except Exception:
+                    link.end_date = None
+            elif benefit and benefit.end_date:
+                link.end_date = benefit.end_date
+            else:
+                link.end_date = None
+
+            if amt_val and str(amt_val).strip() != "":
+                try:
+                    new_initial = float(str(amt_val).replace(',', ''))
+                except Exception:
+                    new_initial = None
+            else:
+                if benefit:
+                    new_initial = benefit.budget_amount if benefit.budget_amount is not None else (benefit.amount or 0.0)
+                else:
+                    new_initial = None
+
+            if new_initial is not None:
+                # ถ้าเป็นการสร้างใหม่ ให้ตั้ง remaining = initial ถ้ามีค่าเดิมอยู่แล้ว ให้คงค่าคงเหลือเดิม
+                if link.initial_amount is None or link.initial_amount == 0:
+                    link.initial_amount = new_initial
+                    link.remaining_amount = new_initial
+                else:
+                    # อัปเดตค่าเริ่มต้น แต่ไม่ปรับยอดคงเหลืออัตโนมัติ
+                    link.initial_amount = new_initial
     
     # 5. ✅ เข้ารหัสข้อมูลลับก่อนบันทึก
     if id_card_number:
@@ -2320,20 +2582,22 @@ async def handle_edit_employee(
     if bank_account_number:
         employee.bank_account_number = encrypt_data(bank_account_number)
 
-    # 6. จัดการรูปโปรไฟล์ (Cloudinary)
+    # 6. จัดการรูปโปรไฟล์ (เก็บบน host)
     log_extra = ""
     if profile_picture and profile_picture.filename:
         try:
-            upload_result = cloudinary.uploader.upload(
-                profile_picture.file,
-                folder="hrm/profiles",
-                public_id=f"emp_{employee.employee_code}",
-                overwrite=True
+            saved_profile = _save_upload_file(
+                upload=profile_picture,
+                target_dir=PROFILE_PICS_DIR,
+                web_prefix="uploads/profile_pics",
+                file_stem=f"emp_{employee.employee_code}",
+                overwrite=True,
             )
-            employee.profile_picture = upload_result.get("secure_url")
-            log_extra += " [อัปเดตรูป]"
+            if saved_profile:
+                employee.profile_picture = saved_profile
+                log_extra += " [อัปเดตรูป]"
         except Exception as e:
-            logger.info(f"Cloudinary Error: {e}")
+            logger.info(f"Profile upload error: {e}")
 
     # 7. บันทึก Log และ Commit
     new_data = f"ใหม่: {first_name} {last_name}, เงินเดือน: {base_salary}, โควตา: {sick_quota}/{personal_quota}/{vacation_quota}"
@@ -2341,6 +2605,282 @@ async def handle_edit_employee(
     
     db.commit()
     return RedirectResponse(url="/dashboard?msg=updated", status_code=303)
+
+
+@app.get("/admin/benefits", response_class=HTMLResponse)
+async def benefits_page(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    benefits = db.query(models.Benefit).order_by(models.Benefit.name).all()
+    employee_count = db.query(models.Employee).filter(models.Employee.is_active.is_(True)).count()
+    return render_template("benefits.html", {
+        "texts": texts,
+        "request": request,
+        "benefits": benefits,
+        "employee_count": employee_count,
+    })
+
+
+@app.post("/admin/benefits/add")
+async def add_benefit(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(None),
+    budget_amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    is_employee_specific: Optional[str] = Form(None),
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    parsed_budget = _parse_optional_float_field(budget_amount, 0.0)
+    new_benefit = models.Benefit(
+        name=name.strip(),
+        description=(description or "").strip() or None,
+        amount=parsed_budget,
+        budget_amount=parsed_budget,
+        start_date=_parse_optional_date_field(start_date),
+        end_date=_parse_optional_date_field(end_date),
+        is_employee_specific=bool(is_employee_specific),
+    )
+    db.add(new_benefit)
+    log_activity(db, user, "เพิ่มสวัสดิการ", f"เพิ่มสวัสดิการ: {name} ({parsed_budget})", request)
+    db.commit()
+    return RedirectResponse(url="/admin/benefits", status_code=303)
+
+
+@app.post("/admin/benefits/update/{benefit_id}")
+async def update_benefit(
+    benefit_id: int,
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(None),
+    budget_amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    is_employee_specific: Optional[str] = Form(None),
+    is_active: Optional[str] = Form(None),
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    benefit = db.query(models.Benefit).filter(models.Benefit.id == benefit_id).first()
+    if not benefit:
+        return RedirectResponse(url="/admin/benefits", status_code=303)
+
+    parsed_budget = _parse_optional_float_field(budget_amount, 0.0)
+    old = f"{benefit.name} ({benefit.budget_amount if benefit.budget_amount is not None else benefit.amount})"
+    benefit.name = name.strip()
+    benefit.description = (description or "").strip() or None
+    benefit.amount = parsed_budget
+    benefit.budget_amount = parsed_budget
+    benefit.start_date = _parse_optional_date_field(start_date)
+    benefit.end_date = _parse_optional_date_field(end_date)
+    benefit.is_employee_specific = bool(is_employee_specific)
+    benefit.is_active = bool(is_active)
+    log_activity(db, user, "แก้ไขสวัสดิการ", f"{old} -> {benefit.name} ({benefit.budget_amount})", request)
+    db.commit()
+    return RedirectResponse(url="/admin/benefits", status_code=303)
+
+
+@app.post("/admin/benefits/delete/{benefit_id}")
+async def delete_benefit(
+    benefit_id: int,
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    benefit = db.query(models.Benefit).filter(models.Benefit.id == benefit_id).first()
+    if benefit:
+        old = f"{benefit.name} ({benefit.amount})"
+        db.delete(benefit)
+        log_activity(db, user, "ลบสวัสดิการ", f"ลบสวัสดิการ: {old}", request)
+        db.commit()
+
+    return RedirectResponse(url="/admin/benefits", status_code=303)
+
+
+@app.get("/admin/payroll-adjustments", response_class=HTMLResponse)
+async def payroll_adjustments_page(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    if not user or user.role != "Admin":
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    adjustment_types = db.query(models.PayrollAdjustmentType).order_by(
+        models.PayrollAdjustmentType.adjustment_kind.asc(),
+        models.PayrollAdjustmentType.name.asc(),
+    ).all()
+    assignments = db.query(models.EmployeePayrollAdjustment).options(
+        joinedload(models.EmployeePayrollAdjustment.employee),
+        joinedload(models.EmployeePayrollAdjustment.adjustment_type),
+    ).order_by(models.EmployeePayrollAdjustment.id.desc()).all()
+    employees = db.query(models.Employee).filter(models.Employee.is_active.is_(True)).order_by(models.Employee.first_name.asc()).all()
+
+    return render_template("payroll_adjustments.html", {
+        "request": request,
+        "texts": texts,
+        "adjustment_types": adjustment_types,
+        "assignments": assignments,
+        "employees": employees,
+    })
+
+
+@app.post("/admin/payroll-adjustments/types/add")
+async def add_payroll_adjustment_type(
+    request: Request,
+    name: str = Form(...),
+    adjustment_kind: str = Form(...),
+    description: str = Form(None),
+    default_amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    record = models.PayrollAdjustmentType(
+        name=name.strip(),
+        adjustment_kind=adjustment_kind.strip().lower(),
+        description=(description or "").strip() or None,
+        default_amount=_parse_optional_float_field(default_amount, 0.0),
+        start_date=_parse_optional_date_field(start_date),
+        end_date=_parse_optional_date_field(end_date),
+        is_active=True,
+    )
+    db.add(record)
+    log_activity(db, user, "เพิ่มประเภทเงินเพิ่ม/ลด", f"{record.adjustment_kind}:{record.name}", request)
+    db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+
+@app.post("/admin/payroll-adjustments/types/update/{adjustment_type_id}")
+async def update_payroll_adjustment_type(
+    adjustment_type_id: int,
+    request: Request,
+    name: str = Form(...),
+    adjustment_kind: str = Form(...),
+    description: str = Form(None),
+    default_amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    is_active: Optional[str] = Form(None),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    record = db.query(models.PayrollAdjustmentType).filter(models.PayrollAdjustmentType.id == adjustment_type_id).first()
+    if not record:
+        return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+    record.name = name.strip()
+    record.adjustment_kind = adjustment_kind.strip().lower()
+    record.description = (description or "").strip() or None
+    record.default_amount = _parse_optional_float_field(default_amount, 0.0)
+    record.start_date = _parse_optional_date_field(start_date)
+    record.end_date = _parse_optional_date_field(end_date)
+    record.is_active = bool(is_active)
+    log_activity(db, user, "แก้ไขประเภทเงินเพิ่ม/ลด", f"{record.adjustment_kind}:{record.name}", request)
+    db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+
+@app.post("/admin/payroll-adjustments/types/delete/{adjustment_type_id}")
+async def delete_payroll_adjustment_type(
+    adjustment_type_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    record = db.query(models.PayrollAdjustmentType).filter(models.PayrollAdjustmentType.id == adjustment_type_id).first()
+    if record:
+        log_activity(db, user, "ลบประเภทเงินเพิ่ม/ลด", f"{record.adjustment_kind}:{record.name}", request)
+        db.delete(record)
+        db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+
+@app.post("/admin/payroll-adjustments/assignments/add")
+async def add_payroll_adjustment_assignment(
+    request: Request,
+    employee_id: int = Form(...),
+    adjustment_type_id: int = Form(...),
+    amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    note: str = Form(None),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    assignment = models.EmployeePayrollAdjustment(
+        employee_id=employee_id,
+        adjustment_type_id=adjustment_type_id,
+        amount=_parse_optional_float_field(amount, 0.0),
+        start_date=_parse_optional_date_field(start_date),
+        end_date=_parse_optional_date_field(end_date),
+        note=(note or "").strip() or None,
+        is_active=True,
+    )
+    db.add(assignment)
+    log_activity(db, user, "เพิ่มรายการเงินเพิ่ม/ลดพนักงาน", f"employee_id={employee_id}, adjustment_type_id={adjustment_type_id}", request)
+    db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+
+@app.post("/admin/payroll-adjustments/assignments/update/{assignment_id}")
+async def update_payroll_adjustment_assignment(
+    assignment_id: int,
+    request: Request,
+    amount: str = Form("0"),
+    start_date: str = Form(None),
+    end_date: str = Form(None),
+    note: str = Form(None),
+    is_active: Optional[str] = Form(None),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    assignment = db.query(models.EmployeePayrollAdjustment).filter(models.EmployeePayrollAdjustment.id == assignment_id).first()
+    if not assignment:
+        return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+    assignment.amount = _parse_optional_float_field(amount, 0.0)
+    assignment.start_date = _parse_optional_date_field(start_date)
+    assignment.end_date = _parse_optional_date_field(end_date)
+    assignment.note = (note or "").strip() or None
+    assignment.is_active = bool(is_active)
+    log_activity(db, user, "แก้ไขรายการเงินเพิ่ม/ลดพนักงาน", f"assignment_id={assignment.id}", request)
+    db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
+
+
+@app.post("/admin/payroll-adjustments/assignments/delete/{assignment_id}")
+async def delete_payroll_adjustment_assignment(
+    assignment_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    assignment = db.query(models.EmployeePayrollAdjustment).filter(models.EmployeePayrollAdjustment.id == assignment_id).first()
+    if assignment:
+        log_activity(db, user, "ลบรายการเงินเพิ่ม/ลดพนักงาน", f"assignment_id={assignment.id}", request)
+        db.delete(assignment)
+        db.commit()
+    return RedirectResponse(url="/admin/payroll-adjustments", status_code=303)
 
 @app.get("/my-attendance", response_class=HTMLResponse)
 async def my_attendance(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
@@ -3159,6 +3699,225 @@ def get_salary_and_approved_ot(emp_id: int, month: int, year: int, db: Session):
     return SalaryInfo()
 
 
+def _date_ranges_overlap(start_a: date, end_a: date, start_b: Optional[date], end_b: Optional[date]) -> bool:
+    effective_start_b = start_b or date.min
+    effective_end_b = end_b or date.max
+    return effective_start_b <= end_a and effective_end_b >= start_a
+
+
+def _benefit_transaction_effective_date(tx: models.BenefitTransaction) -> Optional[date]:
+    source_dt = tx.used_at or tx.trans_date or tx.requested_at
+    if not source_dt:
+        return None
+    if isinstance(source_dt, datetime):
+        return source_dt.date()
+    return source_dt
+
+
+def _get_welfare_payroll_items(employee_id: int, start_date: date, end_date: date, db: Session) -> list[dict]:
+    transactions = (
+        db.query(models.BenefitTransaction)
+        .join(models.EmployeeBenefit)
+        .join(models.Benefit)
+        .options(
+            joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit)
+        )
+        .filter(
+            models.EmployeeBenefit.employee_id == employee_id,
+            models.BenefitTransaction.status.in_(["Approved", "Recorded"]),
+        )
+        .all()
+    )
+
+    grouped: dict[tuple[int, str], dict] = {}
+    for tx in transactions:
+        tx_date = _benefit_transaction_effective_date(tx)
+        if not tx_date or tx_date < start_date or tx_date > end_date:
+            continue
+
+        benefit = tx.employee_benefit.benefit if tx.employee_benefit else None
+        if not benefit:
+            continue
+
+        key = (benefit.id, benefit.name)
+        if key not in grouped:
+            grouped[key] = {
+                "label": benefit.name,
+                "amount": 0.0,
+                "source_type": "welfare",
+                "code": None,
+                "reference_ids": [],
+            }
+        grouped[key]["amount"] += tx.amount or 0.0
+        grouped[key]["reference_ids"].append(tx.id)
+
+    return [grouped[key] for key in sorted(grouped, key=lambda item: item[1].lower())]
+
+
+def _get_adjustment_payroll_items(employee_id: int, start_date: date, end_date: date, db: Session) -> dict[str, list[dict]]:
+    assignments = (
+        db.query(models.EmployeePayrollAdjustment)
+        .join(models.PayrollAdjustmentType)
+        .options(joinedload(models.EmployeePayrollAdjustment.adjustment_type))
+        .filter(
+            models.EmployeePayrollAdjustment.employee_id == employee_id,
+            models.EmployeePayrollAdjustment.is_active.is_(True),
+            models.PayrollAdjustmentType.is_active.is_(True),
+        )
+        .all()
+    )
+
+    grouped = {"income": defaultdict(lambda: {"label": "", "amount": 0.0, "source_type": "adjustment", "code": None, "reference_ids": []}),
+               "deduction": defaultdict(lambda: {"label": "", "amount": 0.0, "source_type": "adjustment", "code": None, "reference_ids": []})}
+
+    for assignment in assignments:
+        adjustment_type = assignment.adjustment_type
+        if not adjustment_type:
+            continue
+        if not _date_ranges_overlap(start_date, end_date, assignment.start_date or adjustment_type.start_date, assignment.end_date or adjustment_type.end_date):
+            continue
+
+        kind = (adjustment_type.adjustment_kind or "deduction").lower()
+        if kind not in grouped:
+            continue
+
+        amount = assignment.amount if assignment.amount is not None else (adjustment_type.default_amount or 0.0)
+        bucket = grouped[kind][adjustment_type.name]
+        bucket["label"] = adjustment_type.name
+        bucket["amount"] += amount or 0.0
+        bucket["reference_ids"].append(assignment.id)
+
+    return {
+        kind: [grouped[kind][name] for name in sorted(grouped[kind])]
+        for kind in grouped
+    }
+
+
+def _line_item_label(item: models.PayrollLineItem, texts: dict) -> str:
+    mapping = {
+        "salary": "psl_line_salary",
+        "position_allowance": "psl_line_position_allowance",
+        "overtime": "psl_line_overtime",
+        "manual_income": "psl_line_manual_income",
+        "manual_deduction": "psl_line_manual_deduction",
+        "late_deduction": "psl_line_late_deduction",
+        "early_deduction": "psl_line_early_deduction",
+        "absence_deduction": "psl_line_absence_deduction",
+        "sso": "psl_sso",
+        "tax": "psl_tax",
+    }
+    text_key = mapping.get(item.code or "")
+    return texts.get(text_key, item.label) if text_key else item.label
+
+
+def _annotate_payroll_line_items(payroll: models.PayrollDetail, texts: dict) -> models.PayrollDetail:
+    earnings = []
+    deductions = []
+    source_items = list(payroll.line_items or [])
+    if not source_items:
+        source_items = _build_payroll_line_items(
+            payroll_id=payroll.id or 0,
+            employee_id=payroll.employee_id,
+            base_salary=payroll.salary or 0.0,
+            position_allowance=payroll.position_allowance or 0.0,
+            overtime_pay=payroll.ot_pay or 0.0,
+            welfare_items=[{"label": texts.get("ps_sub_welfare", "Welfare"), "amount": payroll.other_allowances or 0.0, "reference_ids": []}] if (payroll.other_allowances or 0) else [],
+            adjustment_income_items=[],
+            adjustment_deduction_items=[],
+            manual_extra_income=payroll.extra_income or 0.0,
+            manual_extra_deduction=payroll.extra_deduction or 0.0,
+            late_deduction=payroll.late_deduction or 0.0,
+            early_deduction=payroll.early_deduction or 0.0,
+            absence_deduction=payroll.absence_deduction or 0.0,
+            sso=payroll.sso or 0.0,
+            tax=payroll.tax or 0.0,
+        )
+
+    for item in sorted(source_items, key=lambda line: (line.sort_order or 0, line.id or 0)):
+        display = {
+            "label": _line_item_label(item, texts),
+            "amount": item.amount or 0.0,
+            "source_type": item.source_type,
+            "code": item.code,
+        }
+        if item.item_type == "deduction":
+            deductions.append(display)
+        else:
+            earnings.append(display)
+    payroll.earning_items = earnings
+    payroll.deduction_items = deductions
+    return payroll
+
+
+def _build_payroll_line_items(
+    payroll_id: int,
+    employee_id: int,
+    base_salary: float,
+    position_allowance: float,
+    overtime_pay: float,
+    welfare_items: list[dict],
+    adjustment_income_items: list[dict],
+    adjustment_deduction_items: list[dict],
+    manual_extra_income: float,
+    manual_extra_deduction: float,
+    late_deduction: float,
+    early_deduction: float,
+    absence_deduction: float,
+    sso: float,
+    tax: float,
+) -> list[models.PayrollLineItem]:
+    line_items: list[models.PayrollLineItem] = []
+    sort_order = 10
+
+    def append_item(item_type: str, source_type: str, label: str, amount: float, code: Optional[str] = None, adjustment_ref: Optional[int] = None):
+        nonlocal sort_order
+        if not amount:
+            return
+        line_items.append(models.PayrollLineItem(
+            payroll_detail_id=payroll_id,
+            item_type=item_type,
+            source_type=source_type,
+            code=code,
+            label=label,
+            amount=round(amount, 2),
+            sort_order=sort_order,
+            employee_adjustment_id=adjustment_ref,
+        ))
+        sort_order += 10
+
+    append_item("earning", "salary", "Base Salary", base_salary, "salary")
+    append_item("earning", "salary", "Position Allowance", position_allowance, "position_allowance")
+    append_item("earning", "overtime", "Overtime", overtime_pay, "overtime")
+
+    for item in welfare_items:
+        append_item("earning", "welfare", item["label"], item["amount"])
+    for item in adjustment_income_items:
+        append_item("earning", "adjustment", item["label"], item["amount"], adjustment_ref=item["reference_ids"][0] if item.get("reference_ids") else None)
+    append_item("earning", "manual", "Manual Extra Income", manual_extra_income, "manual_income")
+
+    append_item("deduction", "attendance", "Late Deduction", late_deduction, "late_deduction")
+    append_item("deduction", "attendance", "Early Deduction", early_deduction, "early_deduction")
+    append_item("deduction", "attendance", "Absence Deduction", absence_deduction, "absence_deduction")
+    for item in adjustment_deduction_items:
+        append_item("deduction", "adjustment", item["label"], item["amount"], adjustment_ref=item["reference_ids"][0] if item.get("reference_ids") else None)
+    append_item("deduction", "manual", "Manual Extra Deduction", manual_extra_deduction, "manual_deduction")
+    append_item("deduction", "statutory", "Social Security (SSO)", sso, "sso")
+    append_item("deduction", "statutory", "Withholding Tax", tax, "tax")
+    return line_items
+
+
+def _parse_optional_date_field(raw_value: Optional[str]) -> Optional[date]:
+    if not raw_value or not str(raw_value).strip():
+        return None
+    return datetime.strptime(str(raw_value).strip(), "%Y-%m-%d").date()
+
+
+def _parse_optional_float_field(raw_value: Optional[str], default: float = 0.0) -> float:
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    return float(str(raw_value).replace(',', '').strip())
+
+
 def calculate_dynamic_payroll_details(
     emp: models.Employee,
     start_date: date,
@@ -3224,8 +3983,8 @@ def calculate_dynamic_payroll_details(
     position_allowance = emp.position_allowance or 0
     base_calc = base_salary + position_allowance
     daily_rate = base_calc / 30
-    
-    # Display income starts from base salary (full amount)
+
+    # Display income starts from base salary + allowance.
     display_income = base_calc
 
     # ========== 3. DEDUCTIONS: ABSENCE (Dynamic from Attendance) ==========
@@ -3267,8 +4026,15 @@ def calculate_dynamic_payroll_details(
     calculated_late_deduction = round(rate_min * total_late_mins, 2)
     calculated_early_deduction = round(rate_min * total_early_mins, 2)
 
-    # ========== 5. OT PAY (Dynamic from OTRequest Approved) ==========
+    # ========== 5. OT PAY, WELFARE, AND ADJUSTMENTS ==========
     approved_ot_pay = calculate_ot_pay(emp.id, end_date.month, end_date.year, db)
+    welfare_items = _get_welfare_payroll_items(emp.id, start_date, end_date, db)
+    welfare_total = round(sum(item["amount"] for item in welfare_items), 2)
+    adjustment_items = _get_adjustment_payroll_items(emp.id, start_date, end_date, db)
+    adjustment_income_items = adjustment_items["income"]
+    adjustment_deduction_items = adjustment_items["deduction"]
+    adjustment_income_total = round(sum(item["amount"] for item in adjustment_income_items), 2)
+    adjustment_deduction_total = round(sum(item["amount"] for item in adjustment_deduction_items), 2)
 
     # ========== 6. DRAFT VALUES (Manual overrides from DB) ==========
     if draft:
@@ -3294,24 +4060,12 @@ def calculate_dynamic_payroll_details(
         draft_tax = 0
 
     # ========== 7. NET SALARY (Final Calculation) ==========
-    # Formula: Base Salary - Absences - Late - Early + OT + Extra Income - Extra Deduction - SSO - Tax = NET
-    # 
-    # Example:
-    #   Base Salary: 12,000
-    #   Less: Absent 3 days (3 x 400): -1,200
-    #   Less: Late penalties: -100
-    #   Plus: OT pay: +500
-    #   Plus: Extra income: +200
-    #   Less: Extra deductions: -300
-    #   Less: SSO: -600
-    #   Less: Tax: 0
-    #   = Net Salary: 10,500
-    #
-    gross_income = display_income + approved_ot_pay + draft_extra_income
+    gross_income = display_income + approved_ot_pay + welfare_total + adjustment_income_total + draft_extra_income
     total_deductions = (
         calculated_late_deduction +
         calculated_early_deduction +
         calculated_absent_deduction +
+        adjustment_deduction_total +
         draft_extra_deduction +
         draft_sso +
         draft_tax
@@ -3330,6 +4084,12 @@ def calculate_dynamic_payroll_details(
         'calculated_absent_deduction': calculated_absent_deduction,
         # OT
         'approved_ot_pay': approved_ot_pay,
+        'welfare_items': welfare_items,
+        'welfare_total': welfare_total,
+        'adjustment_income_items': adjustment_income_items,
+        'adjustment_deduction_items': adjustment_deduction_items,
+        'adjustment_income_total': adjustment_income_total,
+        'adjustment_deduction_total': adjustment_deduction_total,
         # Draft/Manual values
         'draft_extra_income': draft_extra_income,
         'draft_extra_deduction': draft_extra_deduction,
@@ -3341,6 +4101,23 @@ def calculate_dynamic_payroll_details(
         'total_deductions': total_deductions,
         'net_salary': net_salary,
     }
+
+
+def _employee_active_benefits_query(db: Session, employee_id: int, as_of: date = None):
+    if as_of is None:
+        as_of = date.today()
+    return (
+        db.query(models.EmployeeBenefit)
+        .join(models.Benefit)
+        .filter(
+            models.EmployeeBenefit.employee_id == employee_id,
+            models.EmployeeBenefit.is_active.is_(True),
+            models.Benefit.is_active.is_(True),
+            or_(models.EmployeeBenefit.start_date == None, models.EmployeeBenefit.start_date <= as_of),
+            or_(models.EmployeeBenefit.end_date == None, models.EmployeeBenefit.end_date >= as_of),
+        )
+        .order_by(models.Benefit.name)
+    )
 
 @app.post("/admin/recalculate-attendance")
 async def recalculate_attendance(
@@ -3535,6 +4312,12 @@ async def calculate_payroll_page(
         emp.calculated_early_deduction = payroll_details['calculated_early_deduction']
         emp.calculated_absent_deduction = payroll_details['calculated_absent_deduction']
         emp.approved_ot_pay = payroll_details['approved_ot_pay']
+        emp.welfare_items = payroll_details['welfare_items']
+        emp.welfare_total = payroll_details['welfare_total']
+        emp.adjustment_income_items = payroll_details['adjustment_income_items']
+        emp.adjustment_deduction_items = payroll_details['adjustment_deduction_items']
+        emp.adjustment_income_total = payroll_details['adjustment_income_total']
+        emp.adjustment_deduction_total = payroll_details['adjustment_deduction_total']
         emp.draft_extra_income = payroll_details['draft_extra_income']
         emp.draft_extra_deduction = payroll_details['draft_extra_deduction']
         emp.draft_sso = payroll_details['draft_sso']
@@ -3597,6 +4380,102 @@ async def process_payroll(
     holiday_dates = {h.holiday_date for h in holidays}
     settings = get_payroll_settings(db)
 
+    def persist_payroll_record(target_employee: models.Employee, dt_start: date, dt_end: date, employee_key: str):
+        nonlocal processed_count
+
+        draft = db.query(models.PayrollDetail).filter(
+            models.PayrollDetail.employee_id == target_employee.id,
+            models.PayrollDetail.month == dt_end_global.month,
+            models.PayrollDetail.year == dt_end_global.year
+        ).first()
+
+        payroll_details = calculate_dynamic_payroll_details(
+            target_employee, dt_start, dt_end, db, holiday_dates, settings, draft
+        )
+
+        form_extra_income = parse_to_float_field(f"extra_income_{employee_key}")
+        form_extra_deduction = parse_to_float_field(f"extra_deduction_{employee_key}")
+        form_sso = parse_to_float_field(f"sso_{employee_key}")
+        form_tax = parse_to_float_field(f"tax_{employee_key}")
+        form_late = parse_to_float_field(f"late_deduct_{employee_key}")
+        form_early = parse_to_float_field(f"early_deduct_{employee_key}")
+        form_absent = parse_to_float_field(f"absent_deduct_{employee_key}")
+
+        late_deduct = form_late if form_late > 0 else payroll_details['calculated_late_deduction']
+        early_deduct = form_early if form_early > 0 else payroll_details['calculated_early_deduction']
+        absent_deduct = form_absent if form_absent > 0 else payroll_details['calculated_absent_deduction']
+
+        gross = (
+            payroll_details['display_income']
+            + payroll_details['approved_ot_pay']
+            + payroll_details['welfare_total']
+            + payroll_details['adjustment_income_total']
+            + form_extra_income
+        )
+        total_deduct = (
+            late_deduct
+            + early_deduct
+            + absent_deduct
+            + payroll_details['adjustment_deduction_total']
+            + form_extra_deduction
+            + form_sso
+            + form_tax
+        )
+        net_total = gross - total_deduct
+
+        if draft:
+            db.delete(draft)
+            db.flush()
+
+        new_payroll = models.PayrollDetail(
+            employee_id=target_employee.id,
+            month=dt_end_global.month,
+            year=dt_end_global.year,
+            calc_start_date=dt_start,
+            calc_end_date=dt_end,
+            salary=target_employee.base_salary,
+            position_allowance=target_employee.position_allowance,
+            other_allowances=payroll_details['welfare_total'],
+            ot_pay=payroll_details['approved_ot_pay'],
+            sso=form_sso,
+            sso_amount=form_sso,
+            tax=form_tax,
+            income_tax=form_tax,
+            late_deduction=late_deduct,
+            early_deduction=early_deduct,
+            absence_deduction=absent_deduct,
+            extra_income=form_extra_income,
+            extra_deduction=form_extra_deduction,
+            net_salary=net_total,
+            net_total=net_total,
+            status="Draft" if action == "save_draft" else "Finalized"
+        )
+        db.add(new_payroll)
+        db.flush()
+
+        line_items = _build_payroll_line_items(
+            payroll_id=new_payroll.id,
+            employee_id=target_employee.id,
+            base_salary=target_employee.base_salary or 0.0,
+            position_allowance=target_employee.position_allowance or 0.0,
+            overtime_pay=payroll_details['approved_ot_pay'],
+            welfare_items=payroll_details['welfare_items'],
+            adjustment_income_items=payroll_details['adjustment_income_items'],
+            adjustment_deduction_items=payroll_details['adjustment_deduction_items'],
+            manual_extra_income=form_extra_income,
+            manual_extra_deduction=form_extra_deduction,
+            late_deduction=late_deduct,
+            early_deduction=early_deduct,
+            absence_deduction=absent_deduct,
+            sso=form_sso,
+            tax=form_tax,
+        )
+        if line_items:
+            db.add_all(line_items)
+
+        processed_count += 1
+        return payroll_details
+
     # If specific employees selected, process those (preserve per-employee date ranges)
     if emp_ids:
         for eid in emp_ids:
@@ -3609,66 +4488,7 @@ async def process_payroll(
             if not user:
                 continue
 
-            # ========== RECALCULATE DYNAMICALLY ==========
-            draft = db.query(models.PayrollDetail).filter(
-                models.PayrollDetail.employee_id == user.id,
-                models.PayrollDetail.month == dt_end_global.month,
-                models.PayrollDetail.year == dt_end_global.year
-            ).first()
-
-            payroll_details = calculate_dynamic_payroll_details(
-                user, dt_start, dt_end, db, holiday_dates, settings, draft
-            )
-
-            # Get manual overrides from form (these take precedence)
-            form_extra_income = parse_to_float_field(f"extra_income_{eid}")
-            form_extra_deduction = parse_to_float_field(f"extra_deduction_{eid}")
-            form_sso = parse_to_float_field(f"sso_{eid}")
-            form_tax = parse_to_float_field(f"tax_{eid}")
-            
-            # Allow form overrides for deductions (in case admin manually adjusted)
-            form_late = parse_to_float_field(f"late_deduct_{eid}")
-            form_early = parse_to_float_field(f"early_deduct_{eid}")
-            form_absent = parse_to_float_field(f"absent_deduct_{eid}")
-
-            # Use form values if provided, otherwise use calculated
-            late_deduct = form_late if form_late > 0 else payroll_details['calculated_late_deduction']
-            early_deduct = form_early if form_early > 0 else payroll_details['calculated_early_deduction']
-            absent_deduct = form_absent if form_absent > 0 else payroll_details['calculated_absent_deduction']
-            
-            # Recalculate net with potentially adjusted values
-            gross = payroll_details['display_income'] + payroll_details['approved_ot_pay'] + form_extra_income
-            total_deduct = late_deduct + early_deduct + absent_deduct + form_extra_deduction + form_sso + form_tax
-            net_total = gross - total_deduct
-
-            # Remove old draft for this employee
-            db.query(models.PayrollDetail).filter(
-                models.PayrollDetail.employee_id == user.id,
-                models.PayrollDetail.month == dt_end_global.month,
-                models.PayrollDetail.year == dt_end_global.year
-            ).delete()
-
-            new_payroll = models.PayrollDetail(
-                employee_id=user.id,
-                month=dt_end_global.month,
-                year=dt_end_global.year,
-                calc_start_date=dt_start,
-                calc_end_date=dt_end,
-                salary=user.base_salary,
-                position_allowance=user.position_allowance,
-                ot_pay=payroll_details['approved_ot_pay'],
-                sso=form_sso,
-                tax=form_tax,
-                late_deduction=late_deduct,
-                early_deduction=early_deduct,
-                absence_deduction=absent_deduct,
-                extra_income=form_extra_income,
-                extra_deduction=form_extra_deduction,
-                net_total=net_total,
-                status="Draft" if action == "save_draft" else "Finalized"
-            )
-            db.add(new_payroll)
-            processed_count += 1
+            persist_payroll_record(user, dt_start, dt_end, str(eid))
 
             log_activity(
                 db, current_user, "บันทึกเงินเดือน",
@@ -3681,68 +4501,13 @@ async def process_payroll(
         employees = db.query(models.Employee).filter(models.Employee.is_active).all()
 
         for emp in employees:
-            draft = db.query(models.PayrollDetail).filter(
-                models.PayrollDetail.employee_id == emp.id,
-                models.PayrollDetail.month == dt_end_global.month,
-                models.PayrollDetail.year == dt_end_global.year
-            ).first()
-
             # Determine date range for this employee
             ind_start = form_data.get(f"start_{emp.id}") or start_date
             ind_end = form_data.get(f"end_{emp.id}") or end_date
             dt_start = datetime.strptime(ind_start, '%Y-%m-%d').date()
             dt_end = datetime.strptime(ind_end, '%Y-%m-%d').date()
 
-            # Recalculate dynamically
-            payroll_details = calculate_dynamic_payroll_details(
-                emp, dt_start, dt_end, db, holiday_dates, settings, draft
-            )
-
-            # Get manual overrides from form
-            form_extra_income = parse_to_float_field(f"extra_income_{emp.id}")
-            form_extra_deduction = parse_to_float_field(f"extra_deduction_{emp.id}")
-            form_sso = parse_to_float_field(f"sso_{emp.id}")
-            form_tax = parse_to_float_field(f"tax_{emp.id}")
-            form_late = parse_to_float_field(f"late_deduct_{emp.id}")
-            form_early = parse_to_float_field(f"early_deduct_{emp.id}")
-            form_absent = parse_to_float_field(f"absent_deduct_{emp.id}")
-
-            late_deduct = form_late if form_late > 0 else payroll_details['calculated_late_deduction']
-            early_deduct = form_early if form_early > 0 else payroll_details['calculated_early_deduction']
-            absent_deduct = form_absent if form_absent > 0 else payroll_details['calculated_absent_deduction']
-            
-            gross = payroll_details['display_income'] + payroll_details['approved_ot_pay'] + form_extra_income
-            total_deduct = late_deduct + early_deduct + absent_deduct + form_extra_deduction + form_sso + form_tax
-            net_total = gross - total_deduct
-
-            # Remove old draft
-            db.query(models.PayrollDetail).filter(
-                models.PayrollDetail.employee_id == emp.id,
-                models.PayrollDetail.month == dt_end_global.month,
-                models.PayrollDetail.year == dt_end_global.year
-            ).delete()
-
-            new_record = models.PayrollDetail(
-                employee_id=emp.id,
-                month=dt_end_global.month,
-                year=dt_end_global.year,
-                calc_start_date=dt_start,
-                calc_end_date=dt_end,
-                salary=emp.base_salary,
-                position_allowance=emp.position_allowance,
-                ot_pay=payroll_details['approved_ot_pay'],
-                sso=form_sso,
-                tax=form_tax,
-                late_deduction=late_deduct,
-                early_deduction=early_deduct,
-                absence_deduction=absent_deduct,
-                extra_income=form_extra_income,
-                extra_deduction=form_extra_deduction,
-                net_total=net_total,
-                status="Draft" if action == "save_draft" else "Finalized"
-            )
-            db.add(new_record)
-            processed_count += 1
+            persist_payroll_record(emp, dt_start, dt_end, str(emp.id))
 
         # single log for full-run
         log_name = "บันทึกร่างเงินเดือน" if action == "save_draft" else "ยืนยันเงินเดือน"
@@ -3764,6 +4529,224 @@ async def process_payroll(
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", status_code=303)
 
     return RedirectResponse(url=f"/admin/payroll-summary?month={dt_end_global.month}&year={dt_end_global.year}", status_code=303)
+
+
+@app.get("/my-benefits", response_class=HTMLResponse)
+async def my_benefits_page(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    as_of = date.today()
+    active_benefits = _employee_active_benefits_query(db, user.id, as_of=as_of).all()
+    benefit_ids = [eb.id for eb in active_benefits]
+    recent_requests = []
+    used_totals = {}
+    if benefit_ids:
+        used_totals = {
+            row[0]: float(row[1] or 0)
+            for row in (
+                db.query(models.BenefitTransaction.employee_benefit_id, func.sum(models.BenefitTransaction.amount))
+                .filter(models.BenefitTransaction.employee_benefit_id.in_(benefit_ids))
+                .group_by(models.BenefitTransaction.employee_benefit_id)
+                .all()
+            )
+        }
+        recent_requests = (
+            db.query(models.BenefitTransaction)
+            .filter(models.BenefitTransaction.employee_benefit_id.in_(benefit_ids))
+            .order_by(models.BenefitTransaction.used_at.desc().nullslast(), models.BenefitTransaction.trans_date.desc())
+            .limit(50)
+            .all()
+        )
+
+    for eb in active_benefits:
+        try:
+            eb.used_total = used_totals.get(eb.id, 0.0)
+        except Exception:
+            pass
+
+    return render_template(
+        "my_benefits.html",
+        {
+            "request": request,
+            "texts": texts,
+            "user": user,
+            "active_benefits": active_benefits,
+            "recent_requests": recent_requests,
+            "today": as_of,
+        },
+    )
+
+
+@app.post("/my-benefits/request")
+async def request_benefit_usage(
+    request: Request,
+    user: models.Employee = Depends(get_current_active_user),
+):
+    return RedirectResponse(url="/my-benefits?error=disabled", status_code=303)
+
+
+@app.get("/admin/benefit-requests", response_class=HTMLResponse)
+async def admin_benefit_requests_page(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    return RedirectResponse(url="/admin/benefit-usages?msg=approval_disabled", status_code=303)
+
+
+@app.post("/admin/benefit-requests/approve/{tx_id}")
+async def approve_benefit_request(
+    tx_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+):
+    return RedirectResponse(url="/admin/benefit-usages?error=approval_disabled", status_code=303)
+
+
+@app.post("/admin/benefit-requests/reject/{tx_id}")
+async def reject_benefit_request(
+    tx_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+):
+    return RedirectResponse(url="/admin/benefit-usages?error=approval_disabled", status_code=303)
+
+
+@app.get("/admin/benefit-usages", response_class=HTMLResponse)
+async def admin_benefit_usages_page(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    as_of = date.today()
+    employee_benefits = (
+        db.query(models.EmployeeBenefit)
+        .join(models.Employee)
+        .join(models.Benefit)
+        .filter(models.EmployeeBenefit.is_active.is_(True), models.Employee.is_active.is_(True))
+        .order_by(models.Employee.first_name.asc(), models.Benefit.name.asc())
+        .all()
+    )
+    recent_transactions = (
+        db.query(models.BenefitTransaction)
+        .join(models.EmployeeBenefit)
+        .join(models.Employee)
+        .join(models.Benefit)
+        .order_by(models.BenefitTransaction.used_at.desc().nullslast(), models.BenefitTransaction.trans_date.desc())
+        .limit(100)
+        .all()
+    )
+    return render_template(
+        "admin_benefit_usages.html",
+        {
+            "request": request,
+            "texts": texts,
+            "user": user,
+            "employee_benefits": employee_benefits,
+            "recent_transactions": recent_transactions,
+            "today": as_of,
+        },
+    )
+
+
+@app.post("/admin/benefit-usages")
+async def admin_record_benefit_usage(
+    request: Request,
+    employee_benefit_id: int = Form(...),
+    amount: float = Form(...),
+    used_date: str = Form(...),
+    admin_remark: str = Form(None),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    eb = (
+        db.query(models.EmployeeBenefit)
+        .join(models.Employee)
+        .filter(
+            models.EmployeeBenefit.id == employee_benefit_id,
+            models.EmployeeBenefit.is_active.is_(True),
+            models.Employee.is_active.is_(True),
+        )
+        .first()
+    )
+    if not eb:
+        return RedirectResponse(url="/admin/benefit-usages?error=not_found", status_code=303)
+
+    try:
+        used_at = datetime.strptime(used_date, "%Y-%m-%d")
+    except Exception:
+        return RedirectResponse(url="/admin/benefit-usages?error=invalid_date", status_code=303)
+
+    if amount is None or float(amount) <= 0:
+        return RedirectResponse(url="/admin/benefit-usages?error=invalid_amount", status_code=303)
+
+    used_d = used_at.date()
+    if eb.start_date and used_d < eb.start_date:
+        return RedirectResponse(url="/admin/benefit-usages?error=out_of_range", status_code=303)
+    if eb.end_date and used_d > eb.end_date:
+        return RedirectResponse(url="/admin/benefit-usages?error=out_of_range", status_code=303)
+
+    remaining = float(eb.remaining_amount or 0.0)
+    deduct = float(amount)
+    if deduct > remaining:
+        return RedirectResponse(url="/admin/benefit-usages?error=insufficient", status_code=303)
+
+    eb.remaining_amount = max(0.0, remaining - deduct)
+    tx = models.BenefitTransaction(
+        employee_benefit_id=eb.id,
+        amount=deduct,
+        used_at=used_at,
+        status="Recorded",
+        reason=None,
+        admin_remark=(admin_remark.strip() if admin_remark else None),
+        approved_by_id=user.id,
+        approved_at=datetime.now(),
+        requested_at=datetime.now(),
+    )
+    db.add(tx)
+    log_activity(db, user, "บันทึกการใช้สวัสดิการ", f"employee_benefit_id={eb.id} deduct={deduct} used_date={used_date}", request)
+    db.commit()
+    return RedirectResponse(url="/admin/benefit-usages?msg=saved", status_code=303)
+
+
+@app.get("/admin/benefits-report", response_class=HTMLResponse)
+async def admin_benefits_report(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    as_of = date.today()
+    employees = db.query(models.Employee).filter(models.Employee.is_active).order_by(models.Employee.first_name).all()
+    report = []
+    for emp in employees:
+        ebs = _employee_active_benefits_query(db, emp.id, as_of=as_of).all()
+        if ebs:
+            eb_ids = [eb.id for eb in ebs]
+            used_totals = {
+                row[0]: float(row[1] or 0)
+                for row in (
+                    db.query(models.BenefitTransaction.employee_benefit_id, func.sum(models.BenefitTransaction.amount))
+                    .filter(models.BenefitTransaction.employee_benefit_id.in_(eb_ids))
+                    .group_by(models.BenefitTransaction.employee_benefit_id)
+                    .all()
+                )
+            }
+            for eb in ebs:
+                try:
+                    eb.used_total = used_totals.get(eb.id, 0.0)
+                except Exception:
+                    pass
+        report.append({"employee": emp, "benefits": ebs})
+    return render_template(
+        "admin_benefits_report.html",
+        {"request": request, "texts": texts, "user": user, "report": report, "today": as_of},
+    )
 
 @app.post("/admin/save-payroll-settings")
 async def save_payroll_settings(
@@ -3864,7 +4847,8 @@ async def payroll_summary(
 
     # 2. ดึงข้อมูลพนักงานตามเดือน/ปี ที่เลือก
     raw_data = db.query(models.PayrollDetail).options(
-        joinedload(models.PayrollDetail.employee)
+        joinedload(models.PayrollDetail.employee),
+        joinedload(models.PayrollDetail.line_items),
     ).filter(
         models.PayrollDetail.month == month,
         models.PayrollDetail.year == year
@@ -3875,16 +4859,28 @@ async def payroll_summary(
     for p in raw_data:
         unique_payroll[p.employee_id] = p
     
-    payroll_data = list(unique_payroll.values())
+    payroll_data = [_annotate_payroll_line_items(p, texts) for p in unique_payroll.values()]
+
+    def sum_line_items(records: list[models.PayrollDetail], *, item_type: str = None, source_type: str = None) -> float:
+        total = 0.0
+        for payroll in records:
+            for item in payroll.line_items or []:
+                if item_type and item.item_type != item_type:
+                    continue
+                if source_type and item.source_type != source_type:
+                    continue
+                total += item.amount or 0.0
+        return total
 
     # 4. คำนวณยอดรวม (Grand Total) รวมเงินเพิ่ม/ลดพิเศษด้วย
     summary = {
         "total_salary": sum((p.salary or 0) + (p.position_allowance or 0) for p in payroll_data),
         "total_ot": sum(p.ot_pay or 0 for p in payroll_data),
-        "total_extra_income": sum(p.extra_income or 0 for p in payroll_data), # เพิ่มใหม่
+        "total_welfare": sum_line_items(payroll_data, item_type="earning", source_type="welfare"),
+        "total_extra_income": sum_line_items(payroll_data, item_type="earning", source_type="adjustment") + sum(p.extra_income or 0 for p in payroll_data),
         "total_sso": sum(p.sso or 0 for p in payroll_data),
         "total_tax": sum(p.tax or 0 for p in payroll_data),
-        "total_extra_deduction": sum(p.extra_deduction or 0 for p in payroll_data), # เพิ่มใหม่
+        "total_extra_deduction": sum_line_items(payroll_data, item_type="deduction", source_type="adjustment") + sum(p.extra_deduction or 0 for p in payroll_data),
         "total_net": sum(p.net_total or 0 for p in payroll_data),
         "count": len(payroll_data)
     }
@@ -4240,7 +5236,10 @@ async def approve_all_requests(request: Request, user: models.Employee = Depends
 # --- A. พิมพ์สลิปเงินเดือน (รายคน) ---
 @app.get("/admin/payslip/{payroll_id}", response_class=HTMLResponse)
 async def view_payslip(request: Request, payroll_id: int,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    payroll = db.query(models.PayrollDetail).filter(models.PayrollDetail.id == payroll_id).first()
+    payroll = db.query(models.PayrollDetail).options(
+        joinedload(models.PayrollDetail.employee),
+        joinedload(models.PayrollDetail.line_items),
+    ).filter(models.PayrollDetail.id == payroll_id).first()
     
     # 🚩 ดึงข้อมูลบริษัทล่าสุดออกมา
     company = db.query(models.CompanySetting).first()
@@ -4249,6 +5248,7 @@ async def view_payslip(request: Request, payroll_id: int,user: models.Employee =
         return "ไม่พบข้อมูลสลิปเงินเดือน"
     
     company_logo = compute_logo_url(company)
+    payroll = _annotate_payroll_line_items(payroll, texts)
     return render_template("payslip_print.html", {
         "request": request, # บรรทัดนี้จะไม่ Error แล้ว
         "p": payroll,
@@ -4321,7 +5321,10 @@ async def my_payslips(
     target_year = year or now.year
 
     # 🚩 แก้บรรทัดที่มีปัญหา: เปลี่ยน models.Payslip เป็น models.PayrollDetail
-    payslips = db.query(models.PayrollDetail).filter(
+    payslips = db.query(models.PayrollDetail).options(
+        joinedload(models.PayrollDetail.line_items),
+        joinedload(models.PayrollDetail.employee),
+    ).filter(
         models.PayrollDetail.employee_id == user.id,
         models.PayrollDetail.month == target_month,
         models.PayrollDetail.year == target_year
@@ -4331,6 +5334,7 @@ async def my_payslips(
     company = db.query(models.CompanySetting).first()
     employee = user
     company_logo = compute_logo_url(company)
+    payslips = [_annotate_payroll_line_items(payroll, texts) for payroll in payslips]
 
     return render_template(request, "my_payslips.html", {
         "payslips": payslips,

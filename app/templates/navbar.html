@@ -100,11 +100,15 @@
                         <li><a class="dropdown-item" href="/admin/calculate-payroll"><i class="bi bi-calculator me-2"></i>{{ texts.nav_calc_payroll }}</a></li>
                         <li><a class="dropdown-item" href="/admin/payroll-summary"><i class="bi bi-file-earmark-bar-graph me-2"></i>{{ texts.nav_payroll_summary }}</a></li>
                         <li><a class="dropdown-item" href="/admin/payroll-tax-sso-report"><i class="bi bi-file-earmark-check me-2"></i>{{ texts.nav_tax_sso }}</a></li>
+                        <li><a class="dropdown-item" href="/admin/payroll-adjustments"><i class="bi bi-cash-coin me-2"></i>{{ texts.nav_payroll_adjustments|default('ตั้งค่าเงินเพิ่ม/ลด') }}</a></li>
+                        <li><a class="dropdown-item" href="/admin/benefit-usages"><i class="bi bi-journal-plus me-2"></i>{{ texts.benefit_usage_admin|default('บันทึกการใช้สวัสดิการ') }}</a></li>
+                        <li><a class="dropdown-item" href="/admin/benefits-report"><i class="bi bi-graph-up me-2"></i>{{ texts.benefit_report|default('รายงานสวัสดิการ') }}</a></li>
                         <li><hr class="dropdown-divider"></li>
                         {% endif %}
 
                         <li><h6 class="dropdown-header">{{ texts.nav_header_staff }}</h6></li>
                         <li><a class="dropdown-item text-primary fw-bold" href="/my-payslips"><i class="bi bi-receipt me-2"></i>{{ texts.nav_payslip }}</a></li> 
+                        <li><a class="dropdown-item" href="/my-benefits"><i class="bi bi-gift me-2"></i>{{ texts.nav_benefits|default('สวัสดิการ') }}</a></li>
                     </ul>
                 </li>              
             </ul>
@@ -127,6 +131,8 @@
                             <li><hr class="dropdown-divider"></li>
                             <li><h6 class="dropdown-header text-primary">{{ texts.nav_header_sys_settings }}</h6></li>
                             <li><a class="dropdown-item" href="/admin/payroll-settings"><i class="bi bi-sliders me-2"></i>{{ texts.nav_payroll_formula }}</a></li>
+                            <li><a class="dropdown-item" href="/admin/payroll-adjustments"><i class="bi bi-cash-coin me-2"></i>{{ texts.nav_payroll_adjustments|default('ตั้งค่าเงินเพิ่ม/ลด') }}</a></li>
+                            <li><a class="dropdown-item" href="/admin/benefits"><i class="bi bi-gift-fill me-2"></i>{{ texts.nav_benefits|default('ตั้งค่าสวัสดิการ') }}</a></li>
                             <li><a class="dropdown-item text-primary fw-bold" href="/admin/settings"><i class="bi bi-gear-fill me-2"></i>{{ texts.nav_org_settings }}</a></li>
                             {# --- 🚩 เพิ่มเมนู Audit Log ตรงนี้เพื่อให้หาซื้อง่าย --- #}
                             <li><a class="dropdown-item" href="/admin/audit-logs"><i class="bi bi-shield-lock-fill me-2"></i>{{ texts.nav_audit_log }}</a></li>

@@ -193,7 +193,7 @@ function urlBase64ToUint8Array(base64String) {
 
 async function enableNotificationSilent(vapidKey) {
     try {
-        if (!('serviceWorker' in navigator) || !vapidKey) return;
+        if (!('serviceWorker' in navigator) || !vapidKey || Notification.permission !== 'granted') return;
         
         // Unsubscribe any existing push subscriptions first (to allow new VAPID key)
         const oldRegs = await navigator.serviceWorker.getRegistrations();
@@ -211,22 +211,19 @@ async function enableNotificationSilent(vapidKey) {
         const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
         await navigator.serviceWorker.ready; // Wait for SW to be ready
         
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-            console.log('Notification permission granted, preparing subscription...');
-            const keyArray = urlBase64ToUint8Array(vapidKey);
-            console.log('VAPID key array length:', keyArray.length);
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: keyArray
-            });
-            console.log('✅ Successfully subscribed to push notifications');
-            await fetch('/api/save-subscription', {
-                method: 'POST',
-                body: JSON.stringify(subscription),
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
+        console.log('Notification permission already granted, preparing subscription...');
+        const keyArray = urlBase64ToUint8Array(vapidKey);
+        console.log('VAPID key array length:', keyArray.length);
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: keyArray
+        });
+        console.log('✅ Successfully subscribed to push notifications');
+        await fetch('/api/save-subscription', {
+            method: 'POST',
+            body: JSON.stringify(subscription),
+            headers: { 'Content-Type': 'application/json' }
+        });
     } catch (e) { 
         console.error("❌ Silent Notification Error:", e);
         console.error("Error message:", e.message);

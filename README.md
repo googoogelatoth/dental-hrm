@@ -24,6 +24,7 @@
 - `VAPID_PUBLIC_KEY`: Public key สำหรับ Web Push
 - `VAPID_PRIVATE_KEY`: Private key สำหรับ Web Push
 - `VAPID_CLAIMS_SUB`: อีเมลผู้ดูแลระบบรูปแบบ `mailto:you@example.com`
+- `APP_STORAGE_ROOT`: โฟลเดอร์หลักสำหรับเก็บไฟล์อัปโหลดบนเครื่อง host (เช่น `/home/zhost/mini_hrm_storage` หรือ `D:/zh_storage/mini_hrm`)
 
 ตัวเลือกสำหรับควบคุม log:
 
@@ -37,6 +38,25 @@
 - ตั้ง `ENVIRONMENT=production`
 - ตั้ง `LOG_LEVEL=INFO` (หรือ `WARNING` หากต้องการลด log เพิ่ม)
 - ตั้ง `PAYROLL_DEBUG=false` (หรือไม่ต้องตั้งค่า เพื่อปิดโดย default บน production)
+
+## 📦 Restore ฐานข้อมูลจาก `dental_hrm.sql` (สำหรับ ZHost)
+เมื่อต้องย้ายจาก backup เดิมมา ZHosting ให้ทำตามลำดับนี้:
+
+1. สร้างฐานข้อมูลปลายทาง (PostgreSQL)
+2. restore dump:
+   `psql -h <host> -U <user> -d <db_name> -f dental_hrm.sql`
+3. ตั้ง env ของระบบให้ชี้ DB ใหม่ (`DATABASE_URL`) และ storage ใหม่ (`APP_STORAGE_ROOT`)
+4. รัน migration ล่าสุดเพื่อเติม schema ที่ backup เดิมยังไม่มี:
+   `alembic upgrade head`
+5. รีสตาร์ทแอปและตรวจหน้า `/monitor`, `/dashboard`, `/my-profile`
+
+มีสคริปต์ช่วยรันครบขั้นตอน:
+`$cred = Get-Credential`
+`./restore_dental_hrm_to_zhost.ps1 -SqlFilePath "C:/path/dental_hrm.sql" -DbHost "<host>" -DbPort 5432 -DbName "<db>" -DbCredential $cred`
+
+หมายเหตุ:
+- dump เดิมอาจยังไม่มีตารางใหม่ของ welfare/payroll adjustments จึงต้องรัน `alembic upgrade head` ทุกครั้งหลัง restore
+- ตรวจสิทธิ์เขียนไฟล์ของโฟลเดอร์ `APP_STORAGE_ROOT` ให้พร้อมก่อนเปิดใช้งานจริง
 
 ## 🔎 Cloud Logging Queries (Google Cloud)
 ตัวอย่าง Query ที่แนะนำสำหรับ troubleshooting:

@@ -41,7 +41,7 @@
                     <td>{{ leave.reason }}</td>
                     <td>
                         {% if leave.evidence_path %}
-                        <a href="/{{ leave.evidence_path }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+                        <a href="{{ leave.evidence_path if leave.evidence_path.startswith('http') else '/' + leave.evidence_path }}" target="_blank" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-paperclip"></i> {{ texts.leave_view_file }}
                         </a>
                         {% else %}

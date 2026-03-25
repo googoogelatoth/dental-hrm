@@ -100,6 +100,44 @@
             </div>
         </div>
 
+        <div class="card shadow-sm border-0 mb-4 bg-light">
+            <div class="card-body">
+                <h5 class="text-primary mb-3"><i class="bi bi-gift me-2"></i>{{ texts.emp_benefits|default('สวัสดิการพนักงาน') }}</h5>
+                <div class="row">
+                    {% for b in benefits %}
+                    {% set eb = employee_benefit_map.get(b.id) if employee_benefit_map is defined else None %}
+                    <div class="col-md-6 mb-3">
+                        <div class="d-flex align-items-start gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="benefit_ids" value="{{ b.id }}" id="benefit_{{ b.id }}" {% if b.id in active_benefit_ids %}checked{% endif %}>
+                            </div>
+                            <div style="flex:1">
+                                <label class="form-label fw-bold mb-1" for="benefit_{{ b.id }}">{{ b.name }}</label>
+                                <div class="small text-muted mb-1">
+                                    {{ texts.benefit_scope_label|default('รูปแบบ') }}:
+                                    {{ texts.benefit_employee_specific|default('รายบุคคล') if b.is_employee_specific else texts.benefit_general_scope|default('ใช้ได้ตามประเภท') }}
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <input type="date" name="benefit_start_{{ b.id }}" class="form-control form-control-sm" value="{{ eb.start_date if eb and eb.start_date else (b.start_date if b.start_date else '') }}">
+                                    <input type="date" name="benefit_end_{{ b.id }}" class="form-control form-control-sm" value="{{ eb.end_date if eb and eb.end_date else (b.end_date if b.end_date else '') }}">
+                                    <input type="number" step="0.01" name="benefit_amount_{{ b.id }}" class="form-control form-control-sm text-end" value="{{ eb.initial_amount if eb and eb.initial_amount else (b.budget_amount if b.budget_amount is not none else (b.amount or 0)) }}">
+                                </div>
+                                <div class="text-muted small mt-1">
+                                    {{ texts.benefit_default_budget|default('งบตั้งต้น') }}: {{ "{:,.2f}".format(eb.initial_amount if eb and eb.initial_amount else (b.budget_amount if b.budget_amount is not none else (b.amount or 0))) }}
+                                    &nbsp;|&nbsp; {{ texts.benefit_remaining|default('คงเหลือ') }}: {{ "{:,.2f}".format(eb.remaining_amount if eb and eb.remaining_amount is not none else (eb.initial_amount if eb and eb.initial_amount else (b.budget_amount if b.budget_amount is not none else (b.amount or 0)))) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="col-12 text-muted">
+                        {{ texts.emp_no_benefits|default('ยังไม่มีรายการสวัสดิการในระบบ') }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
         <div class="d-flex justify-content-end gap-2">
             <a href="/dashboard" class="btn btn-light px-4">{{ texts.back }}</a>
             <button type="submit" class="btn btn-warning px-5 fw-bold">{{ texts.save_changes }}</button>

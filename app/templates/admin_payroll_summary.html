@@ -50,7 +50,7 @@
                     <thead class="table-dark text-center">
                         <tr>
                             <th rowspan="2" class="align-middle">{{ texts.ps_col_name }}</th>
-                            <th colspan="4" class="bg-primary text-white">{{ texts.ps_header_income }}</th>
+                            <th colspan="5" class="bg-primary text-white">{{ texts.ps_header_income }}</th>
                             <th colspan="4" class="bg-danger text-white">{{ texts.ps_header_deduct }}</th>
                             <th rowspan="2" class="align-middle bg-dark">{{ texts.ps_col_net }}</th>
                             <th rowspan="2" class="align-middle no-export">{{ texts.ps_col_slip }}</th>
@@ -58,6 +58,7 @@
                         <tr>
                             <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_salary }}</th>
                             <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_ot }}</th>
+                            <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_welfare|default('Welfare') }}</th>
                             <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_extra_inc }}</th>
                             <th class="bg-primary bg-opacity-75 text-white">{{ texts.ps_sub_total_inc }}</th>
                             <th class="bg-danger bg-opacity-75 text-white">{{ texts.ps_sub_absent }}</th>
@@ -72,8 +73,9 @@
                             <td class="fw-bold text-nowrap">{{ p.employee.first_name }} {{ p.employee.last_name }}</td>
                             <td class="text-end">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0)) }}</td>
                             <td class="text-end">{{ "{:,.2f}".format(p.ot_pay or 0) }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format(p.other_allowances or 0) }}</td>
                             <td class="text-end">{{ "{:,.2f}".format(p.extra_income or 0) }}</td>
-                            <td class="text-end fw-bold">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.extra_income or 0)) }}</td>
+                            <td class="text-end fw-bold">{{ "{:,.2f}".format((p.salary or 0) + (p.position_allowance or 0) + (p.ot_pay or 0) + (p.other_allowances or 0) + (p.extra_income or 0)) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.sso or 0) }}</td>
                             <td class="text-end text-danger">{{ "{:,.2f}".format(p.tax or 0) }}</td>

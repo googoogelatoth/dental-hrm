@@ -64,3 +64,20 @@ def test_admin_can_open_payroll_page(client, db_session):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+
+
+def test_admin_can_open_adjustments_page(client, db_session):
+    session_id = "smoke-adjustments-admin-session"
+    admin = create_user(db_session, "smoke_admin_adjust_001", "Admin", session_id=session_id)
+
+    set_authenticated_cookies(
+        client,
+        user_id=admin.id,
+        session_id=session_id,
+        role_cookie="Admin",
+    )
+
+    response = client.get("/admin/payroll-adjustments", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")

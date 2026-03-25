@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-gift me-2 text-primary"></i>{{ texts.emp_benefits|default('สวัสดิการของฉัน') }}</h4>
+        <span class="badge bg-light text-dark">{{ today }}</span>
+    </div>
+
+    {% if request.query_params.get('msg') == 'requested' %}
+        <div class="alert alert-success">{{ texts.save_success|default('บันทึกสำเร็จ!') }}</div>
+    {% endif %}
+
+    {% if request.query_params.get('error') %}
+        <div class="alert alert-danger">{{ request.query_params.get('error') }}</div>
+    {% endif %}
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white fw-bold">{{ texts.emp_benefits|default('สิทธิ์สวัสดิการ') }}</div>
+        <div class="card-body">
+            {% if active_benefits and active_benefits|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{{ texts.benefit_col_name|default('ชื่อสวัสดิการ') }}</th>
+                                <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
+                                <th class="text-end">{{ texts.benefit_used_total|default('ใช้แล้ว') }}</th>
+                                <th class="text-end">{{ texts.benefit_remaining|default('คงเหลือ') }}</th>
+                                <th class="text-center">{{ texts.benefit_period|default('ช่วงเวลา') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for eb in active_benefits %}
+                            <tr>
+                                <td class="fw-semibold">{{ eb.benefit.name }}</td>
+                                <td class="text-end">{{ "{:,.2f}".format(eb.initial_amount or 0) }}</td>
+                                <td class="text-end">{{ "{:,.2f}".format(eb.used_total or 0) }}</td>
+                                <td class="text-end text-primary fw-bold">{{ "{:,.2f}".format(eb.remaining_amount or 0) }}</td>
+                                <td class="text-center small text-muted">
+                                    {% if eb.start_date %}{{ eb.start_date }}{% else %}-{% endif %}
+                                    -
+                                    {% if eb.end_date %}{{ eb.end_date }}{% else %}-{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">{{ texts.emp_no_benefits|default('ยังไม่มีรายการสวัสดิการในระบบ') }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white fw-bold">{{ texts.benefit_usage_recent|default('ประวัติการใช้สวัสดิการ') }}</div>
+        <div class="card-body">
+            {% if recent_requests and recent_requests|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{{ texts.benefit_col_name|default('สวัสดิการ') }}</th>
+                                <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
+                                <th class="text-center">{{ texts.benefit_used_date|default('วันที่ใช้') }}</th>
+                                <th>{{ texts.remark|default('หมายเหตุ') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tx in recent_requests %}
+                            <tr>
+                                <td>{{ tx.employee_benefit.benefit.name if tx.employee_benefit and tx.employee_benefit.benefit else '-' }}</td>
+                                <td class="text-end">{{ "{:,.2f}".format(tx.amount or 0) }}</td>
+                                <td class="text-center">{{ tx.used_at.date() if tx.used_at else '-' }}</td>
+                                <td class="small text-muted">{{ tx.admin_remark or '' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">-</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-graph-up me-2 text-primary"></i>{{ texts.benefit_report|default('รายงานสวัสดิการ') }}</h4>
+        <span class="badge bg-light text-dark">{{ today }}</span>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            {% if report and report|length > 0 %}
+                {% for row in report %}
+                    <div class="border rounded p-3 mb-3">
+                        <div class="fw-bold mb-2">{{ row.employee.first_name }} {{ row.employee.last_name }} <span class="text-muted small">(ID: {{ row.employee.employee_code or row.employee.id }})</span></div>
+                        {% if row.benefits and row.benefits|length > 0 %}
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>{{ texts.benefit_col_name|default('สวัสดิการ') }}</th>
+                                            <th class="text-end">{{ texts.benefit_label_amount|default('วงเงิน') }}</th>
+                                            <th class="text-end">{{ texts.benefit_used_total|default('ใช้แล้ว') }}</th>
+                                            <th class="text-end">{{ texts.benefit_remaining|default('คงเหลือ') }}</th>
+                                            <th class="text-center">{{ texts.benefit_period|default('ช่วงเวลา') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for eb in row.benefits %}
+                                        <tr>
+                                            <td>{{ eb.benefit.name }}</td>
+                                            <td class="text-end">{{ "{:,.2f}".format(eb.initial_amount or 0) }}</td>
+                                            <td class="text-end">{{ "{:,.2f}".format(eb.used_total or 0) }}</td>
+                                            <td class="text-end text-primary fw-bold">{{ "{:,.2f}".format(eb.remaining_amount or 0) }}</td>
+                                            <td class="text-center small text-muted">
+                                                {% if eb.start_date %}{{ eb.start_date }}{% else %}-{% endif %}
+                                                -
+                                                {% if eb.end_date %}{{ eb.end_date }}{% else %}-{% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-muted small">-</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-muted">-</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

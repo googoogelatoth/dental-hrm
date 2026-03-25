@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-journal-plus me-2 text-primary"></i>{{ texts.benefit_usage_admin|default('บันทึกการใช้สวัสดิการ (Admin)') }}</h4>
+        <a href="/admin/benefits-report" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-graph-up me-1"></i>{{ texts.benefit_report|default('รายงานสวัสดิการ') }}
+        </a>
+    </div>
+
+    {% if request.query_params.get('msg') %}
+        <div class="alert alert-success">{{ request.query_params.get('msg') }}</div>
+    {% endif %}
+
+    {% if request.query_params.get('error') %}
+        <div class="alert alert-danger">{{ request.query_params.get('error') }}</div>
+    {% endif %}
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-white fw-bold">{{ texts.benefit_usage_add|default('เพิ่มรายการใช้สวัสดิการ') }}</div>
+        <div class="card-body">
+            {% if employee_benefits and employee_benefits|length > 0 %}
+                <form method="post" action="/admin/benefit-usages" class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">{{ texts.benefit_col_name|default('สิทธิ์สวัสดิการ (พนักงาน/สวัสดิการ)') }}</label>
+                        <select class="form-select" name="employee_benefit_id" required>
+                            {% for eb in employee_benefits %}
+                                <option value="{{ eb.id }}">
+                                    {{ eb.employee.first_name }} {{ eb.employee.last_name }} - {{ eb.benefit.name }} (คงเหลือ {{ "{:,.2f}".format(eb.remaining_amount or 0) }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">{{ texts.benefit_usage_hint|default('ระบบจะหักยอดคงเหลืออัตโนมัติทันทีหลังบันทึก') }}</div>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</label>
+                        <input type="number" name="amount" class="form-control text-end" step="0.01" min="0" required>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label">{{ texts.benefit_used_date|default('วันที่ใช้') }}</label>
+                        <input type="date" name="used_date" class="form-control" value="{{ today }}" required>
+                    </div>
+
+                    <div class="col-md-2">
+                        <label class="form-label">{{ texts.remark|default('หมายเหตุ') }}</label>
+                        <input type="text" name="admin_remark" class="form-control" maxlength="255">
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary" onclick="return confirm('บันทึกรายการใช้สวัสดิการ?')">
+                            <i class="bi bi-save2 me-1"></i>{{ texts.save|default('บันทึก') }}
+                        </button>
+                    </div>
+                </form>
+            {% else %}
+                <div class="text-muted">{{ texts.emp_no_benefits|default('ยังไม่มีรายการสวัสดิการในระบบ') }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white fw-bold">{{ texts.benefit_usage_recent|default('รายการใช้ล่าสุด') }}</div>
+        <div class="card-body">
+            {% if recent_transactions and recent_transactions|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>{{ texts.pay_col_name|default('พนักงาน') }}</th>
+                                <th>{{ texts.benefit_col_name|default('สวัสดิการ') }}</th>
+                                <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
+                                <th class="text-center">{{ texts.benefit_used_date|default('วันที่ใช้') }}</th>
+                                <th>{{ texts.remark|default('หมายเหตุ') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tx in recent_transactions %}
+                            <tr>
+                                <td>{{ tx.employee_benefit.employee.first_name }} {{ tx.employee_benefit.employee.last_name }}</td>
+                                <td>{{ tx.employee_benefit.benefit.name }}</td>
+                                <td class="text-end">{{ "{:,.2f}".format(tx.amount or 0) }}</td>
+                                <td class="text-center">{{ tx.used_at.date() if tx.used_at else '-' }}</td>
+                                <td class="small text-muted">{{ tx.admin_remark or '' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">-</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

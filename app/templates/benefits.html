@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="form-container shadow-sm p-4 bg-white rounded">
+    <h3 class="text-primary mb-4"><i class="bi bi-gift-fill me-2"></i>{{ texts.benefit_title|default('จัดการสวัสดิการพนักงาน') }}</h3>
+    <div class="alert alert-light border small mb-4">
+        {{ texts.benefit_scope_help|default('กำหนดงบและช่วงเวลาระดับประเภทสวัสดิการก่อน แล้วค่อยเลือกผูกกับพนักงานรายบุคคลในหน้าแก้ไขข้อมูลพนักงาน') }}
+        <span class="text-muted">{{ texts.benefit_employee_count|default('พนักงานที่ใช้งานอยู่') }}: {{ employee_count }}</span>
+    </div>
+
+    <form action="/admin/benefits/add" method="post" class="row g-3 mb-4 p-3 bg-light rounded border">
+        <div class="col-md-4">
+            <label class="form-label fw-bold">{{ texts.benefit_label_name|default('ชื่อสวัสดิการ') }}</label>
+            <input type="text" name="name" class="form-control" placeholder="{{ texts.benefit_placeholder_name|default('เช่น ค่าเดินทาง, ค่าอาหาร') }}" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-bold">{{ texts.benefit_label_budget|default('งบประมาณ') }}</label>
+            <input type="number" name="budget_amount" class="form-control" step="0.01" value="0">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold">{{ texts.benefit_start_date|default('เริ่มใช้') }}</label>
+            <input type="date" name="start_date" class="form-control">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold">{{ texts.benefit_end_date|default('สิ้นสุด') }}</label>
+            <input type="date" name="end_date" class="form-control">
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+            <div class="form-check">
+                <input type="checkbox" name="is_employee_specific" class="form-check-input" id="new-benefit-scope">
+                <label class="form-check-label small" for="new-benefit-scope">{{ texts.benefit_employee_specific|default('รายบุคคล') }}</label>
+            </div>
+        </div>
+        <div class="col-12">
+            <label class="form-label fw-bold">{{ texts.benefit_description|default('รายละเอียด') }}</label>
+            <textarea name="description" class="form-control" rows="2" placeholder="{{ texts.benefit_description_placeholder|default('คำอธิบายหรือเงื่อนไขการใช้สวัสดิการ') }}"></textarea>
+        </div>
+        <div class="col-12 d-flex justify-content-end">
+            <button type="submit" class="btn btn-primary w-100 shadow-sm">
+                <i class="bi bi-plus-circle me-1"></i> {{ texts.benefit_btn_add|default('บันทึกสวัสดิการ') }}
+            </button>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-primary">
+                <tr>
+                    <th style="width: 62%;">{{ texts.benefit_col_name|default('ชื่อสวัสดิการ') }}</th>
+                    <th style="width: 18%;" class="text-end">{{ texts.benefit_label_budget|default('งบประมาณ') }}</th>
+                    <th class="text-center" style="width: 20%;">{{ texts.benefit_col_manage|default('จัดการ') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in benefits %}
+                <tr>
+                    <td class="fw-bold">
+                        <form action="/admin/benefits/update/{{ b.id }}" method="post" class="row g-2 align-items-center">
+                            <div class="col-12 col-lg-4">
+                                <input type="text" name="name" class="form-control form-control-sm" value="{{ b.name }}" required>
+                            </div>
+                            <div class="col-12 col-lg-3">
+                                <input type="number" name="budget_amount" class="form-control form-control-sm text-end" step="0.01" value="{{ b.budget_amount if b.budget_amount is not none else (b.amount or 0) }}">
+                            </div>
+                            <div class="col-6 col-lg-2">
+                                <input type="date" name="start_date" class="form-control form-control-sm" value="{{ b.start_date if b.start_date else '' }}">
+                            </div>
+                            <div class="col-6 col-lg-2">
+                                <input type="date" name="end_date" class="form-control form-control-sm" value="{{ b.end_date if b.end_date else '' }}">
+                            </div>
+                            <div class="col-12 col-lg-1 d-grid">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-save"></i> {{ texts.benefit_btn_save|default('บันทึก') }}
+                                </button>
+                            </div>
+                            <div class="col-12">
+                                <textarea name="description" class="form-control form-control-sm" rows="2" placeholder="{{ texts.benefit_description|default('รายละเอียด') }}">{{ b.description or '' }}</textarea>
+                            </div>
+                            <div class="col-12 d-flex flex-wrap gap-3 small text-muted align-items-center">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="is_employee_specific" id="benefit_scope_{{ b.id }}" {% if b.is_employee_specific %}checked{% endif %}>
+                                    <label class="form-check-label" for="benefit_scope_{{ b.id }}">{{ texts.benefit_employee_specific|default('ใช้แบบรายบุคคล') }}</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="is_active" id="benefit_active_{{ b.id }}" {% if b.is_active %}checked{% endif %}>
+                                    <label class="form-check-label" for="benefit_active_{{ b.id }}">{{ texts.status_active|default('เปิดใช้งาน') }}</label>
+                                </div>
+                            </div>
+                        </form>
+                    </td>
+                    <td class="text-end text-muted small">
+                        <div>{{ "{:,.2f}".format(b.budget_amount if b.budget_amount is not none else (b.amount or 0)) }}</div>
+                        <div class="small text-secondary">{{ texts.benefit_period|default('ช่วงเวลา') }}: {% if b.start_date %}{{ b.start_date }}{% else %}-{% endif %} - {% if b.end_date %}{{ b.end_date }}{% else %}-{% endif %}</div>
+                    </td>
+                    <td class="text-center">
+                        <form action="/admin/benefits/delete/{{ b.id }}" method="post" class="d-inline">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" data-confirm="{{ texts.benefit_confirm_delete|default('ยืนยันการลบสวัสดิการนี้?')|e }}">
+                                <i class="bi bi-trash"></i> {{ texts.benefit_btn_delete|default('ลบ') }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" class="text-center py-4 text-muted">
+                        <i class="bi bi-gift d-block fs-2 mb-2"></i>
+                        {{ texts.benefit_no_data|default('ยังไม่มีรายการสวัสดิการ') }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.addEventListener('click', function (event) {
+    const btn = event.target.closest('button[data-confirm]');
+    if (!btn) {
+        return;
+    }
+    const msg = btn.getAttribute('data-confirm') || 'Confirm?';
+    if (!confirm(msg)) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+});
+</script>
+{% endblock %}

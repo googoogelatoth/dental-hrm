@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h3 class="mb-1"><i class="bi bi-cash-coin text-primary me-2"></i>{{ texts.pay_adj_title|default('จัดการเงินเพิ่ม / เงินลด') }}</h3>
+            <div class="text-muted small">{{ texts.pay_adj_subtitle|default('กำหนดหัวข้อและผูกเข้ากับพนักงานเพื่อใช้คำนวณ Payroll และแสดงบนสลิปเงินเดือน') }}</div>
+        </div>
+        <a href="/admin/calculate-payroll" class="btn btn-outline-primary btn-sm"><i class="bi bi-calculator me-1"></i>{{ texts.nav_calc_payroll }}</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white fw-bold">{{ texts.pay_adj_type_section|default('ประเภทเงินเพิ่ม / เงินลด') }}</div>
+                <div class="card-body">
+                    <form method="post" action="/admin/payroll-adjustments/types/add" class="row g-3 mb-4">
+                        <div class="col-md-7">
+                            <label class="form-label">{{ texts.pay_adj_name|default('ชื่อรายการ') }}</label>
+                            <input type="text" name="name" class="form-control" required>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label">{{ texts.pay_adj_kind|default('ประเภท') }}</label>
+                            <select name="adjustment_kind" class="form-select" required>
+                                <option value="income">{{ texts.pay_adj_income|default('เงินเพิ่ม') }}</option>
+                                <option value="deduction">{{ texts.pay_adj_deduction|default('เงินลด') }}</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.pay_adj_default_amount|default('ค่าเริ่มต้น') }}</label>
+                            <input type="number" step="0.01" name="default_amount" class="form-control" value="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.benefit_start_date|default('เริ่มใช้') }}</label>
+                            <input type="date" name="start_date" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.benefit_end_date|default('สิ้นสุด') }}</label>
+                            <input type="date" name="end_date" class="form-control">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">{{ texts.benefit_description|default('รายละเอียด') }}</label>
+                            <textarea name="description" class="form-control" rows="2"></textarea>
+                        </div>
+                        <div class="col-12 d-flex justify-content-end">
+                            <button class="btn btn-primary"><i class="bi bi-plus-circle me-1"></i>{{ texts.pay_adj_add_type|default('เพิ่มประเภท') }}</button>
+                        </div>
+                    </form>
+
+                    <div class="vstack gap-3">
+                        {% for item in adjustment_types %}
+                        <form method="post" action="/admin/payroll-adjustments/types/update/{{ item.id }}" class="border rounded p-3 bg-light-subtle">
+                            <div class="row g-2 align-items-center">
+                                <div class="col-md-5">
+                                    <input type="text" name="name" class="form-control form-control-sm" value="{{ item.name }}" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <select name="adjustment_kind" class="form-select form-select-sm">
+                                        <option value="income" {% if item.adjustment_kind == 'income' %}selected{% endif %}>{{ texts.pay_adj_income|default('เงินเพิ่ม') }}</option>
+                                        <option value="deduction" {% if item.adjustment_kind == 'deduction' %}selected{% endif %}>{{ texts.pay_adj_deduction|default('เงินลด') }}</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <input type="number" step="0.01" name="default_amount" class="form-control form-control-sm text-end" value="{{ item.default_amount or 0 }}">
+                                </div>
+                                <div class="col-md-6">
+                                    <input type="date" name="start_date" class="form-control form-control-sm" value="{{ item.start_date if item.start_date else '' }}">
+                                </div>
+                                <div class="col-md-6">
+                                    <input type="date" name="end_date" class="form-control form-control-sm" value="{{ item.end_date if item.end_date else '' }}">
+                                </div>
+                                <div class="col-12">
+                                    <textarea name="description" class="form-control form-control-sm" rows="2">{{ item.description or '' }}</textarea>
+                                </div>
+                                <div class="col-12 d-flex justify-content-between align-items-center">
+                                    <div class="form-check small">
+                                        <input class="form-check-input" type="checkbox" name="is_active" id="type_active_{{ item.id }}" {% if item.is_active %}checked{% endif %}>
+                                        <label class="form-check-label" for="type_active_{{ item.id }}">{{ texts.status_active|default('เปิดใช้งาน') }}</label>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-sm btn-outline-primary">{{ texts.benefit_btn_save|default('บันทึก') }}</button>
+                                        <button formaction="/admin/payroll-adjustments/types/delete/{{ item.id }}" class="btn btn-sm btn-outline-danger" type="submit" data-confirm="{{ texts.benefit_confirm_delete|default('ยืนยันการลบรายการนี้?')|e }}">{{ texts.benefit_btn_delete|default('ลบ') }}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                        {% else %}
+                        <div class="text-muted small">{{ texts.pay_adj_no_types|default('ยังไม่มีประเภทเงินเพิ่ม / เงินลด') }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white fw-bold">{{ texts.pay_adj_assignment_section|default('ผูกรายการเข้ากับพนักงาน') }}</div>
+                <div class="card-body">
+                    <form method="post" action="/admin/payroll-adjustments/assignments/add" class="row g-3 mb-4">
+                        <div class="col-md-5">
+                            <label class="form-label">{{ texts.full_name|default('ชื่อ-นามสกุล') }}</label>
+                            <select name="employee_id" class="form-select" required>
+                                <option value="">{{ texts.pay_adj_select_employee|default('เลือกพนักงาน') }}</option>
+                                {% for employee in employees %}
+                                <option value="{{ employee.id }}">{{ employee.first_name }} {{ employee.last_name }}{% if employee.employee_code %} ({{ employee.employee_code }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.pay_adj_name|default('ชื่อรายการ') }}</label>
+                            <select name="adjustment_type_id" class="form-select" required>
+                                <option value="">{{ texts.pay_adj_select_type|default('เลือกประเภท') }}</option>
+                                {% for item in adjustment_types %}
+                                <option value="{{ item.id }}">{{ item.name }} ({{ texts.pay_adj_income if item.adjustment_kind == 'income' else texts.pay_adj_deduction }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</label>
+                            <input type="number" step="0.01" name="amount" class="form-control" value="0">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.benefit_start_date|default('เริ่มใช้') }}</label>
+                            <input type="date" name="start_date" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.benefit_end_date|default('สิ้นสุด') }}</label>
+                            <input type="date" name="end_date" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">{{ texts.remark|default('หมายเหตุ') }}</label>
+                            <input type="text" name="note" class="form-control">
+                        </div>
+                        <div class="col-12 d-flex justify-content-end">
+                            <button class="btn btn-success"><i class="bi bi-plus-circle me-1"></i>{{ texts.pay_adj_add_assignment|default('ผูกรายการ') }}</button>
+                        </div>
+                    </form>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>{{ texts.full_name|default('ชื่อ-นามสกุล') }}</th>
+                                    <th>{{ texts.pay_adj_name|default('ชื่อรายการ') }}</th>
+                                    <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
+                                    <th>{{ texts.benefit_period|default('ช่วงเวลา') }}</th>
+                                    <th>{{ texts.remark|default('หมายเหตุ') }}</th>
+                                    <th class="text-center">{{ texts.manage|default('จัดการ') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assignment in assignments %}
+                                <tr>
+                                    <td class="fw-semibold">{{ assignment.employee.first_name }} {{ assignment.employee.last_name }}</td>
+                                    <td>
+                                        {{ assignment.adjustment_type.name }}
+                                        <div class="small text-muted">{{ texts.pay_adj_income if assignment.adjustment_type.adjustment_kind == 'income' else texts.pay_adj_deduction }}</div>
+                                    </td>
+                                    <td colspan="4">
+                                        <form method="post" action="/admin/payroll-adjustments/assignments/update/{{ assignment.id }}" class="row g-2 align-items-center">
+                                            <div class="col-md-2">
+                                                <input type="number" step="0.01" name="amount" class="form-control form-control-sm text-end" value="{{ assignment.amount or 0 }}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <input type="date" name="start_date" class="form-control form-control-sm" value="{{ assignment.start_date if assignment.start_date else '' }}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <input type="date" name="end_date" class="form-control form-control-sm" value="{{ assignment.end_date if assignment.end_date else '' }}">
+                                            </div>
+                                            <div class="col-md-2">
+                                                <input type="text" name="note" class="form-control form-control-sm" value="{{ assignment.note or '' }}">
+                                            </div>
+                                            <div class="col-md-1 text-center">
+                                                <input class="form-check-input" type="checkbox" name="is_active" {% if assignment.is_active %}checked{% endif %}>
+                                            </div>
+                                            <div class="col-md-1 d-flex gap-1 justify-content-end">
+                                                <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-save"></i></button>
+                                                <button class="btn btn-sm btn-outline-danger" formaction="/admin/payroll-adjustments/assignments/delete/{{ assignment.id }}" type="submit" data-confirm="{{ texts.benefit_confirm_delete|default('ยืนยันการลบรายการนี้?')|e }}"><i class="bi bi-trash"></i></button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">{{ texts.pay_adj_no_assignments|default('ยังไม่มีการผูกรายการให้พนักงาน') }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('click', function (event) {
+    const btn = event.target.closest('button[data-confirm]');
+    if (!btn) {
+        return;
+    }
+    const msg = btn.getAttribute('data-confirm') || 'Confirm?';
+    if (!confirm(msg)) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+});
+</script>
+{% endblock %}

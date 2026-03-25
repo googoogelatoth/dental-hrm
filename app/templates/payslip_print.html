@@ -49,15 +49,14 @@
         <tbody>
             <tr>
                 <td style="padding: 15px; vertical-align: top; line-height: 1.8;">
-                    {{ texts.psl_salary_pos }}: <span style="float: right;">{{ "{:,.2f}".format(p.salary) }}</span><br>
-                    {{ texts.psl_ot }}: <span style="float: right;">{{ "{:,.2f}".format(p.ot_pay or 0) }}</span><br>
-                    {{ texts.psl_extra_inc }}: <span style="float: right;">{{ "{:,.2f}".format(p.extra_income or 0) }}</span>
+                    {% for item in p.earning_items %}
+                    {{ item.label }}: <span style="float: right;">{{ "{:,.2f}".format(item.amount or 0) }}</span><br>
+                    {% endfor %}
                 </td>
                 <td style="padding: 15px; vertical-align: top; line-height: 1.8;">
-                    {{ texts.psl_sso }}: <span style="float: right;">{{ "{:,.2f}".format(p.sso or 0) }}</span><br>
-                    {{ texts.psl_tax }}: <span style="float: right;">{{ "{:,.2f}".format(p.tax or 0) }}</span><br>
-                    {{ texts.psl_absence }}: <span style="float: right;">{{ "{:,.2f}".format(p.absence_deduction or 0) }}</span><br>
-                    {{ texts.psl_extra_ded }}: <span style="float: right;">{{ "{:,.2f}".format(p.extra_deduction or 0) }}</span>
+                    {% for item in p.deduction_items %}
+                    {{ item.label }}: <span style="float: right;">{{ "{:,.2f}".format(item.amount or 0) }}</span><br>
+                    {% endfor %}
                 </td>
             </tr>
             <tr style="background: #eee; font-weight: bold; font-size: 18px;">

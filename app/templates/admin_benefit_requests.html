@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-clipboard-check me-2 text-primary"></i>{{ texts.benefit_requests_title|default('อนุมัติคำขอสวัสดิการ') }}</h4>
+        <a href="/admin/benefits-report" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-bar-chart-line me-1"></i>{{ texts.benefit_report|default('รายงานสรุป') }}
+        </a>
+    </div>
+
+    {% if request.query_params.get('msg') %}
+        <div class="alert alert-success">{{ request.query_params.get('msg') }}</div>
+    {% endif %}
+
+    {% if request.query_params.get('error') %}
+        <div class="alert alert-danger">{{ request.query_params.get('error') }}</div>
+    {% endif %}
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            {% if pending and pending|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>{{ texts.pay_col_name|default('พนักงาน') }}</th>
+                                <th>{{ texts.benefit_col_name|default('สวัสดิการ') }}</th>
+                                <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
+                                <th class="text-center">{{ texts.benefit_used_date|default('วันที่ใช้') }}</th>
+                                <th class="text-center">{{ texts.benefit_remaining|default('คงเหลือ') }}</th>
+                                <th>{{ texts.reason|default('เหตุผล') }}</th>
+                                <th style="width: 280px;">{{ texts.manage|default('จัดการ') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tx in pending %}
+                            <tr>
+                                <td class="fw-semibold">{{ tx.employee_benefit.employee.first_name }} {{ tx.employee_benefit.employee.last_name }}</td>
+                                <td>{{ tx.employee_benefit.benefit.name }}</td>
+                                <td class="text-end">{{ "{:,.2f}".format(tx.amount or 0) }}</td>
+                                <td class="text-center">{{ tx.used_at.date() if tx.used_at else '-' }}</td>
+                                <td class="text-center text-primary fw-bold">{{ "{:,.2f}".format(tx.employee_benefit.remaining_amount or 0) }}</td>
+                                <td class="small text-muted">{{ tx.reason or '' }}</td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        <form method="post" action="/admin/benefit-requests/approve/{{ tx.id }}" class="d-flex gap-2 flex-grow-1">
+                                            <input type="text" name="admin_remark" class="form-control form-control-sm" placeholder="{{ texts.remark|default('หมายเหตุ') }}">
+                                            <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Approve?')">
+                                                <i class="bi bi-check2 me-1"></i>{{ texts.approve|default('อนุมัติ') }}
+                                            </button>
+                                        </form>
+                                        <form method="post" action="/admin/benefit-requests/reject/{{ tx.id }}" class="d-flex gap-2">
+                                            <input type="hidden" name="admin_remark" value="Rejected">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Reject?')">
+                                                <i class="bi bi-x-lg me-1"></i>{{ texts.reject|default('ปฏิเสธ') }}
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-muted">{{ texts.no_pending|default('ไม่มีรายการรออนุมัติ') }}</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
