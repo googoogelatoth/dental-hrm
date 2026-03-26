@@ -1209,6 +1209,10 @@ async def handle_add_employee(
     enable_payroll: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
+    form_data = await request.form()
+    schedule_enabled = _parse_checkbox_form_value(form_data, "enable_schedule", default=True)
+    payroll_enabled = _parse_checkbox_form_value(form_data, "enable_payroll", default=True)
+
     # --- 2. เช็คข้อมูลซ้ำ (Employee Code & ID Card) ---
     if db.query(models.Employee).filter(models.Employee.employee_code == employee_code).first():
         return render_template("add_employee.html", {"request": request, "error": f"รหัสพนักงาน {employee_code} มีในระบบแล้ว", "texts": texts})
@@ -1247,8 +1251,8 @@ async def handle_add_employee(
         base_salary=base_salary, position_allowance=position_allowance,
         profile_picture=profile_url,
         hashed_password=pwd_context.hash(_normalize_password_secret(password)),
-        enable_schedule=(enable_schedule == "on"),
-        enable_payroll=(enable_payroll == "on"),
+        enable_schedule=schedule_enabled,
+        enable_payroll=payroll_enabled,
     )
     
     db.add(new_emp)
@@ -2507,6 +2511,10 @@ async def handle_edit_employee(
     if not employee:
         return RedirectResponse(url="/dashboard", status_code=303)
 
+    form_data = await request.form()
+    schedule_enabled = _parse_checkbox_form_value(form_data, "enable_schedule", default=False)
+    payroll_enabled = _parse_checkbox_form_value(form_data, "enable_payroll", default=False)
+
     # 2. เก็บข้อมูลเดิมไว้ทำ Log (ละเอียดขึ้น)
     old_data = (f"เดิม: {employee.first_name} {employee.last_name}, "
                 f"เงินเดือน: {employee.base_salary}, "
@@ -2551,8 +2559,8 @@ async def handle_edit_employee(
     employee.sick_leave_quota = sick_quota
     employee.personal_leave_quota = personal_quota
     employee.vacation_leave_quota = vacation_quota
-    employee.enable_schedule = (enable_schedule == "on")
-    employee.enable_payroll = (enable_payroll == "on")
+    employee.enable_schedule = schedule_enabled
+    employee.enable_payroll = payroll_enabled
 
     selected_benefit_ids = set(int(bid) for bid in (benefit_ids or []))
 
@@ -2581,7 +2589,7 @@ async def handle_edit_employee(
             remaining_amount=default_budget or 0.0,
         ))
     # อ่านฟอร์มเพื่อดึงค่า start/end/amount ของสวัสดิการแต่ละรายการ (ถ้ามี)
-    form = await request.form()
+    form = form_data
     # อัปเดตข้อมูลของลิงก์สวัสดิการทั้งรายการ (ทั้งเดิมและใหม่)
     all_affected_ids = set(list(existing_by_benefit.keys()) + list(selected_benefit_ids))
     for bid in all_affected_ids:
@@ -3995,6 +4003,14 @@ def _parse_optional_float_field(raw_value: Optional[str], default: float = 0.0) 
     if raw_value is None or str(raw_value).strip() == "":
         return default
     return float(str(raw_value).replace(',', '').strip())
+
+
+def _parse_checkbox_form_value(form_data, field_name: str, default: bool = False) -> bool:
+    values = form_data.getlist(field_name)
+    if not values:
+        return default
+    normalized = [str(value).strip().lower() for value in values if value is not None]
+    return any(value in {"1", "true", "yes", "on"} for value in normalized)
 
 
 def calculate_dynamic_payroll_details(

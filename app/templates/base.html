@@ -120,8 +120,8 @@
         attachCsrfToPostForms();
     })();
 
-    const publicVapidKey = "{{ vapid_public_key }}".replace(/['"]+/g, '');
-    function urlBase64ToUint8Array(base64String) {
+    const publicVapidKey = {{ (public_vapid_key or '')|tojson }};
+    function baseUrlBase64ToUint8Array(base64String) {
         const cleanString = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
         const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
         const padNeeded = (4 - (base64.length % 4)) % 4;

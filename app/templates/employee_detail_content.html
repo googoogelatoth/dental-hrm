@@ -87,14 +87,18 @@
     const msgSuccess = "{{ texts.pro_notif_success }}";
     const msgError = "{{ texts.pro_notif_error }}";
 
-    function urlBase64ToUint8Array(base64String) {
+    function convertVapidKeyToUint8Array(base64String) {
             if (!base64String || base64String.trim() === '') {
                 console.error('❌ ERROR: Base64 string is empty or whitespace-only');
                 throw new Error('VAPID key is empty');
             }
         
             try {
-                let cleanString = base64String.replace(/['"]+/g, '').trim();
+                // Normalize keys that may be escaped when embedded in templates
+                let cleanString = base64String
+                    .replace(/&#39;|&#x27;|&quot;/gi, '')
+                    .replace(/[\s'\"]/g, '')
+                    .trim();
                 console.log('Step 1 - Cleaned string length:', cleanString.length);
                 console.log('Step 1 - First 30 chars:', cleanString.substring(0, 30));
             
@@ -123,6 +127,10 @@
                 for (let i = 0; i < rawData.length; ++i) { 
                     outputArray[i] = rawData.charCodeAt(i); 
                 }
+
+                if (outputArray[0] !== 4) {
+                    throw new Error('Invalid key format: first byte must be 0x04 for uncompressed P-256 public key');
+                }
             
                 console.log('✅ Successfully converted VAPID key to Uint8Array, length:', outputArray.length);
                 return outputArray;
@@ -148,7 +156,7 @@
         }
 
         // เช็ค VAPID Key ก่อน
-        const vapidKey = '{{ public_vapid_key or '' }}';
+        const vapidKey = {{ (public_vapid_key or '')|tojson }};
         
         console.log('[DEBUG] Raw VAPID Key from template:', vapidKey);
         console.log('[DEBUG] VAPID Key length:', vapidKey.length);
@@ -195,7 +203,7 @@
                 userVisibleOnly: true,
                 applicationServerKey: (() => {
                     try {
-                        const keyArray = urlBase64ToUint8Array(vapidKey);
+                        const keyArray = convertVapidKeyToUint8Array(vapidKey);
                         console.log('✅ applicationServerKey prepared, length:', keyArray.length);
                         if (keyArray.length === 0) {
                             throw new Error('VAPID key converted to empty array');
