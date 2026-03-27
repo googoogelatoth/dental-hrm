@@ -157,77 +157,69 @@
 
 <script>
 // --- JavaScript สำหรับ Notification และ Modal ---
+/**
+ * Legacy wrapper for compatibility - delegates to base.html's robust function
+ */
 function urlBase64ToUint8Array(base64String) {
-    if (!base64String) {
-        console.error('ERROR: VAPID key is empty');
-        return new Uint8Array(0);
+    return robustVapidKeyToUint8Array(base64String, 'Uint8Array');
+}
+
+/**
+ * Subscribe with retry using multiple buffer formats
+ */
+async function dashboardSubscribeWithRetry(registration, vapidKey) {
+    const formats = ['Uint8Array', 'ArrayBuffer'];
+    let lastError = null;
+
+    for (const format of formats) {
+        try {
+            console.log(`[Push Dashboard] Attempting ${format}...`);
+            const keyBuffer = robustVapidKeyToUint8Array(vapidKey, format);
+            const sub = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: keyBuffer
+            });
+            console.log('[Push Dashboard] ✅ Subscription successful with', format);
+            return sub;
+        } catch (error) {
+            lastError = error;
+            console.error(`[Push Dashboard] Failed with ${format}:`, error.message);
+        }
     }
-    
-    try {
-        const cleanString = base64String.replace(/['"\s]+/g, '').trim();
-        console.log('Step 1 - Cleaned string length:', cleanString.length);
-        
-        let pad = (4 - (cleanString.length % 4)) % 4;
-        let base64 = cleanString + "=".repeat(pad);
-        console.log('Step 2 - After padding, base64 length:', base64.length);
-        
-        base64 = base64.replace(/\-/g, '+').replace(/_/g, '/');
-        console.log('Step 3 - Standard base64 length:', base64.length);
-        
-        const rawData = window.atob(base64);
-        console.log('Step 4 - Raw data length:', rawData.length);
-        console.log('Expected length for VAPID key: 65 bytes (header + 64 bytes)');
-        
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
-        
-        console.log('✅ Successfully converted VAPID key to Uint8Array');
-        return outputArray;
-    } catch (e) { 
-        console.error("❌ ERROR: Failed to convert VAPID key:");
-        console.error("  Message:", e.message);
-        console.error("  Input length:", base64String.length);
-        throw new Error(`Invalid VAPID key format: ${e.message}`);
-    }
+
+    throw lastError || new Error('All subscription formats failed');
 }
 
 async function enableNotificationSilent(vapidKey) {
     try {
         if (!('serviceWorker' in navigator) || !vapidKey || Notification.permission !== 'granted') return;
         
-        // Unsubscribe any existing push subscriptions first (to allow new VAPID key)
+        // Unsubscribe any existing push subscriptions first
         const oldRegs = await navigator.serviceWorker.getRegistrations();
         for(let reg of oldRegs) {
             if (reg.pushManager) {
                 const existingSub = await reg.pushManager.getSubscription();
                 if (existingSub) {
-                    console.log('🗑️ Unsubscribing old push subscription...');
+                    console.log('[Push Dashboard] 🗑️ Unsubscribing old subscription...');
                     await existingSub.unsubscribe();
-                    console.log('✅ Old subscription removed');
                 }
             }
         }
         
         const registration = await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
-        await navigator.serviceWorker.ready; // Wait for SW to be ready
+        await navigator.serviceWorker.ready;
         
-        console.log('Notification permission already granted, preparing subscription...');
-        const keyArray = urlBase64ToUint8Array(vapidKey);
-        console.log('VAPID key array length:', keyArray.length);
-        const subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: keyArray
-        });
-        console.log('✅ Successfully subscribed to push notifications');
+        console.log('[Push Dashboard] Attempting subscription...');
+        const subscription = await dashboardSubscribeWithRetry(registration, vapidKey);
+        
+        console.log('[Push Dashboard] Saving subscription...');
         await fetch('/api/save-subscription', {
             method: 'POST',
             body: JSON.stringify(subscription),
             headers: { 'Content-Type': 'application/json' }
         });
     } catch (e) { 
-        console.error("❌ Silent Notification Error:", e);
-        console.error("Error message:", e.message);
-        console.error("Error stack:", e.stack);
+        console.error('[Push Dashboard] Error:', e.message);
     }
 }
 

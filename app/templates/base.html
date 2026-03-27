@@ -121,22 +121,84 @@
     })();
 
     const publicVapidKey = {{ (public_vapid_key or '')|tojson }};
-    function baseUrlBase64ToUint8Array(base64String) {
-        const cleanString = base64String.replace(/[^A-Za-z0-9\-_]/g, '');
-        const base64 = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
-        const padNeeded = (4 - (base64.length % 4)) % 4;
-        const finalBase64 = base64 + '='.repeat(padNeeded);
+
+    /**
+     * Convert VAPID public key from Base64url to Uint8Array/ArrayBuffer
+     * Handles HTML entities, quotes, URL-safe base64, and padding
+     */
+    function robustVapidKeyToUint8Array(base64String, returnFormat = 'Uint8Array') {
+        if (!base64String || typeof base64String !== 'string') {
+            throw new Error('VAPID key must be a non-empty string');
+        }
+
         try {
-            const rawData = window.atob(finalBase64);
+            // Step 1: Decode HTML entities
+            let cleanString = base64String
+                .replace(/&quot;/gi, '').replace(/&#34;/gi, '').replace(/&#x22;/gi, '')
+                .replace(/&apos;/gi, '').replace(/&#39;/gi, '').replace(/&#x27;/gi, '')
+                .trim();
+            
+            // Step 2: Remove quotes and whitespace
+            cleanString = cleanString.replace(/^["']|["']$/g, '').replace(/\s+/g, '');
+
+            if (!cleanString) {
+                throw new Error('VAPID key is empty after cleanup');
+            }
+
+            console.log('[VAPID] Input cleaned, length:', cleanString.length);
+
+            // Step 3: Convert URL-safe Base64 to standard Base64
+            let base64Std = cleanString.replace(/\-/g, '+').replace(/_/g, '/');
+
+            // Step 4: Add padding (required by strict Base64 decoders like Safari)
+            const padNeeded = (4 - (base64Std.length % 4)) % 4;
+            if (padNeeded > 0) {
+                base64Std = base64Std + '='.repeat(padNeeded);
+            }
+
+            console.log('[VAPID] After padding, length:', base64Std.length);
+
+            // Step 5: Decode Base64
+            const rawData = window.atob(base64Std);
+
+            if (!rawData || rawData.length === 0) {
+                throw new Error('Key decoded to empty data');
+            }
+
+            if (rawData.length !== 65) {
+                throw new Error(`Invalid key length: ${rawData.length} bytes (expected 65 for P-256)`);  
+            }
+
+            console.log('[VAPID] Decoded to', rawData.length, 'bytes');
+
+            // Step 6: Convert to Uint8Array
             const outputArray = new Uint8Array(rawData.length);
             for (let i = 0; i < rawData.length; ++i) {
                 outputArray[i] = rawData.charCodeAt(i);
             }
+
+            // Step 7: Validate P-256 format
+            if (outputArray[0] !== 4) {
+                console.warn('[VAPID] First byte is 0x' + outputArray[0].toString(16) + ', expected 0x04');
+            }
+
+            console.log('[VAPID] ✅ Key conversion successful');
+
+            if (returnFormat === 'ArrayBuffer') {
+                return outputArray.buffer.slice(0);
+            }
             return outputArray;
         } catch (e) {
-            console.error("Base64 conversion failed:", e);
-            throw e;
+            console.error('[VAPID] Conversion error:', e);
+            throw new Error(`VAPID conversion failed: ${e.message}`);
         }
+    }
+
+    /**
+     * Subscribe to push notifications with fallback for different buffer formats
+     */
+    function baseUrlBase64ToUint8Array(base64String) {
+        return robustVapidKeyToUint8Array(base64String, 'Uint8Array');
     }
     </script>
 </body>
