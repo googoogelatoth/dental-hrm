@@ -126,42 +126,61 @@
         const formats = ['Uint8Array', 'ArrayBuffer'];
         let lastError = null;
 
+        console.log('[Profile Push] Starting subscription attempt with', formats.length, 'formats');
+        console.log('[Profile Push] VAPID key length:', vapidKey.length);
+
         for (const format of formats) {
             try {
-                console.log(`[Profile Push] Attempting ${format}...`);
+                console.log(`[Profile Push] ========== ATTEMPTING: ${format} ==========`);
                 const keyBuffer = robustVapidKeyToUint8Array(vapidKey, format);
+                console.log(`[Profile Push] Key buffer prepared, type:`, typeof keyBuffer, 'length:', keyBuffer?.length || keyBuffer?.byteLength);
+                
+                console.log(`[Profile Push] Calling registration.pushManager.subscribe...`);
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: keyBuffer
                 });
-                console.log(`[Profile Push] ✅ Subscription successful with ${format}`);
+                
+                console.log(`[Profile Push] ✅ SUBSCRIPTION SUCCESS with ${format}`);
+                console.log('[Profile Push] Subscription endpoint:', subscription.endpoint.substring(0, 50) + '...');
                 return subscription;
             } catch (error) {
                 lastError = error;
-                console.error(`[Profile Push] Failed with ${format}:`, error.message);
+                console.error(`[Profile Push] ❌ FAILED with ${format}`);
+                console.error('[Profile Push] Error name:', error.name);
+                console.error('[Profile Push] Error message:', error.message);
+                console.error('[Profile Push] Error code:', error.code);
+                console.error('[Profile Push] Full error:', error);
 
                 if (error.message && error.message.includes('different applicationServerKey')) {
+                    console.log('[Profile Push] Detected old subscription - attempting cleanup...');
                     const oldSub = await registration.pushManager.getSubscription();
                     if (oldSub) {
-                        console.log('[Profile Push] Removing old subscription and retrying...');
+                        console.log('[Profile Push] Found old subscription, unsubscribing...');
                         await oldSub.unsubscribe();
                         try {
+                            console.log('[Profile Push] Retrying after cleanup...');
                             return await registration.pushManager.subscribe({
                                 userVisibleOnly: true,
                                 applicationServerKey: robustVapidKeyToUint8Array(vapidKey, format)
                             });
                         } catch (retryError) {
                             lastError = retryError;
+                            console.error('[Profile Push] Retry also failed:', retryError.message);
                         }
                     }
                 }
 
                 if (!(error.message && error.message.includes('applicationServerKey'))) {
+                    console.error('[Profile Push] Error is not applicationServerKey related, throwing...');
                     throw error;
                 }
+                
+                console.log(`[Profile Push] Trying next format...`);
             }
         }
 
+        console.error('[Profile Push] ❌ ALL FORMATS FAILED');
         throw lastError || new Error('Push subscription failed for all buffer formats');
     }
 
