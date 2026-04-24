@@ -2791,6 +2791,23 @@ async def delete_benefit(
 
     return RedirectResponse(url="/admin/benefits", status_code=303)
 
+@app.get("/my-ot-requests", response_class=HTMLResponse)
+async def my_ot_requests_page(request: Request, texts: dict = Depends(get_lang), user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    ot_requests = db.query(models.OTRequest).filter(models.OTRequest.employee_id == user.id).order_by(models.OTRequest.request_date.desc()).all()
+    return render_template("my_ot_requests.html", {"request": request, "texts": texts, "ot_requests": ot_requests, "user": user})
+
+@app.get("/admin/payroll-tax-sso-report", response_class=HTMLResponse)
+async def payroll_tax_report_page(request: Request, month: int = Query(None), year: int = Query(None), user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    now = get_now_th()
+    m = month or now.month
+    y = year or now.year
+    payrolls = db.query(models.PayrollDetail).filter(models.PayrollDetail.month == m, models.PayrollDetail.year == y, models.PayrollDetail.status == "Finalized").all()
+    return render_template("admin_payroll_tax_report.html", {"request": request, "texts": texts, "payrolls": payrolls, "current_month": m, "current_year": y, "user": user})
+
+@app.get("/admin/benefit-usages", response_class=HTMLResponse)
+async def admin_benefit_usages(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    transactions = db.query(models.BenefitTransaction).options(joinedload(models.BenefitTransaction.employee), joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit)).order_by(models.BenefitTransaction.id.desc()).limit(200).all()
+    return render_template("admin_benefit_usages.html", {"request": request, "texts": texts, "transactions": transactions, "user": user})
 
 @app.get("/admin/payroll-adjustments", response_class=HTMLResponse)
 async def payroll_adjustments_page(
