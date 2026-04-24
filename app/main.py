@@ -3549,6 +3549,41 @@ VAPID_CLAIMS = {
     "sub": VAPID_CLAIMS_SUB
 }
 
+# Global function for sending push notifications (accessible from all routes)
+def send_push_notification(employee_id: int, title: str, message: str, db: Session):
+    """Send push notification to employee across all registered devices"""
+    try:
+        subs = db.query(models.PushSubscription).filter(
+            models.PushSubscription.employee_id == employee_id
+        ).all()
+        
+        for sub in subs:
+            try:
+                # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
+                parsed_url = urlparse(sub.endpoint)
+                audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                
+                # เพิ่ม audience เข้าไปใน VAPID Claims
+                claims = VAPID_CLAIMS.copy()
+                claims["aud"] = audience
+
+                webpush(
+                    subscription_info={
+                        "endpoint": sub.endpoint,
+                        "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                    },
+                    data=json.dumps({"title": title, "body": message}),
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=claims
+                )
+            except WebPushException as ex:
+                logger.info(f"Push failed: {ex}")
+                if ex.response and ex.response.status_code == 410:
+                    db.delete(sub)
+                    db.commit()
+    except SQLAlchemyError as ex:
+        logger.info(f"Error sending push notifications: {ex}")
+
 @app.post("/api/save-subscription")
 async def save_subscription(request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     try:
@@ -3611,62 +3646,6 @@ async def save_subscription(request: Request, user: models.Employee = Depends(ge
         logger.error("push.subscription save_failed error=%s user_id=%s request_id=%s", e, user.id, _request_id_from_state(request))
         return {"status": "error", "message": f"Server error: {str(e)}"}
 
-
-# def send_push_notification(employee_id: int, title: str, message: str, db: Session):
-#     # ดึง Subscription ทั้งหมดของพนักงานคนนี้ (เขาอาจจะมีหลายเครื่อง)
-#     subs = db.query(models.PushSubscription).filter(
-#         models.PushSubscription.employee_id == employee_id
-#     ).all()
-    
-#     for sub in subs:
-#         try:
-#             webpush(
-#                 subscription_info={
-#                     "endpoint": sub.endpoint,
-#                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-#                 },
-#                 data=json.dumps({"title": title, "body": message}),
-#                 vapid_private_key=VAPID_PRIVATE_KEY,
-#                 vapid_claims=VAPID_CLAIMS
-#             )
-#         except WebPushException as ex:
-#             logger.info(f"Push failed: {ex}")
-#             # ถ้า Token หมดอายุ (410 Gone) ให้ลบออกจาก DB
-#             if ex.response and ex.response.status_code == 410:
-#                 db.delete(sub)
-#                 db.commit()
-    def send_push_notification(employee_id: int, title: str, message: str, db: Session):
-        try:
-            subs = db.query(models.PushSubscription).filter(
-                models.PushSubscription.employee_id == employee_id
-            ).all()
-            
-            for sub in subs:
-                try:
-                    # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
-                    parsed_url = urlparse(sub.endpoint)
-                    audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                    
-                    # เพิ่ม audience เข้าไปใน VAPID Claims
-                    claims = VAPID_CLAIMS.copy()
-                    claims["aud"] = audience # <--- จุดที่ต้องเพิ่มครับ
-
-                    webpush(
-                        subscription_info={
-                            "endpoint": sub.endpoint,
-                            "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-                        },
-                        data=json.dumps({"title": title, "body": message}),
-                        vapid_private_key=VAPID_PRIVATE_KEY,
-                        vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
-                    )
-                except WebPushException as ex:
-                    logger.info(f"Push failed: {ex}")
-                    if ex.response and ex.response.status_code == 410:
-                        db.delete(sub)
-                        db.commit()
-        except SQLAlchemyError as ex:
-            logger.info(f"Error sending push notifications: {ex}")
 
 @app.get("/admin/broadcast", response_class=HTMLResponse)
 async def broadcast_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang)):
