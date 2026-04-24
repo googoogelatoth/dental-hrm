@@ -4041,6 +4041,10 @@ def calculate_dynamic_payroll_details(
         # Only count as working day if it's a work day and not a holiday
         if is_work_day and not is_holiday_day:
             paid_days += 1
+            att = db.query(models.Attendance).filter(
+                models.Attendance.employee_id == emp.id,
+                models.Attendance.date == curr
+            ).first()
             if att:
                 total_late_mins += (att.late_minutes or 0)
                 total_early_mins += (att.early_minutes or 0)
