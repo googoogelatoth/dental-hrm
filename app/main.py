@@ -1243,7 +1243,7 @@ async def handle_add_employee(
         employee_code=employee_code,
         first_name=first_name,
         last_name=last_name,
-        nickname=nickname if nickname and nickname != "None" else employee.nickname,
+        nickname=nickname if nickname and nickname != "None" else "",
         phone_number=encrypt_data(phone_number) if phone_number else None,
         id_card_number=encrypt_data(id_card_number) if id_card_number else None,
         bank_account_number=encrypt_data(bank_account_number) if bank_account_number else None,
@@ -2283,6 +2283,8 @@ async def handle_leave_apply(
             (models.Employee.role.ilike("admin")) | 
             (models.Employee.employee_code == "admin")
         ).all()
+        
+        sender_info = f"{user.first_name} {user.last_name} ({user.employee_code})"
         
         for admin in admins:
             background_tasks.add_task(
@@ -4682,6 +4684,68 @@ async def process_payroll(
 
     return RedirectResponse(url="/admin/payroll-summary?month={}&year={}".format(dt_end_global.month, dt_end_global.year), status_code=303)
 
+@app.get("/admin/payroll-summary", response_class=HTMLResponse)
+async def payroll_summary_page(
+    request: Request,
+    month: int = Query(None),
+    year: int = Query(None),
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db)
+):
+    now = get_now_th()
+    m = month or now.month
+    y = year or now.year
+
+    # ดึงข้อมูลเงินเดือนที่ Finalized แล้ว
+    payroll_list = db.query(models.PayrollDetail).options(
+        joinedload(models.PayrollDetail.employee)
+    ).filter(
+        models.PayrollDetail.month == m,
+        models.PayrollDetail.year == y,
+        models.PayrollDetail.status == "Finalized"
+    ).all()
+
+    return render_template("admin_payroll_summary.html", {
+        "request": request,
+        "texts": texts,
+        "payroll_list": payroll_list,
+        "current_month": m,
+        "current_year": y,
+        "user": user
+    })
+
+@app.get("/request-ot", response_class=HTMLResponse)
+async def request_ot_page(request: Request, texts: dict = Depends(get_lang), user: models.Employee = Depends(get_current_active_user)):
+    return render_template("request_ot.html", {"request": request, "texts": texts, "user": user})
+
+@app.post("/request-ot")
+async def handle_request_ot(
+    request: Request,
+    request_date: date = Form(...),
+    start_time: str = Form(...),
+    end_time: str = Form(...),
+    reason: str = Form(...),
+    db: Session = Depends(get_db),
+    user: models.Employee = Depends(get_current_active_user)
+):
+    # คำนวณนาที (เบื้องต้น)
+    t1 = datetime.strptime(start_time, "%H:%M")
+    t2 = datetime.strptime(end_time, "%H:%M")
+    total_mins = (t2 - t1).seconds / 60
+
+    new_ot = models.OTRequest(
+        employee_id=user.id,
+        request_date=request_date,
+        start_time=t1.time(),
+        end_time=t2.time(),
+        total_minutes=total_mins,
+        reason=reason,
+        status="pending"
+    )
+    db.add(new_ot)
+    db.commit()
+    return RedirectResponse(url="/check-in-page?msg=ot_sent", status_code=303)
 
 @app.get("/my-payslips", response_class=HTMLResponse)
 async def my_payslips(
