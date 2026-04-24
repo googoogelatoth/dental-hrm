@@ -1243,7 +1243,7 @@ async def handle_add_employee(
         employee_code=employee_code,
         first_name=first_name,
         last_name=last_name,
-        nickname=nickname,
+        nickname=nickname if nickname and nickname != "None" else employee.nickname,
         phone_number=encrypt_data(phone_number) if phone_number else None,
         id_card_number=encrypt_data(id_card_number) if id_card_number else None,
         bank_account_number=encrypt_data(bank_account_number) if bank_account_number else None,
@@ -1380,7 +1380,7 @@ async def update_company_settings(
 
 #     # เก็บข้อมูลเดิมไว้ทำ Log
 #     old_data = f"เดิม: {employee.first_name} {employee.last_name}, เงินเดือน: {employee.base_salary}"
-
+    
 #     # --- 2. UNIQUE Check สำหรับบัตรประชาชน ---
 #     if id_card_number:
 #         encrypted_id_input = encrypt_data(id_card_number)
@@ -1509,7 +1509,7 @@ async def employee_detail(
         "request": request,
         "texts": texts, 
         "employee": employee,
-        "decrypted": display_data,  # ส่งค่าที่ถอดรหัสแล้วแยกไป
+        "decrypted": display_data,  # ส่งค่าที่ถอดแล้วแยกไป
         "public_vapid_key": vapid_key if vapid_key else ""  # เพิ่มสำหรับระบบ Push Notification
     })
 
@@ -1585,7 +1585,7 @@ async def restore_employee(
         # 5. ยืนยันการเปลี่ยนแปลง
         db.commit()
     
-    # แก้ msg ใน URL ให้เป็น restored เพื่อให้นายเอาไปดึงแจ้งเตือนหน้าบ้านได้ถูกตัวครับ
+    # แก้ msg ใน URL ให้เป็น restored เพื่อให้ได้รับแจ้งเตือนหน้าบ้านได้ถูกตัวครับ
     return RedirectResponse(url="/dashboard?msg=restored", status_code=303)
 
 # 1. หน้าแสดงฟอร์ม Login
@@ -1845,9 +1845,9 @@ async def handle_check_in(
 
         # คำนวณนาทีสาย
         if schedule and schedule.work_start_time:
-            start_dt = datetime.strptime(schedule.work_start_time, "%H:%M")
-            if current_time > start_dt.time():
-                diff = datetime.combine(today, current_time) - datetime.combine(today, start_dt.time())
+            start_dt = datetime.strptime(schedule.work_start_time[:5], "%H:%M").time()
+            if current_time > start_dt:
+                diff = datetime.combine(today, current_time) - datetime.combine(today, start_dt)
                 total_late = int(diff.total_seconds() / 60)
                 # หักลบช่วงเวลา Grace Period (ถ้ามี)
                 late_min = max(0, total_late - (schedule.grace_period_late or 0))
@@ -1879,9 +1879,9 @@ async def handle_check_in(
         early_min = 0
         # คำนวณนาทีออกก่อน (เทียบกับเวลาที่กดล่าสุด)
         if schedule and schedule.work_end_time:
-            end_dt = datetime.strptime(schedule.work_end_time, "%H:%M")
-            if current_time < end_dt.time():
-                diff = datetime.combine(today, end_dt.time()) - datetime.combine(today, current_time)
+            end_dt = datetime.strptime(schedule.work_end_time[:5], "%H:%M").time()
+            if current_time < end_dt:
+                diff = datetime.combine(today, end_dt) - datetime.combine(today, current_time)
                 total_early = int(diff.total_seconds() / 60)
                 early_min = max(0, total_early - (schedule.grace_period_early_out or 0))
 
@@ -1952,6 +1952,7 @@ async def handle_check_in(
 #             attendance.image_out = photo_url 
 
 #         # --- 2. คำนวณการออกก่อนเวลา (Early Out) ---
+#         # เช็คต่อจาก "สาย" หากสายด้วยและออกก่อนด้วย จะโชว์ว่าออกก่อน (หรือคุณจะรวมคำก็ได้)
 #         early_min = 0
 #         if schedule and schedule.work_end_time:
 #             try:
@@ -1983,8 +1984,10 @@ async def handle_check_in(
 #             attendance.status = "Normal"
         
 #         # อัปเดตพิกัดล่าสุดตอนออก
-#         if lat: attendance.lat = lat 
-#         if lon: attendance.lon = lon
+#         if lat:
+#             attendance.lat = lat 
+#         if lon:
+#             attendance.lon = lon
         
 #         db.commit()
 
@@ -2185,7 +2188,7 @@ async def attendance_report(
                     "status": status,
                     "location_in": "-"
                 })
-        
+            
         current_day += timedelta(days=1)
     
     # 4. ส่งข้อมูลกลับหน้าจอ
@@ -2282,7 +2285,6 @@ async def handle_leave_apply(
         ).all()
         
         for admin in admins:
-            sender_info = user.employee_code if user else "ไม่ระบุรหัส"
             background_tasks.add_task(
                 send_push_notification,
                 admin.id,
@@ -2290,7 +2292,7 @@ async def handle_leave_apply(
                 f"พนักงานรหัส {sender_info} ส่งคำขอรออนุมัติ ({leave_type})",
                 db
             )
-    except SQLAlchemyError as e:
+    except (SQLAlchemyError, TypeError, ValueError) as e:
         logger.warning("leave.apply notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
 
     return RedirectResponse(url="/check-in-page?msg=leave_sent", status_code=303)
@@ -2518,7 +2520,7 @@ async def handle_edit_employee(
     # 2. เก็บข้อมูลเดิมไว้ทำ Log (ละเอียดขึ้น)
     old_data = (f"เดิม: {employee.first_name} {employee.last_name}, "
                 f"เงินเดือน: {employee.base_salary}, "
-                f"โควตา(ป่วย/กิจ/พัก): {employee.sick_leave_quota}/{employee.personal_leave_quota}/{employee.vacation_leave_quota}")
+                f"โควตา(ป่วย/กิจ/พักร้อน): {employee.sick_leave_quota}/{employee.personal_leave_quota}/{employee.vacation_leave_quota}")
 
     # 3. UNIQUE Check สำหรับบัตรประชาชน (Encrypt ก่อนเทียบ)
     if id_card_number:
@@ -3633,17 +3635,38 @@ async def save_subscription(request: Request, user: models.Employee = Depends(ge
 #             if ex.response and ex.response.status_code == 410:
 #                 db.delete(sub)
 #                 db.commit()
+    def send_push_notification(employee_id: int, title: str, message: str, db: Session):
+        try:
+            subs = db.query(models.PushSubscription).filter(
+                models.PushSubscription.employee_id == employee_id
+            ).all()
+            
+            for sub in subs:
+                try:
+                    # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
+                    parsed_url = urlparse(sub.endpoint)
+                    audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                    
+                    # เพิ่ม audience เข้าไปใน VAPID Claims
+                    claims = VAPID_CLAIMS.copy()
+                    claims["aud"] = audience # <--- จุดที่ต้องเพิ่มครับ
 
-# @app.post("/admin/send-broadcast")
-# async def send_broadcast(title: str = Form(...), message: str = Form(...), db: Session = Depends(get_db)):
-#     # 💡 ปรับปรุง: ดึงเฉพาะพนักงานที่มี Subscription เท่านั้น (Join Table)
-#     subscriptions = db.query(models.PushSubscription).all()
-    
-#     for sub in subscriptions:
-#         # ดึงข้อมูลการส่งแจ้งเตือนรายเครื่อง
-#         send_push_notification(sub.employee_id, title, message, db)
-        
-#     return {"status": "success", "detail": f"ส่งประกาศหาพนักงานทั้งหมด {len(subscriptions)} รายการเรียบร้อยแล้ว"}
+                    webpush(
+                        subscription_info={
+                            "endpoint": sub.endpoint,
+                            "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
+                        },
+                        data=json.dumps({"title": title, "body": message}),
+                        vapid_private_key=VAPID_PRIVATE_KEY,
+                        vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
+                    )
+                except WebPushException as ex:
+                    logger.info(f"Push failed: {ex}")
+                    if ex.response and ex.response.status_code == 410:
+                        db.delete(sub)
+                        db.commit()
+        except SQLAlchemyError as ex:
+            logger.info(f"Error sending push notifications: {ex}")
 
 @app.get("/admin/broadcast", response_class=HTMLResponse)
 async def broadcast_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang)):
@@ -3671,39 +3694,6 @@ async def send_broadcast(
 
 # หาตำแหน่งโฟลเดอร์ app
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def send_push_notification(employee_id: int, title: str, message: str, db: Session):
-    try:
-        subs = db.query(models.PushSubscription).filter(
-            models.PushSubscription.employee_id == employee_id
-        ).all()
-        
-        for sub in subs:
-            try:
-                # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
-                parsed_url = urlparse(sub.endpoint)
-                audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                
-                # เพิ่ม audience เข้าไปใน VAPID Claims
-                claims = VAPID_CLAIMS.copy()
-                claims["aud"] = audience # <--- จุดที่ต้องเพิ่มครับ
-
-                webpush(
-                    subscription_info={
-                        "endpoint": sub.endpoint,
-                        "keys": {"p256dh": sub.p256dh, "auth": sub.auth}
-                    },
-                    data=json.dumps({"title": title, "body": message}),
-                    vapid_private_key=VAPID_PRIVATE_KEY,
-                    vapid_claims=claims # ใช้ claims ที่ใส่ aud แล้ว
-                )
-            except WebPushException as ex:
-                logger.info(f"Push failed: {ex}")
-                if ex.response and ex.response.status_code == 410:
-                    db.delete(sub)
-                    db.commit()
-    except SQLAlchemyError as ex:
-        logger.info(f"Error sending push notifications: {ex}")
 
 def calculate_ot_pay(emp_id: int, month: int, year: int, db: Session):
     # 1. ดึงข้อมูลพนักงานเพื่อเอาฐานเงินเดือนมาคำนวณ Rate ต่อชั่วโมง
@@ -3744,7 +3734,7 @@ def count_absent_days(emp_id: int, month: int, year: int, db: Session):
     # แปลงผลลัพธ์เป็น List ของตัวเลขวันที่
     recorded_days_list = [d[0] for d in recorded_days]
     
-    # 3. คำนวณวันขาด (เบื้องต้น: วันทั้งหมด - วันที่มี Log)
+    # 3. คำนวณวันขาด (เบื้องต้น: วันที่ทั้งหมด - วันที่มี Log)
     # หมายเหตุ: ในอนาคตคุณสามารถหักลบวันเสาร์-อาทิตย์ หรือวันหยุดนักขัตฤกษ์ออกได้ครับ
     absent_count = 0
     for day in range(1, num_days + 1):
@@ -3776,7 +3766,7 @@ def get_salary_and_approved_ot(emp_id: int, month: int, year: int, db: Session):
     # 2. รวมยอด OT จากคำขอที่ได้รับอนุมัติแล้ว (Approved) ในเดือน/ปี นั้นๆ
     total_ot_pay = calculate_ot_pay(emp_id, month, year, db) 
 
-    # 3. ส่งค่ากลับเป็น Object เพื่อให้นำไปใช้งานต่อได้ง่าย
+    # 3. ส่งค่ากลับเป็น Object เพื่อให้ใช้งานต่อได้ง่าย
     class SalaryInfo:
         base = base_salary
         allowance = pos_allowance
@@ -4045,27 +4035,11 @@ def calculate_dynamic_payroll_details(
         # Split weekly_off by comma and check if current day is in the list
         # Note: weekly_off stores WORKING days, not holidays!
         weekly_off_list = [d.strip() for d in weekly_off.split(',')]
-        is_weekly_off = day_name not in weekly_off_list
-        
-        # Skip weekend/weekly off - don't count any income
-        if is_weekly_off:
-            curr += timedelta(days=1)
-            continue
-        
-        att = db.query(models.Attendance).filter(
-            models.Attendance.employee_id == emp.id,
-            models.Attendance.date == curr
-        ).first()
-        
-        leave = db.query(models.LeaveRequest).filter(
-            models.LeaveRequest.employee_id == emp.id,
-            models.LeaveRequest.status == "Approved",
-            models.LeaveRequest.start_date <= curr,
-            models.LeaveRequest.end_date >= curr
-        ).first()
-
-        # Count paid days: working day with attendance/leave/holiday
-        if att or is_holiday or leave:
+        is_work_day = day_name in weekly_off_list
+        # Check if current day is a holiday (use the same holiday_dates set)
+        is_holiday_day = curr in holiday_dates
+        # Only count as working day if it's a work day and not a holiday
+        if is_work_day and not is_holiday_day:
             paid_days += 1
             if att:
                 total_late_mins += (att.late_minutes or 0)
@@ -4135,9 +4109,9 @@ def calculate_dynamic_payroll_details(
     if draft:
         draft_extra_income = draft.extra_income or 0
         draft_extra_deduction = draft.extra_deduction or 0
-        draft_tax = draft.tax or 0
-        draft_sso = draft.sso or 0
-        
+        draft_sso = min(base_salary * 0.05, 750)
+        draft_tax = 0
+
         # If draft has manual overrides for computed fields, use those instead
         # Only use draft value if it's explicitly set (> 0 means admin edited it)
         # Skip 0 values as they're likely defaults from previous calculation
@@ -4261,7 +4235,7 @@ async def recalculate_attendance(
             if not attendance.check_in and attendance.check_out:
                 attendance.status = "ไม่ลงเวลาเข้า"
             
-            # --- กรณี: สาย (Late) ---
+            # --- 🚩 กรณี: สาย (Late) ---
             elif attendance.check_in and sched.work_start_time:
                 target_in = datetime.strptime(sched.work_start_time[:5], "%H:%M").time()
                 actual_in = attendance.check_in.time()
@@ -4272,7 +4246,7 @@ async def recalculate_attendance(
                         attendance.late_minutes = late_mins
                         attendance.status = "สาย"
 
-            # --- กรณี: ออกก่อนเวลา (Early Out) ---
+            # --- 🚩 กรณี: ออกก่อนเวลา (Early Out) ---
             if attendance.check_out and sched.work_end_time:
                 target_out = datetime.strptime(sched.work_end_time[:5], "%H:%M").time()
                 actual_out = attendance.check_out.time()
@@ -4303,10 +4277,7 @@ async def recalculate_attendance(
             models.PayrollDetail.month == e_date.month,
             models.PayrollDetail.year == e_date.year,
             models.PayrollDetail.status == "Draft"
-        ).update({
-            models.PayrollDetail.late_deduction: None,
-            models.PayrollDetail.early_deduction: None
-        }, synchronize_session=False)
+        ).delete()
         
         db.commit()
         
@@ -4352,11 +4323,15 @@ async def calculate_payroll_page(
 
     # 2. ระบบ Reset Draft
     if reset == "true":
-        db.query(models.PayrollDetail).filter(
+        drafts = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.month == e_dt_global.month,
             models.PayrollDetail.year == e_dt_global.year,
             models.PayrollDetail.status == "Draft"
-        ).delete()
+        ).all()
+        
+        for draft in drafts:
+            db.delete(draft)
+        
         db.commit()
         logger.info("payroll.calculate reset_draft=true month=%s year=%s request_id=%s", e_dt_global.month, e_dt_global.year, request_id)
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}", status_code=303)
@@ -4629,804 +4604,8 @@ async def process_payroll(
     if action == "save_draft":
         return RedirectResponse(url=f"/admin/calculate-payroll?start_date={start_date}&end_date={end_date}&msg=draft_saved", status_code=303)
 
-    return RedirectResponse(url=f"/admin/payroll-summary?month={dt_end_global.month}&year={dt_end_global.year}", status_code=303)
+    return RedirectResponse(url="/admin/payroll-summary?month={}&year={}".format(dt_end_global.month, dt_end_global.year), status_code=303)
 
-
-@app.get("/my-benefits", response_class=HTMLResponse)
-async def my_benefits_page(
-    request: Request,
-    user: models.Employee = Depends(get_current_active_user),
-    texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db),
-):
-    as_of = date.today()
-    active_benefits = _employee_active_benefits_query(db, user.id, as_of=as_of).all()
-    benefit_ids = [eb.id for eb in active_benefits]
-    recent_requests = []
-    used_totals = {}
-    if benefit_ids:
-        used_totals = {
-            row[0]: float(row[1] or 0)
-            for row in (
-                db.query(models.BenefitTransaction.employee_benefit_id, func.sum(models.BenefitTransaction.amount))
-                .filter(models.BenefitTransaction.employee_benefit_id.in_(benefit_ids))
-                .group_by(models.BenefitTransaction.employee_benefit_id)
-                .all()
-            )
-        }
-        recent_requests = (
-            db.query(models.BenefitTransaction)
-            .filter(models.BenefitTransaction.employee_benefit_id.in_(benefit_ids))
-            .order_by(models.BenefitTransaction.used_at.desc().nullslast(), models.BenefitTransaction.trans_date.desc())
-            .limit(50)
-            .all()
-        )
-
-    for eb in active_benefits:
-        try:
-            eb.used_total = used_totals.get(eb.id, 0.0)
-        except Exception:
-            pass
-
-    return render_template(
-        "my_benefits.html",
-        {
-            "request": request,
-            "texts": texts,
-            "user": user,
-            "active_benefits": active_benefits,
-            "recent_requests": recent_requests,
-            "today": as_of,
-        },
-    )
-
-
-@app.post("/my-benefits/request")
-async def request_benefit_usage(
-    request: Request,
-    user: models.Employee = Depends(get_current_active_user),
-):
-    return RedirectResponse(url="/my-benefits?error=disabled", status_code=303)
-
-
-@app.get("/admin/benefit-requests", response_class=HTMLResponse)
-async def admin_benefit_requests_page(
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-    texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db),
-):
-    return RedirectResponse(url="/admin/benefit-usages?msg=approval_disabled", status_code=303)
-
-
-@app.post("/admin/benefit-requests/approve/{tx_id}")
-async def approve_benefit_request(
-    tx_id: int,
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-):
-    return RedirectResponse(url="/admin/benefit-usages?error=approval_disabled", status_code=303)
-
-
-@app.post("/admin/benefit-requests/reject/{tx_id}")
-async def reject_benefit_request(
-    tx_id: int,
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-):
-    return RedirectResponse(url="/admin/benefit-usages?error=approval_disabled", status_code=303)
-
-
-@app.get("/admin/benefit-usages", response_class=HTMLResponse)
-async def admin_benefit_usages_page(
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-    texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db),
-):
-    as_of = date.today()
-    employee_benefits = (
-        db.query(models.EmployeeBenefit)
-        .join(models.Employee)
-        .join(models.Benefit)
-        .filter(models.EmployeeBenefit.is_active.is_(True), models.Employee.is_active.is_(True))
-        .order_by(models.Employee.first_name.asc(), models.Benefit.name.asc())
-        .all()
-    )
-    recent_transactions = (
-        db.query(models.BenefitTransaction)
-        .join(models.EmployeeBenefit)
-        .join(models.Employee)
-        .join(models.Benefit)
-        .order_by(models.BenefitTransaction.used_at.desc().nullslast(), models.BenefitTransaction.trans_date.desc())
-        .limit(100)
-        .all()
-    )
-    return render_template(
-        "admin_benefit_usages.html",
-        {
-            "request": request,
-            "texts": texts,
-            "user": user,
-            "employee_benefits": employee_benefits,
-            "recent_transactions": recent_transactions,
-            "today": as_of,
-        },
-    )
-
-
-@app.post("/admin/benefit-usages")
-async def admin_record_benefit_usage(
-    request: Request,
-    employee_benefit_id: int = Form(...),
-    amount: float = Form(...),
-    used_date: str = Form(...),
-    admin_remark: str = Form(None),
-    user: models.Employee = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    eb = (
-        db.query(models.EmployeeBenefit)
-        .join(models.Employee)
-        .filter(
-            models.EmployeeBenefit.id == employee_benefit_id,
-            models.EmployeeBenefit.is_active.is_(True),
-            models.Employee.is_active.is_(True),
-        )
-        .first()
-    )
-    if not eb:
-        return RedirectResponse(url="/admin/benefit-usages?error=not_found", status_code=303)
-
-    try:
-        used_at = datetime.strptime(used_date, "%Y-%m-%d")
-    except Exception:
-        return RedirectResponse(url="/admin/benefit-usages?error=invalid_date", status_code=303)
-
-    if amount is None or float(amount) <= 0:
-        return RedirectResponse(url="/admin/benefit-usages?error=invalid_amount", status_code=303)
-
-    used_d = used_at.date()
-    if eb.start_date and used_d < eb.start_date:
-        return RedirectResponse(url="/admin/benefit-usages?error=out_of_range", status_code=303)
-    if eb.end_date and used_d > eb.end_date:
-        return RedirectResponse(url="/admin/benefit-usages?error=out_of_range", status_code=303)
-
-    remaining = float(eb.remaining_amount or 0.0)
-    deduct = float(amount)
-    if deduct > remaining:
-        return RedirectResponse(url="/admin/benefit-usages?error=insufficient", status_code=303)
-
-    eb.remaining_amount = max(0.0, remaining - deduct)
-    tx = models.BenefitTransaction(
-        employee_benefit_id=eb.id,
-        amount=deduct,
-        used_at=used_at,
-        status="Recorded",
-        reason=None,
-        admin_remark=(admin_remark.strip() if admin_remark else None),
-        approved_by_id=user.id,
-        approved_at=datetime.now(),
-        requested_at=datetime.now(),
-    )
-    db.add(tx)
-    log_activity(db, user, "บันทึกการใช้สวัสดิการ", f"employee_benefit_id={eb.id} deduct={deduct} used_date={used_date}", request)
-    db.commit()
-    return RedirectResponse(url="/admin/benefit-usages?msg=saved", status_code=303)
-
-
-@app.get("/admin/benefits-report", response_class=HTMLResponse)
-async def admin_benefits_report(
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-    texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db),
-):
-    as_of = date.today()
-    employees = db.query(models.Employee).filter(models.Employee.is_active).order_by(models.Employee.first_name).all()
-    report = []
-    for emp in employees:
-        ebs = _employee_active_benefits_query(db, emp.id, as_of=as_of).all()
-        if ebs:
-            eb_ids = [eb.id for eb in ebs]
-            used_totals = {
-                row[0]: float(row[1] or 0)
-                for row in (
-                    db.query(models.BenefitTransaction.employee_benefit_id, func.sum(models.BenefitTransaction.amount))
-                    .filter(models.BenefitTransaction.employee_benefit_id.in_(eb_ids))
-                    .group_by(models.BenefitTransaction.employee_benefit_id)
-                    .all()
-                )
-            }
-            for eb in ebs:
-                try:
-                    eb.used_total = used_totals.get(eb.id, 0.0)
-                except Exception:
-                    pass
-        report.append({"employee": emp, "benefits": ebs})
-    return render_template(
-        "admin_benefits_report.html",
-        {"request": request, "texts": texts, "user": user, "report": report, "today": as_of},
-    )
-
-@app.post("/admin/save-payroll-settings")
-async def save_payroll_settings(
-    request: Request,
-    user: models.Employee = Depends(require_admin),
-    late_days: int = Form(...),
-    late_hours: int = Form(...),
-    absent_days: int = Form(...),
-    ot_1_5_days: int = Form(...),
-    ot_1_5_hours: int = Form(...),
-    ot_1_5_mult: float = Form(...),
-    ot_1_mult: float = Form(1.0), 
-    ot_2_mult: float = Form(2.0),
-    ot_3_mult: float = Form(3.0),
-    db: Session = Depends(get_db)
-):
-    # อัปเดตหรือสร้างค่าใหม่ (Upsert Logic)
-    settings_to_update = [
-        {"type_name": "late", "label": "หักมาสาย", "divider_days": late_days, "divider_hours": late_hours, "multiplier": 1.0},
-        {"type_name": "absent", "divider_days": absent_days, "divider_hours": 0, "multiplier": 1.0},
-        {"type_name": "ot_1_5", "divider_days": ot_1_5_days, "divider_hours": ot_1_5_hours, "multiplier": 1.5},
-        {"type_name": "ot_1_0", "divider_days": ot_1_5_days, "divider_hours": ot_1_5_hours, "multiplier": ot_1_mult},
-        {"type_name": "ot_2_0", "divider_days": ot_1_5_days, "divider_hours": ot_1_5_hours, "multiplier": ot_2_mult},
-        {"type_name": "ot_3_0", "divider_days": ot_1_5_days, "divider_hours": ot_1_5_hours, "multiplier": ot_3_mult},
-    ]
-
-    for item in settings_to_update:
-        setting = db.query(models.PayrollSetting).filter_by(type_name=item["type_name"]).first()
-        if setting:
-            setting.divider_days = item["divider_days"]
-            setting.divider_hours = item["divider_hours"]
-            setting.multiplier = item["multiplier"]
-        else:
-            new_set = models.PayrollSetting(**item)
-            db.add(new_set)
-    
-    # บันทึก log
-    log_activity(db, user, "ตั้งค่าเงินเดือน", "อัปเดตการตั้งค่าคำนวณเงินเดือน", request)
-    
-    db.commit()
-    return RedirectResponse(url="/admin/payroll-settings?msg=success", status_code=303)
-
-
-
-@app.post("/admin/save-payroll")
-async def save_payroll(
-    emp_id: int,
-    month: int,
-    year: int,
-    sso_amount: float = Form(...), # รับค่าประกันสังคมที่คุณกรอก
-    tax_amount: float = Form(...), # รับค่าภาษีที่คุณกรอก
-    db: Session = Depends(get_db)
-):
-    # ดึงรายได้ที่คำนวณไว้แล้ว (Salary + OT)
-    salary_info = get_salary_and_approved_ot(emp_id, month, year, db) 
-    
-    # บันทึกลงตาราง PayrollDetail เพื่อเป็นประวัติ
-    new_payroll = models.PayrollDetail(
-        employee_id=emp_id,
-        month=month,
-        year=year,
-        salary=salary_info.base,
-        ot_pay=salary_info.ot,
-        sso=sso_amount, # ใช้ยอดที่คุณ Override มา
-        tax=tax_amount, # ใช้ยอดที่คุณ Override มา
-        net_total= (salary_info.total_income - sso_amount - tax_amount)
-    )
-    db.add(new_payroll)
-    db.commit()
-    
-    return {"status": "success", "message": "บันทึกข้อมูลเงินเดือนเรียบร้อย"}
-
-# ตัวอย่างการเรียกใช้แจ้งเตือนหลังบันทึก Payroll
-@app.post("/admin/confirm-payroll")
-async def confirm_payroll(emp_id: int, month: int, db: Session = Depends(get_db)):
-    # ... โค้ดบันทึกข้อมูล ...
-    
-    # ส่งแจ้งเตือนหาพนักงานรายบุคคล
-    title = "สลิปเงินเดือนพร้อมแล้ว"
-    message = f"สลิปเงินเดือนประจำเดือน {month} พร้อมให้ตรวจสอบแล้วในแอป"
-    send_push_notification(emp_id, title, message, db)
-    
-    return {"status": "success"}
-
-@app.get("/admin/payroll-summary", response_class=HTMLResponse)
-async def payroll_summary(
-    request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), 
-    month: int = None, 
-    year: int = None, 
-    db: Session = Depends(get_db)
-):
-    # 1. กำหนดค่าเริ่มต้น (ถ้าไม่เลือก ให้เอาเดือนปัจจุบัน)
-    now = datetime.now()
-    if month is None:
-        month = now.month
-    if year is None:
-        year = now.year
-
-    # 2. ดึงข้อมูลพนักงานตามเดือน/ปี ที่เลือก
-    raw_data = db.query(models.PayrollDetail).options(
-        joinedload(models.PayrollDetail.employee),
-        joinedload(models.PayrollDetail.line_items),
-    ).join(
-        models.Employee,
-        models.PayrollDetail.employee_id == models.Employee.id,
-    ).filter(
-        models.PayrollDetail.month == month,
-        models.PayrollDetail.year == year,
-        models.Employee.enable_payroll.is_(True)
-    ).all()
-
-    # 3. ป้องกัน "พนักงานเกิน" (ใช้ Dictionary กรอง ID ซ้ำ)
-    unique_payroll = {}
-    for p in raw_data:
-        unique_payroll[p.employee_id] = p
-    
-    payroll_data = [_annotate_payroll_line_items(p, texts) for p in unique_payroll.values()]
-
-    # Compute display totals that include adjustment line items (เงินเพิ่มอัตโนมัติ)
-    for p in payroll_data:
-        p.extra_income_display = (p.extra_income or 0) + sum(
-            item['amount'] for item in (p.earning_items or [])
-            if item.get('source_type') == 'adjustment'
-        )
-        p.extra_deduction_display = (p.extra_deduction or 0) + sum(
-            item['amount'] for item in (p.deduction_items or [])
-            if item.get('source_type') == 'adjustment'
-        )
-
-    def sum_line_items(records: list[models.PayrollDetail], *, item_type: str = None, source_type: str = None) -> float:
-        total = 0.0
-        for payroll in records:
-            for item in payroll.line_items or []:
-                if item_type and item.item_type != item_type:
-                    continue
-                if source_type and item.source_type != source_type:
-                    continue
-                total += item.amount or 0.0
-        return total
-
-    # 4. คำนวณยอดรวม (Grand Total) รวมเงินเพิ่ม/ลดพิเศษด้วย
-    summary = {
-        "total_salary": sum((p.salary or 0) + (p.position_allowance or 0) for p in payroll_data),
-        "total_ot": sum(p.ot_pay or 0 for p in payroll_data),
-        "total_welfare": sum_line_items(payroll_data, item_type="earning", source_type="welfare"),
-        "total_extra_income": sum_line_items(payroll_data, item_type="earning", source_type="adjustment") + sum(p.extra_income or 0 for p in payroll_data),
-        "total_sso": sum(p.sso or 0 for p in payroll_data),
-        "total_tax": sum(p.tax or 0 for p in payroll_data),
-        "total_extra_deduction": sum_line_items(payroll_data, item_type="deduction", source_type="adjustment") + sum(p.extra_deduction or 0 for p in payroll_data),
-        "total_net": sum(p.net_total or 0 for p in payroll_data),
-        "count": len(payroll_data)
-    }
-
-    # 5. ส่งค่ากลับไปที่ Template พร้อมข้อมูลสำหรับตัวเลือก Filter
-    return render_template("admin_payroll_summary.html", {
-        "request": request,
-        "payroll_data": payroll_data,
-        "summary": summary,
-        "current_month": month,
-        "current_year": year,
-        "months_range": range(1, 13),
-        "texts": texts,
-        "years_range": range(now.year - 1, now.year + 2) # เลือกย้อนหลังได้ 1 ปี
-    })
-
-@app.get("/admin/payroll-settings")
-async def payroll_settings_page(request: Request,user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db),texts: dict = Depends(get_lang)):
-    # ตรวจสอบสิทธิ์ Admin
-    if user.role != "Admin":
-        return RedirectResponse(url="/dashboard", status_code=303)
-
-    # ดึงค่าปัจจุบันจาก DB ไปโชว์ในฟอร์ม (ถ้ามี)
-    late_set = db.query(models.PayrollSetting).filter_by(type_name='late').first()
-    ot_set = db.query(models.PayrollSetting).filter_by(type_name='ot_1_5').first()
-
-    return render_template("payroll_settings.html", {
-        "request": request,
-        "late_set": late_set,
-        "texts": texts,
-        "ot_set": ot_set
-    })
-
-# --- 1. หน้าเปิดฟอร์มยื่น OT (GET) ---
-@app.get("/request-ot")
-async def request_ot_page(
-    request: Request, 
-    user: models.Employee = Depends(get_current_active_user),
-    texts: dict = Depends(get_lang)  # <--- เพิ่มอันนี้
-):
-    return render_template("request_ot.html", {
-        "request": request,
-        "texts": texts  # <--- ส่งก้อนนี้ไปด้วย
-    })
-
-# --- 2. ฟังก์ชันรับข้อมูลยื่น OT (POST) - รวมแจ้งเตือนและคำนวณเวลา ---
-@app.post("/request-ot")
-async def handle_request_ot(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    user: models.Employee = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    # 1. ดึงข้อมูลจาก Form แบบแมนนวลเพื่อกัน Error 422
-    form_data = await request.form()
-    
-    ot_date = form_data.get("request_date")
-    start_time = form_data.get("start_time")
-    end_time = form_data.get("end_time")
-    ot_type = form_data.get("ot_type", "ot_1_5") # ถ้าไม่มีให้เป็นค่าเริ่มต้น
-    reason = form_data.get("reason", "") # ถ้าไม่ใส่เหตุผล ให้เป็นค่าว่าง ไม่พังแน่นอน
-    
-    # เช็คข้อมูลที่จำเป็น (วันที่และเวลา)
-    if not all([ot_date, start_time, end_time]):
-        return RedirectResponse(url="/request-ot?msg=missing_fields", status_code=303)
-
-    # 2. คำนวณเวลาและบันทึก
-    fmt = '%H:%M'
-    try:
-        request_date_obj = datetime.strptime(ot_date, '%Y-%m-%d').date()
-        t1 = datetime.strptime(start_time, fmt)
-        t2 = datetime.strptime(end_time, fmt)
-        tdelta = t2 - t1
-        total_minutes = int(tdelta.total_seconds() / 60)
-        
-        if total_minutes <= 0:
-            return RedirectResponse(url="/request-ot?msg=invalid_time", status_code=303)
-
-        if _has_ot_time_overlap(
-            db=db,
-            employee_id=user.id,
-            request_date=request_date_obj,
-            start_time=t1.time(),
-            end_time=t2.time(),
-        ):
-            logger.info(
-                "ot.request overlap_blocked user_id=%s request_date=%s start=%s end=%s request_id=%s",
-                user.id,
-                request_date_obj,
-                t1.time(),
-                t2.time(),
-                _request_id_from_state(request),
-            )
-            return RedirectResponse(url="/request-ot?msg=overlap_time", status_code=303)
-
-        new_ot = models.OTRequest(
-            employee_id=user.id,
-            request_date=request_date_obj,
-            start_time=t1.time(),
-            end_time=t2.time(),
-            total_minutes=total_minutes,
-            ot_type=ot_type,
-            reason=reason if reason else "-", # ใส่ขีดไว้ถ้าว่าง
-            status="pending"
-        )
-        
-        db.add(new_ot)
-        
-        # บันทึก log
-        log_activity(db, user, "ขอ OT", f"ยื่นคำขอทำงานล่วงเวลาวันที่ {ot_date} ({total_minutes} นาที)", request)
-        
-        db.commit()
-
-        # 🚩 3. ส่งแจ้งเตือนหา Admin
-        try:
-            admins = db.query(models.Employee).filter(
-                (models.Employee.role.ilike("admin")) | 
-                (models.Employee.employee_code == "admin")
-            ).all()
-            for admin in admins:
-                background_tasks.add_task(
-                    send_push_notification,
-                    admin.id,
-                    "📢 มีคำขอ OT ใหม่",
-                    f"พนักงาน {user.first_name} ยื่นขอ OT",
-                    db
-                )
-        except (SQLAlchemyError, TypeError, ValueError) as e:
-            logger.warning("ot.request notify_admin_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
-
-        return RedirectResponse(url="/check-in-page?msg=ot_sent", status_code=303)
-
-    except (SQLAlchemyError, ValueError, TypeError) as e:
-        db.rollback()
-        logger.error("ot.request create_failed user_id=%s error=%s request_id=%s", user.id, e, _request_id_from_state(request))
-        return RedirectResponse(url="/request-ot?msg=error", status_code=303)
-
-@app.get("/admin/approve-ot")
-async def approve_ot_page(request: Request, msg: str = None, user: models.Employee = Depends(get_current_active_user), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    data = db.query(models.OTRequest).filter(models.OTRequest.status == "pending").all()
-    logger.info("ot.approval.view success user_id=%s pending=%s request_id=%s", user.id, len(data), _request_id_from_state(request))
-    return render_template("admin_approve_ot.html", {
-        "request": request,
-        "texts": texts,
-        "pending_ot": data,
-        "msg": msg,
-    })
-
-@app.post("/admin/process-ot/{ot_id}")
-async def process_ot(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    ot_id: int, 
-    action: str = Form(...), 
-    admin_remark: str = Form(None), # ✅ 1. เพิ่มให้รับค่าเหตุผล (None = ไม่บังคับ)
-    user: models.Employee = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    ot_req = db.query(models.OTRequest).filter(models.OTRequest.id == ot_id).first()
-    
-    if ot_req:
-        if action == "approve":
-            ot_req.status = "approved"
-            msg_text = "ได้รับการอนุมัติแล้ว"
-            icon = "✅"
-        else:
-            ot_req.status = "rejected"
-            # ✅ 2. ถ้ามีการใส่เหตุผล ให้พ่วงไปในข้อความแจ้งเตือนด้วย
-            remark_suffix = f" เนื่องจาก: {admin_remark}" if admin_remark else ""
-            msg_text = f"ไม่ได้รับการอนุมัติ{remark_suffix}"
-            icon = "❌"
-            
-        # ✅ 3. บันทึกเหตุผลลงในฐานข้อมูล
-        ot_req.admin_remark = admin_remark
-        
-        # บันทึก log
-        employee = db.query(models.Employee).filter(models.Employee.id == ot_req.employee_id).first()
-        if employee:
-            action_text = "อนุมัติ OT" if action == "approve" else "ปฏิเสธ OT"
-            log_activity(db, user, action_text, f"{action_text}ของ {employee.first_name} {employee.last_name} ({ot_req.total_minutes} นาที)", request)
-        
-        db.commit() 
-        
-        # 🚩 ส่งแจ้งเตือนหาพนักงาน
-        background_tasks.add_task(
-            send_push_notification,
-            ot_req.employee_id,
-            f"{icon} ผลการอนุมัติ OT",
-            f"คำขอ OT ของคุณ{msg_text}",
-            db
-        )
-        logger.info("ot.process success ot_id=%s action=%s employee_id=%s admin_user_id=%s request_id=%s", ot_id, action, ot_req.employee_id, user.id, _request_id_from_state(request))
-            
-    return RedirectResponse(url="/admin/approve-ot?msg=updated", status_code=303)
-
-@app.get("/my-ot-requests")
-async def my_ot_requests_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    my_ots = db.query(models.OTRequest).filter(
-        models.OTRequest.employee_id == user.id
-    ).order_by(models.OTRequest.request_date.desc()).all()
-
-    return render_template(request, "my_ot_requests.html", {
-        "ots": my_ots,
-        "texts": texts
-    })
-    
-@app.get("/admin/ot-summary-report")
-async def ot_summary_report(
-    request: Request,
-    user: models.Employee = Depends(get_current_active_user),
-    texts: dict = Depends(get_lang),
-    db: Session = Depends(get_db),
-    start_date: str = Query(None),
-    end_date: str = Query(None),
-    status: str = Query("approved"),
-    employee_code: str = Query(None),
-    employee_query: str = Query(None),
-):
-    if user.role != "Admin":
-        return RedirectResponse(url="/dashboard", status_code=303)
-
-    # กำหนดค่าวันที่เริ่มต้น (ถ้าไม่มี ให้เป็นต้นเดือนปัจจุบัน)
-    now = get_now_th()
-    if not start_date:
-        start_date = (now.replace(day=1)).strftime('%Y-%m-%d')
-    if not end_date:
-        end_date = now.strftime('%Y-%m-%d')
-    
-    # แปลง string เป็น date object
-    try:
-        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
-        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-    except (ValueError, TypeError):
-        start_date_obj = (now.replace(day=1)).date()
-        end_date_obj = now.date()
-    
-    # รายชื่อพนักงานสำหรับช่วยเลือกตัวกรองในหน้าเว็บ
-    employee_options = (
-        db.query(
-            models.Employee.employee_code,
-            models.Employee.first_name,
-            models.Employee.last_name,
-        )
-        .filter(models.Employee.employee_code.isnot(None))
-        .order_by(models.Employee.employee_code.asc())
-        .all()
-    )
-
-    # สร้าง Query ฐานสิ่งสืบค้นหา
-    query = db.query(models.OTRequest).options(joinedload(models.OTRequest.employee)).filter(
-        models.OTRequest.request_date >= start_date_obj,
-        models.OTRequest.request_date <= end_date_obj
-    )
-    
-    # กรองตามสถานะ
-    if status and status != "all":
-        query = query.filter(models.OTRequest.status == status)
-
-    # กรองตามรหัสหรือชื่อพนักงาน (รองรับทั้งพารามิเตอร์เก่าและใหม่)
-    employee_query_filter = (employee_query or employee_code or "").strip()
-    if employee_query_filter:
-        keyword = f"%{employee_query_filter}%"
-        query = query.join(models.Employee).filter(
-            or_(
-                models.Employee.employee_code.ilike(keyword),
-                models.Employee.first_name.ilike(keyword),
-                models.Employee.last_name.ilike(keyword),
-                (models.Employee.first_name + " " + models.Employee.last_name).ilike(keyword),
-            )
-        )
-    
-    filtered_ots = query.all()
-    
-    # คำนวณยอดรวมนาทีแยกตามประเภท
-    summary = {
-        "ot_1_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_1_0"),
-        "ot_1_5": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_1_5"),
-        "ot_2_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_2_0"),
-        "ot_3_0": sum(ot.total_minutes for ot in filtered_ots if ot.ot_type == "ot_3_0"),
-    }
-    
-    # นับสถานะ
-    status_count = {
-        "pending": len([ot for ot in filtered_ots if ot.status == "pending"]),
-        "approved": len([ot for ot in filtered_ots if ot.status == "approved"]),
-        "rejected": len([ot for ot in filtered_ots if ot.status == "rejected"]),
-    }
-    total_ots = len(filtered_ots)
-    total_minutes = sum(ot.total_minutes for ot in filtered_ots)
-
-    return render_template("admin_ot_summary.html", {
-        "request": request,
-        "ots": filtered_ots,
-        "texts": texts,
-        "summary": summary,
-        "status_count": status_count,
-        "total_ots": total_ots,
-        "total_minutes": total_minutes,
-        "start_date": start_date,
-        "end_date": end_date,
-        "current_status": status,
-        "current_employee_query": employee_query_filter,
-        "employee_options": employee_options,
-    })
-
-@app.get("/admin/download-attendance-template")
-async def download_attendance_template():
-    # สร้างโครงสร้างคอลัมน์ให้ตรงกับที่ระบบ Index (0, 1, 2, 3, 4, 5) คาดหวัง
-    data = {
-        'วันที่ (YYYY-MM-DD)': ['2026-02-01'],
-        'รหัสพนักงาน': ['20220201'],
-        'ชื่อ-นามสกุล (ไม่บังคับ)': ['สมชาย สายเสมอ'],
-        'เวลาเข้า (HH:mm)': ['08:00'],
-        'สาย (นาที) - ระบบคำนวณเอง': [''],
-        'เวลาออก (HH:mm)': ['17:00'],
-        'สถานะ (ไม่บังคับ)': ['']
-    }
-    
-    df = pd.DataFrame(data)
-    
-    # สร้างไฟล์ Excel ใน Memory
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Template')
-        
-    output.seek(0)
-    
-    headers = {
-        'Content-Disposition': 'attachment; filename="attendance_template.xlsx"'
-    }
-    return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-@app.post("/admin/approve-all-requests")
-async def approve_all_requests(request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
-    pending_list = db.query(models.ManualAttendanceRequest).filter(
-        models.ManualAttendanceRequest.status == "Pending"
-    ).all()
-    
-    approved_count = 0
-    
-    for req in pending_list:
-        try:
-            # ส่งค่า db เข้าไปตรงๆ ได้เลย ไม่ต้องผ่าน Depends อีกรอบ
-            await perform_approval_logic(req.id, "Approved", "อนุมัติอัตโนมัติทั้งหมด", db)
-            approved_count += 1
-        except (SQLAlchemyError, ValueError, TypeError) as e:
-            logger.warning("attendance.approve_all item_failed target_request_id=%s error=%s request_id=%s", req.id, e, _request_id_from_state(request))
-            continue
-    
-    # บันทึก log
-    log_activity(db, user, "อนุมัติแก้ไขลงเวลาทั้งหมด", f"อนุมัติคำขอแก้ไขลงเวลาทั้งหมด {approved_count} รายการ", request)
-    logger.info("attendance.approve_all success admin_user_id=%s approved=%s pending_total=%s request_id=%s", user.id, approved_count, len(pending_list), _request_id_from_state(request))
-            
-    return RedirectResponse(url="/admin/attendance-requests?msg=all_approved_success", status_code=303)
-
-# --- A. พิมพ์สลิปเงินเดือน (รายคน) ---
-@app.get("/admin/payslip/{payroll_id}", response_class=HTMLResponse)
-async def view_payslip(request: Request, payroll_id: int,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    payroll = db.query(models.PayrollDetail).options(
-        joinedload(models.PayrollDetail.employee),
-        joinedload(models.PayrollDetail.line_items),
-    ).filter(models.PayrollDetail.id == payroll_id).first()
-    
-    # 🚩 ดึงข้อมูลบริษัทล่าสุดออกมา
-    company = db.query(models.CompanySetting).first()
-    
-    if not payroll:
-        return "ไม่พบข้อมูลสลิปเงินเดือน"
-    
-    company_logo = compute_logo_url(company)
-    payroll = _annotate_payroll_line_items(payroll, texts)
-    return render_template("payslip_print.html", {
-        "request": request, # บรรทัดนี้จะไม่ Error แล้ว
-        "p": payroll,
-        "texts": texts,
-        "company": company, # ส่งค่าไปที่ Template
-        "company_logo": company_logo,
-    })
-
-# --- B & C. สรุปยอด SSO และ ภาษี (รายเดือน) ---
-@app.get("/admin/payroll-tax-sso-report")
-async def payroll_tax_sso_report(
-    request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), 
-    month: int = None, # 🚩 เปลี่ยนจากบังคับรับค่า เป็น None เพื่อให้เข้าหน้าแรกได้
-    year: int = None,  # 🚩 เปลี่ยนเป็น None
-    db: Session = Depends(get_db)
-):
-    # กำหนดค่าปัจจุบันหากไม่ได้เลือกเดือน/ปีมา
-    now = datetime.now()
-    if not month:
-        month = now.month
-    if not year:
-        year = now.year
-
-    data = db.query(models.PayrollDetail).filter(
-        models.PayrollDetail.month == month,
-        models.PayrollDetail.year == year
-    ).all()
-    
-    total_sso = sum(p.sso or 0 for p in data)
-    total_tax = sum(p.tax or 0 for p in data)
-    
-    return render_template("sso_tax_report.html", {
-        "request": request,
-        "data": data,
-        "total_sso": total_sso,
-        "total_tax": total_tax,
-        "current_month": month,
-        "current_year": year,
-        "months_range": range(1, 13),
-        "texts": texts,
-        "years_range": range(now.year - 1, now.year + 2)
-    })
-    
-
-
-
-@app.get("/admin/settings")
-async def settings_page(request: Request,user: models.Employee = Depends(get_current_active_user),texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # 1. ดึงข้อมูลบริษัท
-    company = db.query(models.CompanySetting).first()
-    
-    return render_template("settings.html", {
-        "request": request,
-        "company": company,
-        "texts": texts,
-        "user": user
-    })
-
-# --- ในไฟล์ app/main.py ---
 
 @app.get("/my-payslips", response_class=HTMLResponse)
 async def my_payslips(
@@ -5441,8 +4620,8 @@ async def my_payslips(
 
     # 🚩 แก้บรรทัดที่มีปัญหา: เปลี่ยน models.Payslip เป็น models.PayrollDetail
     payslips = db.query(models.PayrollDetail).options(
-        joinedload(models.PayrollDetail.line_items),
         joinedload(models.PayrollDetail.employee),
+        joinedload(models.PayrollDetail.line_items),
     ).filter(
         models.PayrollDetail.employee_id == user.id,
         models.PayrollDetail.month == target_month,
