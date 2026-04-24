@@ -3408,6 +3408,90 @@ async def reject_request(
         db.commit()
     return RedirectResponse(url="/admin/attendance-requests", status_code=303)
 
+# ========== OT REQUEST APPROVAL ROUTES ==========
+@app.get("/admin/approve-ot", response_class=HTMLResponse)
+async def view_ot_requests(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db)
+):
+    """Display all pending OT requests for admin approval"""
+    pending_ots = db.query(models.OTRequest).filter(
+        models.OTRequest.status == "pending"
+    ).options(joinedload(models.OTRequest.employee)).all()
+    
+    logger.info("ot.approval.view success user_id=%s pending=%s request_id=%s", user.id, len(pending_ots), _request_id_from_state(request))
+    return render_template("admin_ot_approval.html", {
+        "request": request,
+        "texts": texts,
+        "pending_ots": pending_ots
+    })
+
+@app.post("/admin/approve-ot-request/{ot_request_id}")
+async def approve_ot_request(
+    request: Request,
+    ot_request_id: int,
+    user: models.Employee = Depends(require_admin),
+    admin_remark: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Approve an OT request"""
+    ot_req = db.query(models.OTRequest).filter(models.OTRequest.id == ot_request_id).first()
+    if not ot_req:
+        logger.warning("ot.approval.not_found ot_request_id=%s user_id=%s request_id=%s", ot_request_id, user.id, _request_id_from_state(request))
+        return RedirectResponse(url="/admin/approve-ot", status_code=303)
+    
+    ot_req.status = "approved"
+    ot_req.admin_remark = admin_remark or ""
+    db.commit()
+    
+    # Send push notification to employee
+    emp = ot_req.employee
+    send_push_notification(
+        emp.id,
+        "✅ อนุมัติคำขอโอที",
+        f"คำขอ OT วันที่ {ot_req.request_date} อนุมัติเรียบร้อย",
+        db
+    )
+    
+    log_activity(db, user, "Approve OT Request", f"Approved OT request id={ot_request_id} for {emp.first_name} {emp.last_name}", request)
+    logger.info("ot.approval success ot_request_id=%s employee_id=%s status=approved user_id=%s request_id=%s", ot_request_id, emp.id, user.id, _request_id_from_state(request))
+    
+    return RedirectResponse(url="/admin/approve-ot", status_code=303)
+
+@app.post("/admin/reject-ot-request/{ot_request_id}")
+async def reject_ot_request(
+    request: Request,
+    ot_request_id: int,
+    user: models.Employee = Depends(require_admin),
+    admin_remark: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Reject an OT request"""
+    ot_req = db.query(models.OTRequest).filter(models.OTRequest.id == ot_request_id).first()
+    if not ot_req:
+        logger.warning("ot.rejection.not_found ot_request_id=%s user_id=%s request_id=%s", ot_request_id, user.id, _request_id_from_state(request))
+        return RedirectResponse(url="/admin/approve-ot", status_code=303)
+    
+    ot_req.status = "rejected"
+    ot_req.admin_remark = admin_remark or "No reason provided"
+    db.commit()
+    
+    # Send push notification to employee
+    emp = ot_req.employee
+    send_push_notification(
+        emp.id,
+        "❌ คำขอโอทีถูกปฏิเสธ",
+        f"คำขอ OT วันที่ {ot_req.request_date} ไม่ได้รับอนุมัติ: {admin_remark}",
+        db
+    )
+    
+    log_activity(db, user, "Reject OT Request", f"Rejected OT request id={ot_request_id} for {emp.first_name} {emp.last_name}: {admin_remark}", request)
+    logger.info("ot.rejection success ot_request_id=%s employee_id=%s status=rejected user_id=%s request_id=%s", ot_request_id, emp.id, user.id, _request_id_from_state(request))
+    
+    return RedirectResponse(url="/admin/approve-ot", status_code=303)
+
 # 🚀 1. ฟังก์ชันแสดงหน้าฟอร์มยื่นคำขอสำหรับพนักงาน
 @app.get("/manual-attendance-form")
 async def manual_attendance_form(
