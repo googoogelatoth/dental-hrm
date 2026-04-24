@@ -4323,14 +4323,23 @@ async def calculate_payroll_page(
 
     # 2. ระบบ Reset Draft
     if reset == "true":
-        drafts = db.query(models.PayrollDetail).filter(
+        # ลบ PayrollLineItem ก่อนเพื่อป้องกัน foreign key constraint
+        db.query(models.PayrollLineItem).filter(
+            models.PayrollLineItem.payroll_detail_id.in_(
+                db.query(models.PayrollDetail.id).filter(
+                    models.PayrollDetail.month == e_dt_global.month,
+                    models.PayrollDetail.year == e_dt_global.year,
+                    models.PayrollDetail.status == "Draft"
+                )
+            )
+        ).delete(synchronize_session=False)
+        
+        # แล้วลบ PayrollDetail
+        db.query(models.PayrollDetail).filter(
             models.PayrollDetail.month == e_dt_global.month,
             models.PayrollDetail.year == e_dt_global.year,
             models.PayrollDetail.status == "Draft"
-        ).all()
-        
-        for draft in drafts:
-            db.delete(draft)
+        ).delete()
         
         db.commit()
         logger.info("payroll.calculate reset_draft=true month=%s year=%s request_id=%s", e_dt_global.month, e_dt_global.year, request_id)
