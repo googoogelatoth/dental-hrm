@@ -2801,13 +2801,36 @@ async def payroll_tax_report_page(request: Request, month: int = Query(None), ye
     now = get_now_th()
     m = month or now.month
     y = year or now.year
-    payrolls = db.query(models.PayrollDetail).filter(models.PayrollDetail.month == m, models.PayrollDetail.year == y, models.PayrollDetail.status == "Finalized").all()
-    return render_template("admin_payroll_tax_report.html", {"request": request, "texts": texts, "payrolls": payrolls, "current_month": m, "current_year": y, "user": user})
+    payrolls = db.query(models.PayrollDetail).filter(
+        models.PayrollDetail.month == m, 
+        models.PayrollDetail.year == y, 
+        models.PayrollDetail.status == "Finalized"
+    ).all()
+    # แก้ชื่อไฟล์จาก admin_payroll_tax_report.html เป็น sso_tax_report.html
+    return render_template("sso_tax_report.html", {
+        "request": request, 
+        "texts": texts, 
+        "payrolls": payrolls, 
+        "current_month": m, 
+        "current_year": y, 
+        "user": user
+    })
 
 @app.get("/admin/benefit-usages", response_class=HTMLResponse)
 async def admin_benefit_usages(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    transactions = db.query(models.BenefitTransaction).options(joinedload(models.BenefitTransaction.employee), joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit)).order_by(models.BenefitTransaction.id.desc()).limit(200).all()
-    return render_template("admin_benefit_usages.html", {"request": request, "texts": texts, "transactions": transactions, "user": user})
+    # เปลี่ยนจาก .joinedload(models.BenefitTransaction.employee) 
+    # เป็นการดึงผ่าน employee_benefit -> employee แทน
+    transactions = db.query(models.BenefitTransaction).options(
+        joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.employee),
+        joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit)
+    ).order_by(models.BenefitTransaction.id.desc()).limit(200).all()
+    
+    return render_template("admin_benefit_usages.html", {
+        "request": request, 
+        "texts": texts, 
+        "transactions": transactions, 
+        "user": user
+    })
 
 @app.get("/admin/payroll-adjustments", response_class=HTMLResponse)
 async def payroll_adjustments_page(
@@ -3511,6 +3534,11 @@ async def reject_ot_request(
     
     return RedirectResponse(url="/admin/approve-ot", status_code=303)
 
+@app.get("/admin/ot-summary-report", response_class=HTMLResponse)
+async def admin_ot_summary_report(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    # ใช้ไฟล์ admin_ot_summary.html หรือ admin_ot_report.html ตามที่มีในเครื่อง
+    return render_template("admin_ot_summary.html", {"request": request, "texts": texts, "user": user})
+
 # 🚀 1. ฟังก์ชันแสดงหน้าฟอร์มยื่นคำขอสำหรับพนักงาน
 @app.get("/manual-attendance-form")
 async def manual_attendance_form(
@@ -3534,6 +3562,16 @@ async def get_manual_count(user: models.Employee = Depends(get_current_active_us
     ).count()
     return {"count": count}
 
+@app.get("/admin/payroll-settings", response_class=HTMLResponse)
+async def payroll_settings_page(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    settings = db.query(models.PayrollSetting).all()
+    return render_template("payroll_settings.html", {"request": request, "texts": texts, "settings": settings, "user": user})
+
+@app.get("/my-benefits", response_class=HTMLResponse)
+async def my_benefits_page(request: Request, user: models.Employee = Depends(get_current_active_user), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    # ดึงสวัสดิการที่พนักงานคนนี้มีสิทธิ์
+    benefits = db.query(models.EmployeeBenefit).filter(models.EmployeeBenefit.employee_id == user.id).all()
+    return render_template("my_benefits.html", {"request": request, "texts": texts, "benefits": benefits, "user": user})
 
 @app.get("/api/pending-approvals-count")
 async def get_pending_approvals_count(
