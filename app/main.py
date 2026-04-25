@@ -2714,16 +2714,15 @@ async def admin_benefits_report(
     # 1. ดึงรายการสวัสดิการทั้งหมด
     benefits = db.query(models.Benefit).all()
     
-    # 2. ดึงประวัติการทำรายการ (Transactions) เพื่อหาผลรวม (ถ้ามีตาราง BenefitTransaction)
-    # ตัวอย่าง: หาว่ามีการเบิกจ่ายไปแล้วเท่าไหร่
+    # ดึง Transaction และรวมยอด โดยเชื่อมผ่าน EmployeeBenefit
     from sqlalchemy import func
     usage_summary = db.query(
-        models.BenefitTransaction.benefit_id,
+        models.EmployeeBenefit.benefit_id,
         func.sum(models.BenefitTransaction.amount).label('total_amount'),
         func.count(models.BenefitTransaction.id).label('usage_count')
-    ).group_by(models.BenefitTransaction.benefit_id).all()
+    ).join(models.BenefitTransaction, models.EmployeeBenefit.id == models.BenefitTransaction.employee_benefit_id)\
+     .group_by(models.EmployeeBenefit.benefit_id).all()
     
-    # แปลงข้อมูลสรุปเป็น Dict เพื่อให้เรียกใช้ง่ายใน Template
     summary_dict = {s.benefit_id: {"amount": s.total_amount, "count": s.usage_count} for s in usage_summary}
 
     return render_template("admin_benefits_report.html", {
@@ -2731,7 +2730,7 @@ async def admin_benefits_report(
         "texts": texts,
         "user": user,
         "benefits": benefits,
-        "summary_dict": summary_dict, # ส่งไปเพื่อให้ใน HTML map ข้อมูลได้
+        "summary_dict": summary_dict
     })
 
 @app.post("/admin/benefits/add")
@@ -2833,7 +2832,7 @@ async def payroll_tax_report_page(request: Request, month: int = Query(None), ye
     payrolls = db.query(models.PayrollDetail).filter(models.PayrollDetail.month == m, models.PayrollDetail.year == y).all()
     
     # คำนวณยอดรวมส่งไปให้ Template
-    total_sso = sum(p.social_security or 0 for p in payrolls)
+    total_sso = sum(p.social_fund or 0 for p in payrolls)
     total_tax = sum(p.tax_withholding or 0 for p in payrolls)
     
     return render_template("sso_tax_report.html", {
