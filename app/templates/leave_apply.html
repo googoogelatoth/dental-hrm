@@ -19,6 +19,18 @@
             </div>
             {% endif %}
 
+            {% if msg == 'invalid_range' %}
+            <div class="alert alert-danger" role="alert">
+                ช่วงวันที่ลาไม่ถูกต้อง กรุณาตรวจสอบวันเริ่มต้นและวันสิ้นสุด
+            </div>
+            {% endif %}
+
+            {% if msg == 'backdate_limit' %}
+            <div class="alert alert-warning" role="alert">
+                สามารถยื่นลาย้อนหลังได้ไม่เกิน 30 วัน
+            </div>
+            {% endif %}
+
             <form action="/leave/apply" method="POST" enctype="multipart/form-data" id="leaveApplyForm">
                 <div class="row">
                     <div class="col-md-12 mb-3">
@@ -80,10 +92,10 @@
     const startDateInput = document.getElementById('start_date');
     const endDateInput = document.getElementById('end_date');
     
-    // 📅 1. คำนวณวันที่ย้อนหลังได้ 3 วัน
+    // 📅 1. คำนวณวันที่ย้อนหลังได้ 30 วัน
     const today = new Date();
     const bufferDate = new Date();
-    bufferDate.setDate(today.getDate() - 3); // ถอยหลังไป 3 วัน
+    bufferDate.setDate(today.getDate() - 30); // ถอยหลังได้ไม่เกิน 30 วัน
     
     // แปลง Format เป็น YYYY-MM-DD สำหรับ HTML Date Input
     const minDateAllowed = bufferDate.toISOString().split('T')[0];

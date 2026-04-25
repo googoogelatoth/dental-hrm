@@ -2242,6 +2242,13 @@ async def handle_leave_apply(
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
 
+    if end_date_obj < start_date_obj:
+        return RedirectResponse(url="/leave-apply?msg=invalid_range", status_code=303)
+
+    min_backdate_allowed = get_now_th().date() - timedelta(days=30)
+    if start_date_obj < min_backdate_allowed or end_date_obj < min_backdate_allowed:
+        return RedirectResponse(url="/leave-apply?msg=backdate_limit", status_code=303)
+
     if _has_pending_leave_duplicate(
         db=db,
         employee_id=user.id,
@@ -4921,8 +4928,7 @@ async def payroll_summary_page(
     m = month or now.month
     y = year or now.year
 
-    # ดึงข้อมูลเงินเดือนที่ Finalized แล้ว
-    payroll_list = db.query(models.PayrollDetail).options(
+    payroll_data = db.query(models.PayrollDetail).options(
         joinedload(models.PayrollDetail.employee)
     ).filter(
         models.PayrollDetail.month == m,
@@ -4930,10 +4936,27 @@ async def payroll_summary_page(
         models.PayrollDetail.status == "Finalized"
     ).all()
 
+    years_from_db = [
+        row[0]
+        for row in db.query(models.PayrollDetail.year)
+        .distinct()
+        .order_by(models.PayrollDetail.year)
+        .all()
+        if row[0] is not None
+    ]
+    years_range = years_from_db or [now.year]
+    if y not in years_range:
+        years_range.append(y)
+        years_range = sorted(years_range)
+    months_range = list(range(1, 13))
+
     return render_template("admin_payroll_summary.html", {
         "request": request,
         "texts": texts,
-        "payroll_list": payroll_list,
+        "payroll_data": payroll_data,
+        "payroll_list": payroll_data,
+        "months_range": months_range,
+        "years_range": years_range,
         "current_month": m,
         "current_year": y,
         "user": user
