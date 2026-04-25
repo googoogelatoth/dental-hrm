@@ -232,6 +232,30 @@ def _has_pending_manual_request_duplicate(
     ).first() is not None
 
 
+def _get_approved_leave_dates(
+    db: Session,
+    employee_id: int,
+    start_date: date,
+    end_date: date,
+) -> set[date]:
+    leave_dates: set[date] = set()
+    leaves = db.query(models.LeaveRequest).filter(
+        models.LeaveRequest.employee_id == employee_id,
+        models.LeaveRequest.status == "Approved",
+        models.LeaveRequest.start_date <= end_date,
+        models.LeaveRequest.end_date >= start_date,
+    ).all()
+
+    for leave in leaves:
+        d1 = max(start_date, leave.start_date)
+        d2 = min(end_date, leave.end_date)
+        cur = d1
+        while cur <= d2:
+            leave_dates.add(cur)
+            cur += timedelta(days=1)
+
+    return leave_dates
+
 
 def compute_logo_url(company: Optional[models.CompanySetting]) -> Optional[str]:
     """Return a URL that can be safely inserted into templates.
@@ -2104,23 +2128,43 @@ async def attendance_report(
         
         # ภายในลูป while current_day <= e_date:
         for emp in employees_to_check:
+            leave = db.query(models.LeaveRequest).filter(
+                models.LeaveRequest.employee_id == emp.id,
+                models.LeaveRequest.status == "Approved",
+                models.LeaveRequest.start_date <= current_day,
+                models.LeaveRequest.end_date >= current_day
+            ).first()
+
+            if leave:
+                report_data.append({
+                    "date": current_day,
+                    "employee": emp,
+                    "check_in": None,
+                    "check_out": None,
+                    "late_minutes": 0,
+                    "early_minutes": 0,
+                    "status": f"ลา ({leave.leave_type})",
+                    "location_in": "-"
+                })
+                continue
+
             record = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
                 func.date(models.Attendance.date) == current_day
             ).first()
-    
+
             if record:
                 # 1. ตั้งค่าพื้นฐาน
                 record.late_minutes = 0
                 record.early_minutes = 0
                 record.status = "ปกติ" # ค่าเริ่มต้น
-                
+
                 sched = emp.schedule
                 if sched:
                     # --- 🚩 กรณี: ไม่ลงเวลาเข้า ---
                     if not record.check_in and record.check_out:
                         record.status = "ไม่ลงเวลาเข้า"
-                    
+
                     # --- 🚩 กรณี: สาย (Late) ---
                     elif record.check_in and sched.work_start_time:
                         target_in = datetime.strptime(sched.work_start_time[:5], "%H:%M").time()
@@ -2153,23 +2197,14 @@ async def attendance_report(
                     record.status = "ยังไม่ลงเวลาออก"
 
                 report_data.append(record)
-        
+
             else:
-                # ❌ กรณีไม่มีบันทึก (เช็ค ลา / วันหยุด / ขาดงาน)
-                leave = db.query(models.LeaveRequest).filter(
-                    models.LeaveRequest.employee_id == emp.id,
-                    models.LeaveRequest.status == "Approved",
-                    models.LeaveRequest.start_date <= current_day,
-                    models.LeaveRequest.end_date >= current_day
-                ).first()
-                
+                # ❌ กรณีไม่มีบันทึก (เช็ควันหยุด / ขาดงาน)
                 # Note: weekly_off stores WORKING days, not holidays!
                 # So weekend/holiday = day NOT in weekly_off
                 is_weekly_off = emp.weekly_off and today_name not in emp.weekly_off
-                
-                if leave:
-                    status = f"ลา ({leave.leave_type})" 
-                elif is_holiday:
+
+                if is_holiday:
                     status = f"วันหยุด ({is_holiday.holiday_name})"
                 elif is_weekly_off:
                     status = "วันหยุดประจำสัปดาห์"
@@ -2177,7 +2212,7 @@ async def attendance_report(
                     status = "ขาดงาน"
                     # นับยอดสะสมวันขาดงานไว้ในตัวแปรเพื่อส่งไปหน้า Payroll
                     emp.total_absent_days = getattr(emp, 'total_absent_days', 0) + 1
-                
+
                 report_data.append({
                     "date": current_day,
                     "employee": emp,
@@ -3392,7 +3427,7 @@ async def perform_approval_logic(request_id: int, status: str, admin_remark: str
         attendance.check_out = datetime.combine(req.request_date, req.check_out_time)
 
     # --- 🚀 คำนวณเวลาสายและออกก่อน ตามตารางเวลาของพนักงาน ---
-    emp = db.query(models.Employee).get(req.employee_id)
+    emp = db.get(models.Employee, req.employee_id)
     attendance.late_minutes = 0
     attendance.early_minutes = 0
     attendance.status = "ปกติ"  # ค่าเริ่มต้น
@@ -3465,6 +3500,36 @@ async def approve_request(
     result = await perform_approval_logic(request_id, status, admin_remark, db)
     logger.info("attendance.request.process status=%s request_target_id=%s success=%s admin_user_id=%s request_id=%s", status, request_id, result, user.id, _request_id_from_state(request))
     return RedirectResponse(url="/admin/attendance-requests?msg=updated", status_code=303)
+
+@app.post("/admin/approve-all-requests")
+async def approve_all_requests(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    pending_requests = db.query(models.ManualAttendanceRequest).filter(
+        models.ManualAttendanceRequest.status == "Pending"
+    ).all()
+
+    success_count = 0
+    for req in pending_requests:
+        ok = await perform_approval_logic(
+            request_id=req.id,
+            status="Approved",
+            admin_remark="Approved in bulk",
+            db=db,
+        )
+        if ok:
+            success_count += 1
+
+    logger.info(
+        "attendance.request.bulk_approve success=%s total=%s admin_user_id=%s request_id=%s",
+        success_count,
+        len(pending_requests),
+        user.id,
+        _request_id_from_state(request),
+    )
+    return RedirectResponse(url="/admin/attendance-requests?msg=bulk_approved", status_code=303)
 
 @app.post("/admin/reject-request/{request_id}")
 async def reject_request(
@@ -4286,8 +4351,9 @@ def calculate_dynamic_payroll_details(
     paid_days = 0
     total_late_mins = 0
     total_early_mins = 0
+    approved_leave_dates = _get_approved_leave_dates(db, emp.id, start_date, end_date)
     curr = start_date
-    
+
     while curr <= end_date:
         day_name = curr.strftime('%a')
         is_holiday = curr in holiday_dates
@@ -4300,7 +4366,7 @@ def calculate_dynamic_payroll_details(
         # Check if current day is a holiday (use the same holiday_dates set)
         is_holiday_day = curr in holiday_dates
         # Only count as working day if it's a work day and not a holiday
-        if is_work_day and not is_holiday_day:
+        if is_work_day and not is_holiday_day and curr not in approved_leave_dates:
             paid_days += 1
             att = db.query(models.Attendance).filter(
                 models.Attendance.employee_id == emp.id,
@@ -4336,7 +4402,7 @@ def calculate_dynamic_payroll_details(
         # Check if current day is a holiday (use the same holiday_dates set)
         is_holiday_day = curr_check in holiday_dates
         # Only count as working day if it's a work day and not a holiday
-        if is_work_day and not is_holiday_day:
+        if is_work_day and not is_holiday_day and curr_check not in approved_leave_dates:
             total_working_days += 1
         curr_check += timedelta(days=1)
     
@@ -4479,7 +4545,7 @@ async def recalculate_attendance(
         
         for attendance in attendances:
             # ดึงข้อมูลพนักงานและตารางเวลา
-            emp = db.query(models.Employee).get(attendance.employee_id)
+            emp = db.get(models.Employee, attendance.employee_id)
             if not emp or not emp.schedule:
                 continue
             

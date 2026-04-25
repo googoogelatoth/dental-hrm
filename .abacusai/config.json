@@ -3,7 +3,8 @@
     "allow": [
       "Bash(powershell *)",
       "Bash(git *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(.venvScriptspython *)"
     ]
   },
   "additionalDirectories": [

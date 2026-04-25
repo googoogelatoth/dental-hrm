@@ -1,6 +1,6 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
-from app.models import ManualAttendanceRequest, PayrollDetail, PayrollSetting
+from app.models import Attendance, LeaveRequest, ManualAttendanceRequest, PayrollDetail, PayrollSetting
 from tests.security_test_utils import client, db_session, create_user, set_authenticated_cookies
 
 
@@ -290,3 +290,113 @@ def test_process_payroll_missing_action_returns_422_and_no_row(client, db_sessio
         PayrollDetail.year == 2031,
     ).all()
     assert payroll_rows == []
+
+
+def test_admin_approve_all_manual_requests_updates_pending_and_redirects(client, db_session):
+    session_id = "admin-approve-all-manual"
+    admin = create_user(db_session, "sec_admin_approve_all_001", "Admin", session_id=session_id)
+    employee = create_user(db_session, "sec_emp_approve_all_001", "Employee", session_id="emp-approve-all")
+
+    target_date = date(2031, 4, 20)
+    db_session.query(ManualAttendanceRequest).filter(
+        ManualAttendanceRequest.employee_id == employee.id,
+        ManualAttendanceRequest.request_date == target_date,
+    ).delete()
+    db_session.query(Attendance).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date == target_date,
+    ).delete()
+    db_session.add(ManualAttendanceRequest(
+        employee_id=employee.id,
+        request_date=target_date,
+        check_in_time=time(8, 45),
+        check_out_time=time(17, 30),
+        reason="bulk-approve-test",
+        status="Pending",
+    ))
+    db_session.commit()
+
+    set_authenticated_cookies(
+        client,
+        user_id=admin.id,
+        session_id=session_id,
+        role_cookie="Admin",
+    )
+    client.cookies.set("csrf_token", "valid-token")
+
+    response = client.post(
+        "/admin/approve-all-requests",
+        data={"csrf_token": "valid-token"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/admin/attendance-requests?msg=bulk_approved"
+
+    req_row = db_session.query(ManualAttendanceRequest).filter(
+        ManualAttendanceRequest.employee_id == employee.id,
+        ManualAttendanceRequest.request_date == target_date,
+    ).first()
+    attendance_row = db_session.query(Attendance).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date == target_date,
+    ).first()
+
+    assert req_row is not None
+    assert req_row.status == "Approved"
+    assert attendance_row is not None
+    assert attendance_row.check_in is not None
+    assert attendance_row.check_out is not None
+
+
+def test_attendance_report_prioritizes_approved_leave_over_attendance_record(client, db_session):
+    session_id = "admin-attendance-leave-priority"
+    admin = create_user(db_session, "sec_admin_att_leave_001", "Admin", session_id=session_id)
+    employee = create_user(db_session, "sec_emp_att_leave_001", "Employee", session_id="emp-att-leave")
+
+    target_date = date(2031, 4, 21)
+    db_session.query(Attendance).filter(
+        Attendance.employee_id == employee.id,
+        Attendance.date == target_date,
+    ).delete()
+    db_session.query(LeaveRequest).filter(
+        LeaveRequest.employee_id == employee.id,
+        LeaveRequest.start_date <= target_date,
+        LeaveRequest.end_date >= target_date,
+    ).delete()
+
+    db_session.add(Attendance(
+        employee_id=employee.id,
+        date=target_date,
+        check_in=datetime(2031, 4, 21, 7, 11),
+        check_out=datetime(2031, 4, 21, 16, 22),
+        late_minutes=99,
+        early_minutes=77,
+        status="ผิดปกติ",
+    ))
+    db_session.add(LeaveRequest(
+        employee_id=employee.id,
+        leave_type="ลาป่วย",
+        start_date=target_date,
+        end_date=target_date,
+        reason="leave-priority-test",
+        status="Approved",
+    ))
+    db_session.commit()
+
+    set_authenticated_cookies(
+        client,
+        user_id=admin.id,
+        session_id=session_id,
+        role_cookie="Admin",
+    )
+
+    response = client.get(
+        f"/attendance-report?start_date={target_date}&end_date={target_date}&search_query={employee.employee_code}",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "ลา (ลาป่วย)" in response.text
+    assert "07:11:00" not in response.text
+    assert "16:22:00" not in response.text
