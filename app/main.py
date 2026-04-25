@@ -2704,6 +2704,35 @@ async def benefits_page(
         "employee_count": employee_count,
     })
 
+@app.get("/admin/benefits-report", response_class=HTMLResponse)
+async def admin_benefits_report(
+    request: Request,
+    user: models.Employee = Depends(require_admin), # ใช้ require_admin เพื่อความกระชับ
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    # 1. ดึงรายการสวัสดิการทั้งหมด
+    benefits = db.query(models.Benefit).all()
+    
+    # 2. ดึงประวัติการทำรายการ (Transactions) เพื่อหาผลรวม (ถ้ามีตาราง BenefitTransaction)
+    # ตัวอย่าง: หาว่ามีการเบิกจ่ายไปแล้วเท่าไหร่
+    from sqlalchemy import func
+    usage_summary = db.query(
+        models.BenefitTransaction.benefit_id,
+        func.sum(models.BenefitTransaction.amount).label('total_amount'),
+        func.count(models.BenefitTransaction.id).label('usage_count')
+    ).group_by(models.BenefitTransaction.benefit_id).all()
+    
+    # แปลงข้อมูลสรุปเป็น Dict เพื่อให้เรียกใช้ง่ายใน Template
+    summary_dict = {s.benefit_id: {"amount": s.total_amount, "count": s.usage_count} for s in usage_summary}
+
+    return render_template("admin_benefits_report.html", {
+        "request": request,
+        "texts": texts,
+        "user": user,
+        "benefits": benefits,
+        "summary_dict": summary_dict, # ส่งไปเพื่อให้ใน HTML map ข้อมูลได้
+    })
 
 @app.post("/admin/benefits/add")
 async def add_benefit(
@@ -2801,19 +2830,21 @@ async def payroll_tax_report_page(request: Request, month: int = Query(None), ye
     now = get_now_th()
     m = month or now.month
     y = year or now.year
-    payrolls = db.query(models.PayrollDetail).filter(
-        models.PayrollDetail.month == m, 
-        models.PayrollDetail.year == y, 
-        models.PayrollDetail.status == "Finalized"
-    ).all()
-    # แก้ชื่อไฟล์จาก admin_payroll_tax_report.html เป็น sso_tax_report.html
+    payrolls = db.query(models.PayrollDetail).filter(models.PayrollDetail.month == m, models.PayrollDetail.year == y).all()
+    
+    # คำนวณยอดรวมส่งไปให้ Template
+    total_sso = sum(p.social_security or 0 for p in payrolls)
+    total_tax = sum(p.tax_withholding or 0 for p in payrolls)
+    
     return render_template("sso_tax_report.html", {
         "request": request, 
         "texts": texts, 
         "payrolls": payrolls, 
         "current_month": m, 
         "current_year": y, 
-        "user": user
+        "user": user,
+        "total_sso": total_sso,
+        "total_tax": total_tax
     })
 
 @app.get("/admin/benefit-usages", response_class=HTMLResponse)
@@ -3536,8 +3567,15 @@ async def reject_ot_request(
 
 @app.get("/admin/ot-summary-report", response_class=HTMLResponse)
 async def admin_ot_summary_report(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # ใช้ไฟล์ admin_ot_summary.html หรือ admin_ot_report.html ตามที่มีในเครื่อง
-    return render_template("admin_ot_summary.html", {"request": request, "texts": texts, "user": user})
+    # เพิ่ม Logic คำนวณเบื้องต้นส่งไปให้ Template ไม่พัง
+    total_minutes = 0 # หรือใส่ Logic รวม minutes จาก db 
+    return render_template("admin_ot_summary.html", {
+        "request": request, 
+        "texts": texts, 
+        "user": user,
+        "total_minutes": total_minutes,
+        "summary_data": [] # เผื่อหน้า template เรียกใช้ list ข้อมูล
+    })
 
 # 🚀 1. ฟังก์ชันแสดงหน้าฟอร์มยื่นคำขอสำหรับพนักงาน
 @app.get("/manual-attendance-form")
@@ -3562,10 +3600,9 @@ async def get_manual_count(user: models.Employee = Depends(get_current_active_us
     ).count()
     return {"count": count}
 
-@app.get("/admin/payroll-settings", response_class=HTMLResponse)
-async def payroll_settings_page(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    settings = db.query(models.PayrollSetting).all()
-    return render_template("payroll_settings.html", {"request": request, "texts": texts, "settings": settings, "user": user})
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings_page(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
+    return render_template("settings.html", {"request": request, "texts": texts, "user": user})
 
 @app.get("/my-benefits", response_class=HTMLResponse)
 async def my_benefits_page(request: Request, user: models.Employee = Depends(get_current_active_user), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
