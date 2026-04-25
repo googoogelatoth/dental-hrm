@@ -4,10 +4,12 @@
       "Bash(powershell *)",
       "Bash(git *)",
       "Bash(python *)",
-      "Bash(.venvScriptspython *)"
+      "Bash(.venvScriptspython *)",
+      "Bash(venvScriptspython *)"
     ]
   },
   "additionalDirectories": [
-    "c:\\Users\\pkitt\\.abacusai\\tmp\\codellm-paste-QRZB4f"
+    "c:\\Users\\pkitt\\.abacusai\\tmp\\codellm-paste-QRZB4f",
+    "c:\\Users\\pkitt\\.abacusai\\tmp\\codellm-paste-Aoltub"
   ]
 }

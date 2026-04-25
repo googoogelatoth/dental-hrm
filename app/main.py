@@ -241,7 +241,7 @@ def _get_approved_leave_dates(
     leave_dates: set[date] = set()
     leaves = db.query(models.LeaveRequest).filter(
         models.LeaveRequest.employee_id == employee_id,
-        models.LeaveRequest.status == "Approved",
+        func.lower(models.LeaveRequest.status) == "approved",
         models.LeaveRequest.start_date <= end_date,
         models.LeaveRequest.end_date >= start_date,
     ).all()
@@ -4437,7 +4437,7 @@ def calculate_dynamic_payroll_details(
     adjustment_deduction_total = round(sum(item["amount"] for item in adjustment_deduction_items), 2)
 
     # ========== 6. DRAFT VALUES (Manual overrides from DB) ==========
-    if draft:
+    if draft and (draft.status or "").lower() == "draft":
         draft_extra_income = draft.extra_income or 0
         draft_extra_deduction = draft.extra_deduction or 0
         draft_sso = min(base_salary * 0.05, 750)
@@ -4694,7 +4694,8 @@ async def calculate_payroll_page(
         draft = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == emp.id,
             models.PayrollDetail.month == e_dt_global.month,
-            models.PayrollDetail.year == e_dt_global.year
+            models.PayrollDetail.year == e_dt_global.year,
+            models.PayrollDetail.status == "Draft"
         ).first()
 
         ind_start_query = request.query_params.get(f'start_{emp.id}')
@@ -4853,14 +4854,20 @@ async def process_payroll(
     def persist_payroll_record(target_employee: models.Employee, dt_start: date, dt_end: date, employee_key: str):
         nonlocal processed_count
 
-        draft = db.query(models.PayrollDetail).filter(
+        existing_record = db.query(models.PayrollDetail).filter(
             models.PayrollDetail.employee_id == target_employee.id,
             models.PayrollDetail.month == dt_end_global.month,
             models.PayrollDetail.year == dt_end_global.year
         ).first()
 
+        draft_for_override = (
+            existing_record
+            if existing_record and (existing_record.status or "").lower() == "draft"
+            else None
+        )
+
         payroll_details = calculate_dynamic_payroll_details(
-            target_employee, dt_start, dt_end, db, holiday_dates, settings, draft
+            target_employee, dt_start, dt_end, db, holiday_dates, settings, draft_for_override
         )
 
         form_extra_income = parse_to_float_field(f"extra_income_{employee_key}")
@@ -4893,8 +4900,8 @@ async def process_payroll(
         )
         net_total = gross - total_deduct
 
-        if draft:
-            db.delete(draft)
+        if existing_record:
+            db.delete(existing_record)
             db.flush()
 
         new_payroll = models.PayrollDetail(
