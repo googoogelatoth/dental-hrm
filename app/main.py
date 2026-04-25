@@ -2822,7 +2822,7 @@ async def delete_benefit(
 @app.get("/my-ot-requests", response_class=HTMLResponse)
 async def my_ot_requests_page(request: Request, texts: dict = Depends(get_lang), user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
     ot_requests = db.query(models.OTRequest).filter(models.OTRequest.employee_id == user.id).order_by(models.OTRequest.request_date.desc()).all()
-    return render_template("my_ot_requests.html", {"request": request, "texts": texts, "ot_requests": ot_requests, "user": user})
+    return render_template("my_ot_requests.html", {"request": request, "texts": texts, "ots": ot_requests, "user": user})
 
 @app.get("/admin/payroll-tax-sso-report", response_class=HTMLResponse)
 async def payroll_tax_report_page(request: Request, month: int = Query(None), year: int = Query(None), user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
@@ -2830,17 +2830,16 @@ async def payroll_tax_report_page(request: Request, month: int = Query(None), ye
     m = month or now.month
     y = year or now.year
     payrolls = db.query(models.PayrollDetail).filter(models.PayrollDetail.month == m, models.PayrollDetail.year == y).all()
-    
-    # คำนวณยอดรวมส่งไปให้ Template
-    total_sso = sum(p.social_fund or 0 for p in payrolls)
-    total_tax = sum(p.tax_withholding or 0 for p in payrolls)
-    
+
+    total_sso = sum(p.sso or 0 for p in payrolls)
+    total_tax = sum(p.tax or 0 for p in payrolls)
+
     return render_template("sso_tax_report.html", {
-        "request": request, 
-        "texts": texts, 
-        "payrolls": payrolls, 
-        "current_month": m, 
-        "current_year": y, 
+        "request": request,
+        "texts": texts,
+        "data": payrolls,
+        "current_month": m,
+        "current_year": y,
         "user": user,
         "total_sso": total_sso,
         "total_tax": total_tax
@@ -3565,15 +3564,92 @@ async def reject_ot_request(
     return RedirectResponse(url="/admin/approve-ot", status_code=303)
 
 @app.get("/admin/ot-summary-report", response_class=HTMLResponse)
-async def admin_ot_summary_report(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # เพิ่ม Logic คำนวณเบื้องต้นส่งไปให้ Template ไม่พัง
-    total_minutes = 0 # หรือใส่ Logic รวม minutes จาก db 
+async def admin_ot_summary_report(
+    request: Request,
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    employee_query: str = Query(""),
+    status: str = Query("all"),
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    now = get_now_th().date()
+    default_start = now.replace(day=1)
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        except ValueError:
+            start_dt = default_start
+    else:
+        start_dt = default_start
+
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            end_dt = now
+    else:
+        end_dt = now
+
+    employee_query = (employee_query or "").strip()
+    status = (status or "all").strip().lower()
+    if status not in {"all", "pending", "approved", "rejected"}:
+        status = "all"
+
+    ot_query = db.query(models.OTRequest).options(joinedload(models.OTRequest.employee)).filter(
+        models.OTRequest.request_date >= start_dt,
+        models.OTRequest.request_date <= end_dt,
+    )
+
+    if employee_query:
+        code_query = employee_query.split(" - ")[0].strip()
+        ot_query = ot_query.join(models.Employee).filter(models.Employee.employee_code.ilike(f"%{code_query}%"))
+
+    if status != "all":
+        ot_query = ot_query.filter(models.OTRequest.status == status)
+
+    ots = ot_query.order_by(models.OTRequest.request_date.desc(), models.OTRequest.id.desc()).all()
+
+    total_minutes = sum(ot.total_minutes or 0 for ot in ots)
+    status_count = {
+        "approved": sum(1 for ot in ots if (ot.status or "").lower() == "approved"),
+        "pending": sum(1 for ot in ots if (ot.status or "").lower() == "pending"),
+        "rejected": sum(1 for ot in ots if (ot.status or "").lower() == "rejected"),
+    }
+    summary = {
+        "ot_1_0": 0,
+        "ot_1_5": 0,
+        "ot_2_0": 0,
+        "ot_3_0": 0,
+    }
+    for ot in ots:
+        key = (ot.ot_type or "").strip().lower()
+        if key in summary:
+            summary[key] += ot.total_minutes or 0
+
+    employee_options = [
+        (emp.employee_code, emp.first_name, emp.last_name)
+        for emp in db.query(models.Employee)
+        .filter(models.Employee.is_active.is_(True))
+        .order_by(models.Employee.employee_code.asc())
+        .all()
+    ]
+
     return render_template("admin_ot_summary.html", {
-        "request": request, 
-        "texts": texts, 
+        "request": request,
+        "texts": texts,
         "user": user,
+        "ots": ots,
+        "total_ots": len(ots),
         "total_minutes": total_minutes,
-        "summary_data": [] # เผื่อหน้า template เรียกใช้ list ข้อมูล
+        "status_count": status_count,
+        "summary": summary,
+        "employee_options": employee_options,
+        "current_employee_query": employee_query,
+        "current_status": status,
+        "start_date": start_dt.strftime("%Y-%m-%d"),
+        "end_date": end_dt.strftime("%Y-%m-%d"),
     })
 
 # 🚀 1. ฟังก์ชันแสดงหน้าฟอร์มยื่นคำขอสำหรับพนักงาน
@@ -4592,6 +4668,63 @@ def get_payroll_settings(db: Session):
     settings = db.query(models.PayrollSetting).all()
     return {s.type_name: s for s in settings}
 
+@app.get("/admin/payroll-settings", response_class=HTMLResponse)
+async def payroll_settings_page(
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    settings = get_payroll_settings(db)
+    return render_template("payroll_settings.html", {
+        "request": request,
+        "texts": texts,
+        "user": user,
+        "late_set": settings.get("late"),
+        "absent_set": settings.get("absent"),
+        "ot_set": settings.get("ot_1_5"),
+        "ot_1_set": settings.get("ot_1_0"),
+        "ot_2_set": settings.get("ot_2_0"),
+        "ot_3_set": settings.get("ot_3_0"),
+    })
+
+@app.post("/admin/save-payroll-settings")
+async def save_payroll_settings(
+    request: Request,
+    late_days: int = Form(30),
+    late_hours: int = Form(8),
+    absent_days: int = Form(30),
+    ot_1_5_days: int = Form(30),
+    ot_1_5_hours: int = Form(8),
+    ot_1_5_mult: float = Form(...),
+    ot_1_mult: float = Form(1.0),
+    ot_2_mult: float = Form(2.0),
+    ot_3_mult: float = Form(3.0),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    def upsert_setting(type_name: str, label: str, divider_days: int, divider_hours: int, multiplier: float):
+        item = db.query(models.PayrollSetting).filter(models.PayrollSetting.type_name == type_name).first()
+        if not item:
+            item = models.PayrollSetting(type_name=type_name)
+            db.add(item)
+        item.label = label
+        item.base_on_salary = True
+        item.divider_days = divider_days
+        item.divider_hours = divider_hours
+        item.multiplier = multiplier
+
+    upsert_setting("late", "Late deduction", late_days, late_hours, 1.0)
+    upsert_setting("absent", "Absent deduction", absent_days, 0, 1.0)
+    upsert_setting("ot_1_5", "OT 1.5x", ot_1_5_days, ot_1_5_hours, ot_1_5_mult)
+    upsert_setting("ot_1_0", "OT 1.0x", ot_1_5_days, ot_1_5_hours, ot_1_mult)
+    upsert_setting("ot_2_0", "OT 2.0x", ot_1_5_days, ot_1_5_hours, ot_2_mult)
+    upsert_setting("ot_3_0", "OT 3.0x", ot_1_5_days, ot_1_5_hours, ot_3_mult)
+
+    log_activity(db, user, "ตั้งค่าสูตรเงินเดือน", "บันทึกสูตรคำนวณเงินเดือน", request)
+    db.commit()
+    return RedirectResponse(url="/admin/payroll-settings?msg=success", status_code=303)
+
 @app.post("/admin/process-payroll")
 async def process_payroll(
     request: Request,
@@ -4816,14 +4949,26 @@ async def handle_request_ot(
     request_date: date = Form(...),
     start_time: str = Form(...),
     end_time: str = Form(...),
+    ot_type: str = Form("ot_1_5"),
     reason: str = Form(...),
     db: Session = Depends(get_db),
     user: models.Employee = Depends(get_current_active_user)
 ):
-    # คำนวณนาที (เบื้องต้น)
     t1 = datetime.strptime(start_time, "%H:%M")
     t2 = datetime.strptime(end_time, "%H:%M")
-    total_mins = (t2 - t1).seconds / 60
+    if t2 <= t1:
+        return RedirectResponse(url="/request-ot?msg=invalid_time", status_code=303)
+
+    if _has_ot_time_overlap(
+        db=db,
+        employee_id=user.id,
+        request_date=request_date,
+        start_time=t1.time(),
+        end_time=t2.time(),
+    ):
+        return RedirectResponse(url="/request-ot?msg=overlap_time", status_code=303)
+
+    total_mins = int((t2 - t1).total_seconds() // 60)
 
     new_ot = models.OTRequest(
         employee_id=user.id,
@@ -4831,12 +4976,13 @@ async def handle_request_ot(
         start_time=t1.time(),
         end_time=t2.time(),
         total_minutes=total_mins,
+        ot_type=ot_type,
         reason=reason,
         status="pending"
     )
     db.add(new_ot)
     db.commit()
-    return RedirectResponse(url="/check-in-page?msg=ot_sent", status_code=303)
+    return RedirectResponse(url="/my-ot-requests?msg=success", status_code=303)
 
 @app.get("/my-payslips", response_class=HTMLResponse)
 async def my_payslips(
