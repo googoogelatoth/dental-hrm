@@ -3812,18 +3812,18 @@ VAPID_CLAIMS = {
 # Global function for sending push notifications (accessible from all routes)
 def send_push_notification(employee_id: int, title: str, message: str, db: Session):
     """Send push notification to employee across all registered devices"""
+    stale_subscriptions = []
+    delivered_count = 0
+    failed_count = 0
     try:
         subs = db.query(models.PushSubscription).filter(
             models.PushSubscription.employee_id == employee_id
         ).all()
-        
+
         for sub in subs:
             try:
-                # ดึงเฉพาะส่วน Domain จาก endpoint (เช่น https://fcm.googleapis.com)
                 parsed_url = urlparse(sub.endpoint)
                 audience = f"{parsed_url.scheme}://{parsed_url.netloc}"
-                
-                # เพิ่ม audience เข้าไปใน VAPID Claims
                 claims = VAPID_CLAIMS.copy()
                 claims["aud"] = audience
 
@@ -3836,13 +3836,35 @@ def send_push_notification(employee_id: int, title: str, message: str, db: Sessi
                     vapid_private_key=VAPID_PRIVATE_KEY,
                     vapid_claims=claims
                 )
+                delivered_count += 1
             except WebPushException as ex:
-                logger.info(f"Push failed: {ex}")
-                if ex.response and ex.response.status_code == 410:
-                    db.delete(sub)
-                    db.commit()
+                failed_count += 1
+                status_code = getattr(getattr(ex, "response", None), "status_code", None)
+                if status_code == 410:
+                    stale_subscriptions.append(sub)
+                    continue
+                logger.warning(
+                    "push.send failed employee_id=%s subscription_id=%s status=%s error=%s",
+                    employee_id,
+                    sub.id,
+                    status_code,
+                    str(ex),
+                )
+
+        if stale_subscriptions:
+            for stale_sub in stale_subscriptions:
+                db.delete(stale_sub)
+            db.commit()
+            logger.info(
+                "push.send cleaned_stale_subscriptions employee_id=%s removed=%s delivered=%s failed=%s",
+                employee_id,
+                len(stale_subscriptions),
+                delivered_count,
+                failed_count,
+            )
     except SQLAlchemyError as ex:
-        logger.info(f"Error sending push notifications: {ex}")
+        db.rollback()
+        logger.error("push.send db_error employee_id=%s error=%s", employee_id, ex)
 
 @app.post("/api/save-subscription")
 async def save_subscription(request: Request, user: models.Employee = Depends(get_current_active_user), db: Session = Depends(get_db)):
