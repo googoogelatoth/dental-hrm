@@ -94,6 +94,14 @@
                         {% endfor %}
                     </td>
                 </tr>
+                <tr style="background: #f7f7f7; font-weight: bold;">
+                    <td style="padding: 10px; border: 1px solid #000;">{{ texts.ps_sub_total_inc if texts.ps_sub_total_inc else 'รวมรายได้' }}:</td>
+                    <td style="padding: 10px; text-align: right; border: 1px solid #000;">{{ "{:,.2f}".format(p.display_total_earnings or 0) }}</td>
+                </tr>
+                <tr style="background: #f7f7f7; font-weight: bold;">
+                    <td style="padding: 10px; border: 1px solid #000;">{{ texts.ps_total_deduct if texts.ps_total_deduct else 'รวมรายการหัก' }}:</td>
+                    <td style="padding: 10px; text-align: right; color: #c0392b; border: 1px solid #000;">{{ "{:,.2f}".format(p.display_total_deductions or 0) }}</td>
+                </tr>
                 <tr style="background: #e9ecef; font-weight: bold; font-size: 16px;">
                     <td style="padding: 12px; border: 1px solid #000;">{{ texts.psl_net_payable }}:</td>
                     <td style="padding: 12px; text-align: right; color: #0056b3; border: 1px solid #000;">{{ "{:,.2f}".format(p.display_net_total or 0) }} {{ texts.psl_baht }}</td>

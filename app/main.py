@@ -4247,10 +4247,38 @@ def _annotate_payroll_line_items(payroll: models.PayrollDetail, texts: dict) -> 
             deductions.append(display)
         else:
             earnings.append(display)
+
     payroll.earning_items = earnings
     payroll.deduction_items = deductions
+
+    base_income = (payroll.salary or 0.0) + (payroll.position_allowance or 0.0)
+    ot_income = payroll.ot_pay or 0.0
+    extra_income_display = round(sum(item["amount"] for item in earnings if item["source_type"] not in {"salary", "overtime"}), 2)
+    if not extra_income_display:
+        extra_income_display = round((payroll.other_allowances or 0.0) + (payroll.extra_income or 0.0), 2)
+
+    extra_deduction_display = round(sum(item["amount"] for item in deductions if item["source_type"] in {"manual", "adjustment"}), 2)
+    total_deduction_display = round(sum(item["amount"] for item in deductions), 2)
+    if not total_deduction_display:
+        total_deduction_display = round(
+            (payroll.late_deduction or 0.0)
+            + (payroll.early_deduction or 0.0)
+            + (payroll.absence_deduction or 0.0)
+            + (payroll.extra_deduction or 0.0)
+            + (payroll.sso or 0.0)
+            + (payroll.tax or 0.0),
+            2,
+        )
+
+    payroll.extra_income_display = extra_income_display
+    payroll.total_income_display = round(base_income + ot_income + extra_income_display, 2)
+    payroll.extra_deduction_display = extra_deduction_display
+    payroll.total_deduction_display = total_deduction_display
+    payroll.display_total_earnings = payroll.total_income_display
+    payroll.display_total_deductions = total_deduction_display
     payroll.display_net_total = payroll.net_total if payroll.net_total is not None else (payroll.net_salary or 0.0)
     return payroll
+
 
 
 def _build_payroll_line_items(
@@ -5025,12 +5053,14 @@ async def payroll_summary_page(
     y = year or now.year
 
     payroll_data = db.query(models.PayrollDetail).options(
-        joinedload(models.PayrollDetail.employee)
+        joinedload(models.PayrollDetail.employee),
+        joinedload(models.PayrollDetail.line_items),
     ).filter(
         models.PayrollDetail.month == m,
         models.PayrollDetail.year == y,
         models.PayrollDetail.status == "Finalized"
     ).all()
+    payroll_data = [_annotate_payroll_line_items(payroll, texts) for payroll in payroll_data]
 
     years_from_db = [
         row[0]
