@@ -5057,6 +5057,34 @@ async def payroll_summary_page(
         "user": user
     })
 
+@app.get("/admin/payslip/{payroll_id}", response_class=HTMLResponse)
+async def admin_payslip_detail(
+    payroll_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    texts: dict = Depends(get_lang),
+    db: Session = Depends(get_db),
+):
+    payroll = db.query(models.PayrollDetail).options(
+        joinedload(models.PayrollDetail.employee),
+        joinedload(models.PayrollDetail.line_items),
+    ).filter(models.PayrollDetail.id == payroll_id).first()
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll not found")
+
+    company = db.query(models.CompanySetting).first()
+    company_logo = compute_logo_url(company)
+    payroll = _annotate_payroll_line_items(payroll, texts)
+
+    return render_template(request, "payslip_print.html", {
+        "request": request,
+        "texts": texts,
+        "user": user,
+        "p": payroll,
+        "company": company,
+        "company_logo": company_logo,
+    })
+
 @app.get("/request-ot", response_class=HTMLResponse)
 async def request_ot_page(request: Request, texts: dict = Depends(get_lang), user: models.Employee = Depends(get_current_active_user)):
     return render_template("request_ot.html", {"request": request, "texts": texts, "user": user})
