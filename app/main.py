@@ -4249,6 +4249,7 @@ def _annotate_payroll_line_items(payroll: models.PayrollDetail, texts: dict) -> 
             earnings.append(display)
     payroll.earning_items = earnings
     payroll.deduction_items = deductions
+    payroll.display_net_total = payroll.net_total if payroll.net_total is not None else (payroll.net_salary or 0.0)
     return payroll
 
 

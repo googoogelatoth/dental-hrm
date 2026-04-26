@@ -110,7 +110,8 @@ def test_admin_can_open_payslip_from_payroll_summary(client, db_session):
             early_deduction=0,
             sso=0,
             tax=0,
-            net_total=13000,
+            net_salary=13000,
+            net_total=None,
             status="Finalized",
         )
         db_session.add(payroll)
@@ -128,3 +129,4 @@ def test_admin_can_open_payslip_from_payroll_summary(client, db_session):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+    assert "13,000.00" in response.text

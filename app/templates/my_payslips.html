@@ -96,7 +96,7 @@
                 </tr>
                 <tr style="background: #e9ecef; font-weight: bold; font-size: 16px;">
                     <td style="padding: 12px; border: 1px solid #000;">{{ texts.psl_net_payable }}:</td>
-                    <td style="padding: 12px; text-align: right; color: #0056b3; border: 1px solid #000;">{{ "{:,.2f}".format(p.net_total) }} {{ texts.psl_baht }}</td>
+                    <td style="padding: 12px; text-align: right; color: #0056b3; border: 1px solid #000;">{{ "{:,.2f}".format(p.display_net_total or 0) }} {{ texts.psl_baht }}</td>
                 </tr>
             </tbody>
         </table>
