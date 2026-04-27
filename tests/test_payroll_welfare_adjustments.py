@@ -5,7 +5,7 @@ from app import models
 from tests.security_test_utils import db_session  # noqa: F401
 
 
-def test_calculate_dynamic_payroll_details_includes_welfare_and_adjustments(db_session):
+def test_calculate_dynamic_payroll_details_excludes_welfare_and_keeps_adjustments(db_session):
     employee = models.Employee(
         employee_code="payroll_items_emp_001",
         first_name="Payroll",
@@ -89,15 +89,15 @@ def test_calculate_dynamic_payroll_details_includes_welfare_and_adjustments(db_s
         draft=None,
     )
 
-    assert payroll["welfare_total"] == 500
+    assert payroll["welfare_total"] == 0
     assert payroll["adjustment_income_total"] == 300
     assert payroll["adjustment_deduction_total"] == 200
-    assert [item["label"] for item in payroll["welfare_items"]] == ["Dental Welfare Test"]
+    assert payroll["welfare_items"] == []
     assert [item["label"] for item in payroll["adjustment_income_items"]] == ["Monthly Incentive Test"]
     assert [item["label"] for item in payroll["adjustment_deduction_items"]] == ["Uniform Deduction Test"]
-    assert payroll["gross_income"] == 31800
+    assert payroll["gross_income"] == 31300
     assert payroll["total_deductions"] == 950
-    assert payroll["net_salary"] == 30850
+    assert payroll["net_salary"] == 30350
 
 
 def test_get_approved_leave_dates_expands_every_day_in_range(db_session):

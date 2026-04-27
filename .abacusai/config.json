@@ -5,7 +5,9 @@
       "Bash(git *)",
       "Bash(python *)",
       "Bash(.venvScriptspython *)",
-      "Bash(venvScriptspython *)"
+      "Bash(venvScriptspython *)",
+      "KillShell",
+      "Bash(python -m pytest 2>&1 || true)"
     ]
   },
   "additionalDirectories": [

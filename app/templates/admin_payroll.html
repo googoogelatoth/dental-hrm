@@ -84,7 +84,7 @@
                                 <th style="min-width: 220px;">{{ texts.pay_col_name }} / {{ texts.pay_period_info }}</th>
                                 <th class="text-end">{{ texts.pay_base_salary }}</th>
                                 <th class="text-center">{{ texts.pay_stats }}</th>
-                                <th class="text-end">{{ texts.pay_ot_welfare|default('OT / Welfare') }}</th>
+                                <th class="text-end">{{ texts.psl_ot|default('OT') }}</th>
                                 <th style="min-width: 120px;">{{ texts.pay_late_early }}</th>
                                 <th style="min-width: 100px;">{{ texts.pay_absent }}</th>
                                 <th style="min-width: 180px;">{{ texts.pay_bonus }}</th>
@@ -121,15 +121,6 @@
                                 <td class="text-end text-success fw-semibold">
                                     <div class="ot-cell" data-val="{{ emp.approved_ot_pay or 0 }}">{{ texts.psl_ot }}: {{ "{:,.2f}".format(emp.approved_ot_pay or 0) }}</div>
                                     <input type="hidden" name="ot_{{ emp.id }}" value="{{ emp.approved_ot_pay or 0 }}">
-                                    <input type="hidden" class="welfare-total-input" value="{{ emp.welfare_total or 0 }}">
-                                    <div class="small text-primary mt-1">{{ texts.pay_welfare_label|default('Welfare') }}: {{ "{:,.2f}".format(emp.welfare_total or 0) }}</div>
-                                    {% if emp.welfare_items %}
-                                    <div class="small text-muted mt-1">
-                                        {% for item in emp.welfare_items %}
-                                            <div>{{ item.label }}: {{ "{:,.2f}".format(item.amount or 0) }}</div>
-                                        {% endfor %}
-                                    </div>
-                                    {% endif %}
                                 </td>
                                 
                                 <td>
@@ -254,7 +245,6 @@ function calculateRow(element) {
     
     // OT pay (from approved OT requests)
     const otPay = getVal('.ot-cell', true);
-    const welfareTotal = getVal('.welfare-total-input');
     const adjustmentIncomeTotal = getVal('.adjustment-income-total-input');
     const adjustmentDeductionTotal = getVal('.adjustment-deduction-total-input');
     
@@ -262,7 +252,7 @@ function calculateRow(element) {
     const extraIncome = getVal('.extra-income-input');
     
     // Calculate gross income
-    const grossIncome = baseIncome + otPay + welfareTotal + adjustmentIncomeTotal + extraIncome;
+    const grossIncome = baseIncome + otPay + adjustmentIncomeTotal + extraIncome;
 
     // Deductions (all sources: attendance-based + manual)
     const lateDeduction = getVal('.late-deduct');

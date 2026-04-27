@@ -2749,30 +2749,77 @@ async def benefits_page(
 @app.get("/admin/benefits-report", response_class=HTMLResponse)
 async def admin_benefits_report(
     request: Request,
-    user: models.Employee = Depends(require_admin), # ใช้ require_admin เพื่อความกระชับ
+    month: int = Query(None),
+    year: int = Query(None),
+    user: models.Employee = Depends(require_admin),
     texts: dict = Depends(get_lang),
     db: Session = Depends(get_db),
 ):
-    # 1. ดึงรายการสวัสดิการทั้งหมด
-    benefits = db.query(models.Benefit).all()
-    
-    # ดึง Transaction และรวมยอด โดยเชื่อมผ่าน EmployeeBenefit
-    from sqlalchemy import func
-    usage_summary = db.query(
-        models.EmployeeBenefit.benefit_id,
-        func.sum(models.BenefitTransaction.amount).label('total_amount'),
-        func.count(models.BenefitTransaction.id).label('usage_count')
-    ).join(models.BenefitTransaction, models.EmployeeBenefit.id == models.BenefitTransaction.employee_benefit_id)\
-     .group_by(models.EmployeeBenefit.benefit_id).all()
-    
-    summary_dict = {s.benefit_id: {"amount": s.total_amount, "count": s.usage_count} for s in usage_summary}
+    now = get_now_th().date()
+    selected_month = month or now.month
+    selected_year = year or now.year
+
+    employee_benefits = (
+        db.query(models.EmployeeBenefit)
+        .join(models.Employee)
+        .join(models.Benefit)
+        .options(
+            joinedload(models.EmployeeBenefit.employee),
+            joinedload(models.EmployeeBenefit.benefit),
+        )
+        .filter(
+            models.Employee.is_active.is_(True),
+            models.EmployeeBenefit.is_active.is_(True),
+            models.Benefit.is_active.is_(True),
+        )
+        .order_by(
+            models.Employee.first_name.asc(),
+            models.Employee.last_name.asc(),
+            models.Benefit.name.asc(),
+        )
+        .all()
+    )
+
+    transactions = (
+        db.query(models.BenefitTransaction)
+        .filter(models.BenefitTransaction.status.in_(["Approved", "Recorded"]))
+        .all()
+    )
+    usage_map: dict[int, float] = defaultdict(float)
+    for tx in transactions:
+        tx_date = _benefit_transaction_effective_date(tx)
+        if not tx_date:
+            continue
+        if tx_date.month != selected_month or tx_date.year != selected_year:
+            continue
+        usage_map[tx.employee_benefit_id] += float(tx.amount or 0.0)
+
+    report_map: dict[int, dict] = {}
+    for eb in employee_benefits:
+        if not eb.employee:
+            continue
+        used_total = round(usage_map.get(eb.id, 0.0), 2)
+        eb.used_total = used_total
+        if eb.remaining_amount is None:
+            eb.remaining_amount = round(max((eb.initial_amount or 0.0) - used_total, 0.0), 2)
+
+        row = report_map.get(eb.employee_id)
+        if not row:
+            row = {"employee": eb.employee, "benefits": []}
+            report_map[eb.employee_id] = row
+        row["benefits"].append(eb)
+
+    year_options = list(range(now.year - 5, now.year + 2))
 
     return render_template("admin_benefits_report.html", {
         "request": request,
         "texts": texts,
         "user": user,
-        "benefits": benefits,
-        "summary_dict": summary_dict
+        "today": now,
+        "report": list(report_map.values()),
+        "selected_month": selected_month,
+        "selected_year": selected_year,
+        "year_options": year_options,
     })
 
 @app.post("/admin/benefits/add")
@@ -2889,19 +2936,204 @@ async def payroll_tax_report_page(request: Request, month: int = Query(None), ye
 
 @app.get("/admin/benefit-usages", response_class=HTMLResponse)
 async def admin_benefit_usages(request: Request, user: models.Employee = Depends(require_admin), texts: dict = Depends(get_lang), db: Session = Depends(get_db)):
-    # เปลี่ยนจาก .joinedload(models.BenefitTransaction.employee) 
-    # เป็นการดึงผ่าน employee_benefit -> employee แทน
-    transactions = db.query(models.BenefitTransaction).options(
-        joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.employee),
-        joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit)
-    ).order_by(models.BenefitTransaction.id.desc()).limit(200).all()
-    
+    employee_benefits = (
+        db.query(models.EmployeeBenefit)
+        .join(models.Employee)
+        .join(models.Benefit)
+        .options(
+            joinedload(models.EmployeeBenefit.employee),
+            joinedload(models.EmployeeBenefit.benefit),
+        )
+        .filter(
+            models.Employee.is_active.is_(True),
+            models.EmployeeBenefit.is_active.is_(True),
+            models.Benefit.is_active.is_(True),
+        )
+        .order_by(
+            models.Employee.first_name.asc(),
+            models.Employee.last_name.asc(),
+            models.Benefit.name.asc(),
+        )
+        .all()
+    )
+
+    recent_transactions = (
+        db.query(models.BenefitTransaction)
+        .options(
+            joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.employee),
+            joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit),
+        )
+        .order_by(models.BenefitTransaction.id.desc())
+        .limit(200)
+        .all()
+    )
+
+    for tx in recent_transactions:
+        if tx.used_at:
+            tx.used_date_formatted = tx.used_at.date().strftime("%Y-%m-%d")
+        elif tx.trans_date:
+            tx.used_date_formatted = tx.trans_date.date().strftime("%Y-%m-%d") if isinstance(tx.trans_date, datetime) else tx.trans_date.strftime("%Y-%m-%d")
+        else:
+            tx.used_date_formatted = get_now_th().date().strftime("%Y-%m-%d")
+
     return render_template("admin_benefit_usages.html", {
-        "request": request, 
-        "texts": texts, 
-        "transactions": transactions, 
-        "user": user
+        "request": request,
+        "texts": texts,
+        "employee_benefits": employee_benefits,
+        "recent_transactions": recent_transactions,
+        "today": get_now_th().date(),
+        "user": user,
     })
+
+
+@app.post("/admin/benefit-usages")
+async def create_benefit_usage(
+    request: Request,
+    employee_benefit_id: int = Form(...),
+    amount: str = Form(...),
+    used_date: str = Form(...),
+    admin_remark: str = Form(""),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    parsed_amount = _parse_optional_float_field(amount, 0.0)
+    if parsed_amount <= 0:
+        return RedirectResponse(url="/admin/benefit-usages?error=จำนวนเงินต้องมากกว่า 0", status_code=303)
+
+    target = (
+        db.query(models.EmployeeBenefit)
+        .options(
+            joinedload(models.EmployeeBenefit.employee),
+            joinedload(models.EmployeeBenefit.benefit),
+        )
+        .filter(
+            models.EmployeeBenefit.id == employee_benefit_id,
+            models.EmployeeBenefit.is_active.is_(True),
+        )
+        .first()
+    )
+    if not target:
+        return RedirectResponse(url="/admin/benefit-usages?error=ไม่พบสิทธิ์สวัสดิการ", status_code=303)
+
+    parsed_used_date = _parse_optional_date_field(used_date)
+    if not parsed_used_date:
+        return RedirectResponse(url="/admin/benefit-usages?error=รูปแบบวันที่ไม่ถูกต้อง", status_code=303)
+
+    remaining_before = target.remaining_amount if target.remaining_amount is not None else (target.initial_amount or 0.0)
+    if parsed_amount > remaining_before:
+        return RedirectResponse(url="/admin/benefit-usages?error=ยอดใช้เกินวงเงินคงเหลือ", status_code=303)
+
+    tx = models.BenefitTransaction(
+        employee_benefit_id=target.id,
+        amount=parsed_amount,
+        trans_date=get_now_th(),
+        used_at=datetime.combine(parsed_used_date, datetime.min.time()),
+        requested_at=get_now_th(),
+        status="Recorded",
+        admin_remark=(admin_remark or "").strip() or None,
+        approved_by_id=user.id,
+        approved_at=get_now_th(),
+    )
+    target.remaining_amount = round(remaining_before - parsed_amount, 2)
+
+    db.add(tx)
+    log_activity(
+        db,
+        user,
+        "บันทึกการใช้สวัสดิการ",
+        f"{target.employee.first_name} {target.employee.last_name} - {target.benefit.name} จำนวน {parsed_amount:,.2f}",
+        request,
+    )
+    db.commit()
+    return RedirectResponse(url="/admin/benefit-usages?msg=บันทึกข้อมูลเรียบร้อย", status_code=303)
+
+@app.post("/admin/benefit-usages/update/{tx_id}")
+async def update_benefit_usage(
+    tx_id: int,
+    request: Request,
+    amount: str = Form(...),
+    used_date: str = Form(...),
+    admin_remark: str = Form(""),
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    tx = (
+        db.query(models.BenefitTransaction)
+        .options(
+            joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.employee),
+            joinedload(models.BenefitTransaction.employee_benefit).joinedload(models.EmployeeBenefit.benefit),
+        )
+        .filter(models.BenefitTransaction.id == tx_id)
+        .first()
+    )
+    if not tx or not tx.employee_benefit:
+        return RedirectResponse(url="/admin/benefit-usages?error=ไม่พบรายการที่ต้องการแก้ไข", status_code=303)
+
+    parsed_amount = _parse_optional_float_field(amount, 0.0)
+    if parsed_amount <= 0:
+        return RedirectResponse(url="/admin/benefit-usages?error=จำนวนเงินต้องมากกว่า 0", status_code=303)
+
+    parsed_used_date = _parse_optional_date_field(used_date)
+    if not parsed_used_date:
+        return RedirectResponse(url="/admin/benefit-usages?error=รูปแบบวันที่ไม่ถูกต้อง", status_code=303)
+
+    benefit_link = tx.employee_benefit
+    current_remaining = benefit_link.remaining_amount if benefit_link.remaining_amount is not None else (benefit_link.initial_amount or 0.0)
+    available_for_update = current_remaining + float(tx.amount or 0.0)
+    if parsed_amount > available_for_update:
+        return RedirectResponse(url="/admin/benefit-usages?error=ยอดใช้เกินวงเงินคงเหลือ", status_code=303)
+
+    old_amount = float(tx.amount or 0.0)
+    tx.amount = parsed_amount
+    tx.used_at = datetime.combine(parsed_used_date, datetime.min.time())
+    tx.admin_remark = (admin_remark or "").strip() or None
+    tx.approved_by_id = user.id
+    tx.approved_at = get_now_th()
+    benefit_link.remaining_amount = round(current_remaining + old_amount - parsed_amount, 2)
+
+    log_activity(
+        db,
+        user,
+        "แก้ไขการใช้สวัสดิการ",
+        f"รายการ #{tx.id} จำนวน {old_amount:,.2f} -> {parsed_amount:,.2f}",
+        request,
+    )
+    db.commit()
+    return RedirectResponse(url="/admin/benefit-usages?msg=แก้ไขข้อมูลเรียบร้อย", status_code=303)
+
+
+@app.post("/admin/benefit-usages/delete/{tx_id}")
+async def delete_benefit_usage(
+    tx_id: int,
+    request: Request,
+    user: models.Employee = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    tx = (
+        db.query(models.BenefitTransaction)
+        .options(joinedload(models.BenefitTransaction.employee_benefit))
+        .filter(models.BenefitTransaction.id == tx_id)
+        .first()
+    )
+    if not tx or not tx.employee_benefit:
+        return RedirectResponse(url="/admin/benefit-usages?error=ไม่พบรายการที่ต้องการลบ", status_code=303)
+
+    benefit_link = tx.employee_benefit
+    current_remaining = benefit_link.remaining_amount if benefit_link.remaining_amount is not None else (benefit_link.initial_amount or 0.0)
+    benefit_link.remaining_amount = round(current_remaining + float(tx.amount or 0.0), 2)
+
+    deleted_amount = float(tx.amount or 0.0)
+    db.delete(tx)
+    log_activity(
+        db,
+        user,
+        "ลบการใช้สวัสดิการ",
+        f"ลบรายการใช้สวัสดิการ #{tx_id} จำนวน {deleted_amount:,.2f}",
+        request,
+    )
+    db.commit()
+    return RedirectResponse(url="/admin/benefit-usages?msg=ลบข้อมูลเรียบร้อย", status_code=303)
+
 
 @app.get("/admin/payroll-adjustments", response_class=HTMLResponse)
 async def payroll_adjustments_page(
@@ -4455,10 +4687,10 @@ def calculate_dynamic_payroll_details(
     calculated_late_deduction = round(rate_min * total_late_mins, 2)
     calculated_early_deduction = round(rate_min * total_early_mins, 2)
 
-    # ========== 5. OT PAY, WELFARE, AND ADJUSTMENTS ==========
+    # ========== 5. OT PAY AND ADJUSTMENTS ==========
     approved_ot_pay = calculate_ot_pay(emp.id, end_date.month, end_date.year, db)
-    welfare_items = _get_welfare_payroll_items(emp.id, start_date, end_date, db)
-    welfare_total = round(sum(item["amount"] for item in welfare_items), 2)
+    welfare_items = []
+    welfare_total = 0.0
     adjustment_items = _get_adjustment_payroll_items(emp.id, start_date, end_date, db)
     adjustment_income_items = adjustment_items["income"]
     adjustment_deduction_items = adjustment_items["deduction"]

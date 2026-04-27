@@ -7,6 +7,32 @@
         <span class="badge bg-light text-dark">{{ today }}</span>
     </div>
 
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <form method="get" action="/admin/benefits-report" class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">เดือน</label>
+                    <select class="form-select" name="month">
+                        {% for m in range(1, 13) %}
+                            <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ m }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">ปี</label>
+                    <select class="form-select" name="year">
+                        {% for y in year_options %}
+                            <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">แสดงรายงาน</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card shadow-sm border-0">
         <div class="card-body">
             {% if report and report|length > 0 %}

@@ -74,6 +74,7 @@
                                 <th class="text-end">{{ texts.benefit_label_amount|default('จำนวนเงิน') }}</th>
                                 <th class="text-center">{{ texts.benefit_used_date|default('วันที่ใช้') }}</th>
                                 <th>{{ texts.remark|default('หมายเหตุ') }}</th>
+                                <th class="text-center">จัดการ</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -84,6 +85,33 @@
                                 <td class="text-end">{{ "{:,.2f}".format(tx.amount or 0) }}</td>
                                 <td class="text-center">{{ tx.used_at.date() if tx.used_at else '-' }}</td>
                                 <td class="small text-muted">{{ tx.admin_remark or '' }}</td>
+                                <td class="text-center">
+                                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#editTx{{ tx.id }}">แก้ไข</button>
+                                    <form method="post" action="/admin/benefit-usages/delete/{{ tx.id }}" class="d-inline" onsubmit="return confirm('ยืนยันการลบรายการนี้?')">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">ลบ</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            <tr class="collapse" id="editTx{{ tx.id }}">
+                                <td colspan="6" class="bg-light">
+                                    <form method="post" action="/admin/benefit-usages/update/{{ tx.id }}" class="row g-2 align-items-end">
+                                        <div class="col-md-3">
+                                            <label class="form-label">จำนวนเงิน</label>
+                                            <input type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" value="{{ tx.amount or 0 }}" required>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">วันที่ใช้</label>
+                                            <input type="date" name="used_date" class="form-control form-control-sm" value="{{ tx.used_date_formatted }}" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">หมายเหตุ</label>
+                                            <input type="text" name="admin_remark" class="form-control form-control-sm" maxlength="255" value="{{ tx.admin_remark or '' }}">
+                                        </div>
+                                        <div class="col-md-2">
+                                            <button type="submit" class="btn btn-sm btn-primary w-100">บันทึก</button>
+                                        </div>
+                                    </form>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
