@@ -31,16 +31,41 @@
     <style>
         body { font-family: 'Sarabun', sans-serif; background-color: #f8f9fa; }
         .form-container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+
+        /* Modal layering: modal must always sit above backdrop (mobile/iOS safe) */
+        .modal-backdrop { z-index: 1050 !important; }
         .modal { z-index: 1060 !important; }
-        .modal-backdrop { z-index: 1050 !important; display: none !important; }
-        .modal-backdrop.show { display: block !important; opacity: 0.5 !important; }
-        body { overflow: auto !important; padding-right: 0 !important; }
+        .modal.show {
+            display: block !important;
+            pointer-events: none;
+        }
+        .modal.show .modal-dialog {
+            pointer-events: auto;
+            transform: none !important;
+        }
+
+        body.modal-open {
+            overflow: hidden !important;
+            padding-right: 0 !important;
+        }
+        body:not(.modal-open) {
+            overflow: auto !important;
+            padding-right: 0 !important;
+        }
+
         .form-container,
         .table-responsive,
         .container {
             transform: none !important;
             perspective: none !important;
             filter: none !important;
+        }
+
+        @media (max-width: 576px) {
+            .modal-dialog {
+                margin: 0.75rem;
+                max-width: calc(100% - 1.5rem);
+            }
         }
     </style>
 </head>
@@ -60,13 +85,58 @@
 
     <script>
     (function () {
-        document.querySelectorAll('.modal').forEach(function (modalEl) {
-            modalEl.addEventListener('show.bs.modal', function () {
+        function relocateModalsToBody() {
+            document.querySelectorAll('.modal').forEach(function (modalEl) {
                 if (modalEl.parentElement !== document.body) {
                     document.body.appendChild(modalEl);
                 }
             });
+        }
+
+        function cleanupModalArtifacts() {
+            if (document.querySelector('.modal.show')) {
+                return;
+            }
+            document.querySelectorAll('.modal-backdrop').forEach(function (el) {
+                el.remove();
+            });
+            document.body.classList.remove('modal-open');
+            document.body.style.removeProperty('overflow');
+            document.body.style.removeProperty('padding-right');
+        }
+
+        function ensureModalAboveBackdrop(modalEl) {
+            var backdrops = document.querySelectorAll('.modal-backdrop');
+            if (backdrops.length > 1) {
+                backdrops.forEach(function (el, index) {
+                    if (index < backdrops.length - 1) {
+                        el.remove();
+                    }
+                });
+            }
+            document.body.appendChild(modalEl);
+        }
+
+        document.addEventListener('DOMContentLoaded', relocateModalsToBody);
+
+        document.addEventListener('show.bs.modal', function (event) {
+            var modalEl = event.target;
+            if (!(modalEl instanceof HTMLElement) || !modalEl.classList.contains('modal')) {
+                return;
+            }
+            relocateModalsToBody();
+            document.body.appendChild(modalEl);
         });
+
+        document.addEventListener('shown.bs.modal', function (event) {
+            var modalEl = event.target;
+            if (!(modalEl instanceof HTMLElement) || !modalEl.classList.contains('modal')) {
+                return;
+            }
+            ensureModalAboveBackdrop(modalEl);
+        });
+
+        document.addEventListener('hidden.bs.modal', cleanupModalArtifacts);
     })();
     </script>
 

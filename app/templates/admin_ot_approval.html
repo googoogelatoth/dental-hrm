@@ -79,8 +79,8 @@
 
 {% block modals %}
 {% for ot in pending_ots %}
-<div class="modal fade" id="approveModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+<div class="modal" id="approveModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
         <div class="modal-content">
             <form action="/admin/approve-ot-request/{{ ot.id }}" method="POST">
                 <div class="modal-header bg-success text-white">
@@ -107,8 +107,8 @@
     </div>
 </div>
 
-<div class="modal fade" id="rejectModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+<div class="modal" id="rejectModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
         <div class="modal-content">
             <form action="/admin/reject-ot-request/{{ ot.id }}" method="POST">
                 <div class="modal-header bg-danger text-white">
