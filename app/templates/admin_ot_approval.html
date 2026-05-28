@@ -55,76 +55,15 @@
                     </td>
                     <td class="text-center">
                         <div class="btn-group" role="group">
-                            <!-- Approve Modal Trigger -->
                             <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#approveModal{{ ot.id }}" title="Approve">
                                 <i class="bi bi-check-lg"></i>
                             </button>
-                            
-                            <!-- Reject Modal Trigger -->
                             <button type="button" class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#rejectModal{{ ot.id }}" title="Reject">
                                 <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
                     </td>
                 </tr>
-
-                <!-- Approve Modal -->
-                <div class="modal fade" id="approveModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <form action="/admin/approve-ot-request/{{ ot.id }}" method="POST">
-                                <div class="modal-header bg-success text-white">
-                                    <h5 class="modal-title">{{ texts.get('confirm_approve', 'Confirm Approval') }}</h5>
-                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <p>Approve OT request for <strong>{{ ot.employee.first_name }} {{ ot.employee.last_name }}</strong> on {{ ot.request_date.strftime('%d/%m/%Y') }}?</p>
-                                    <div class="alert alert-info">
-                                        <small><strong>Duration:</strong> {{ (ot.total_minutes // 60) }}h {{ (ot.total_minutes % 60) }}m</small><br>
-                                        <small><strong>Time:</strong> {{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</small>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">{{ texts.get('admin_remark', 'Admin Remark (Optional)') }}:</label>
-                                        <textarea class="form-control form-control-sm" name="admin_remark" rows="2" placeholder="Add optional remark..."></textarea>
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.get('cancel', 'Cancel') }}</button>
-                                    <button type="submit" class="btn btn-success">{{ texts.get('approve', 'Approve') }}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Reject Modal -->
-                <div class="modal fade" id="rejectModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <form action="/admin/reject-ot-request/{{ ot.id }}" method="POST">
-                                <div class="modal-header bg-danger text-white">
-                                    <h5 class="modal-title">{{ texts.get('confirm_reject', 'Confirm Rejection') }}</h5>
-                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <p>Reject OT request for <strong>{{ ot.employee.first_name }} {{ ot.employee.last_name }}</strong> on {{ ot.request_date.strftime('%d/%m/%Y') }}?</p>
-                                    <div class="alert alert-warning">
-                                        <small><strong>Duration:</strong> {{ (ot.total_minutes // 60) }}h {{ (ot.total_minutes % 60) }}m</small><br>
-                                        <small><strong>Time:</strong> {{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</small>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">{{ texts.get('reason_required', 'Reason for Rejection') }}:</label>
-                                        <textarea class="form-control form-control-sm" name="admin_remark" rows="2" placeholder="Please provide reason for rejection..." required></textarea>
-                                    </div>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.get('cancel', 'Cancel') }}</button>
-                                    <button type="submit" class="btn btn-danger">{{ texts.get('reject', 'Reject') }}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
                 {% endfor %}
             </tbody>
         </table>
@@ -136,4 +75,64 @@
         gap: 0.25rem;
     }
 </style>
+{% endblock %}
+
+{% block modals %}
+{% for ot in pending_ots %}
+<div class="modal fade" id="approveModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form action="/admin/approve-ot-request/{{ ot.id }}" method="POST">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">{{ texts.get('confirm_approve', 'Confirm Approval') }}</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Approve OT request for <strong>{{ ot.employee.first_name }} {{ ot.employee.last_name }}</strong> on {{ ot.request_date.strftime('%d/%m/%Y') }}?</p>
+                    <div class="alert alert-info">
+                        <small><strong>Duration:</strong> {{ (ot.total_minutes // 60) }}h {{ (ot.total_minutes % 60) }}m</small><br>
+                        <small><strong>Time:</strong> {{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ texts.get('admin_remark', 'Admin Remark (Optional)') }}:</label>
+                        <textarea class="form-control form-control-sm" name="admin_remark" rows="2" placeholder="Add optional remark..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.get('cancel', 'Cancel') }}</button>
+                    <button type="submit" class="btn btn-success">{{ texts.get('approve', 'Approve') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="rejectModal{{ ot.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form action="/admin/reject-ot-request/{{ ot.id }}" method="POST">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">{{ texts.get('confirm_reject', 'Confirm Rejection') }}</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Reject OT request for <strong>{{ ot.employee.first_name }} {{ ot.employee.last_name }}</strong> on {{ ot.request_date.strftime('%d/%m/%Y') }}?</p>
+                    <div class="alert alert-warning">
+                        <small><strong>Duration:</strong> {{ (ot.total_minutes // 60) }}h {{ (ot.total_minutes % 60) }}m</small><br>
+                        <small><strong>Time:</strong> {{ ot.start_time.strftime('%H:%M') }} - {{ ot.end_time.strftime('%H:%M') }}</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">{{ texts.get('reason_required', 'Reason for Rejection') }}:</label>
+                        <textarea class="form-control form-control-sm" name="admin_remark" rows="2" placeholder="Please provide reason for rejection..." required></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ texts.get('cancel', 'Cancel') }}</button>
+                    <button type="submit" class="btn btn-danger">{{ texts.get('reject', 'Reject') }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endblock %}
